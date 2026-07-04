@@ -14,7 +14,7 @@ use crate::orthogonal::{
 use crate::router::{polyline_transition_cost, AvoidRouter};
 use crate::scanline::{
     nearest_obstacle_limits, order_scan_events, ordered_axis_lines, ScanDimension, ScanEvent,
-    ScanEventType, ScanNode, ScanObstacleLimits, ScanPointLimits,
+    ScanEventType, ScanNode, ScanObstacleLimits, ScanPointLimits, ScanShiftSegment,
 };
 use crate::vertices::{
     VertId, VertInf, VertInfList, PROP_CONNECTION_PIN, PROP_CONN_CHECKPOINT, PROP_CONN_POINT,
@@ -3897,6 +3897,51 @@ fn scanline_node_find_first_point_limits_matches_upstream_overlap_rules() {
             last_below: 90.0,
         }
     );
+}
+
+#[test]
+fn scanline_node_marks_shift_segment_space_limits_like_upstream() {
+    let mut nodes = vec![
+        ScanNode::obstacle(Rect::new(50.0, 40.0, 80.0, 90.0), 50.0),
+        ScanNode::shift_segment_with_index(45.0, 0),
+        ScanNode::shift_segment_with_index(85.0, 1),
+        ScanNode::obstacle(Rect::new(20.0, 20.0, 40.0, 70.0), 20.0),
+        ScanNode::obstacle(Rect::new(90.0, 20.0, 120.0, 70.0), 90.0),
+    ];
+    nodes[0].first_above = Some(1);
+    nodes[1].first_above = Some(3);
+    nodes[0].first_below = Some(2);
+    nodes[2].first_below = Some(4);
+    let mut segments = vec![
+        ScanShiftSegment::new(-f64::MAX, f64::MAX),
+        ScanShiftSegment::new(-f64::MAX, f64::MAX),
+    ];
+
+    nodes[0].mark_shift_segments_above(&nodes, &mut segments, XDIM);
+    nodes[0].mark_shift_segments_below(&nodes, &mut segments, XDIM);
+
+    assert_eq!(segments[0].max_space_limit, 50.0);
+    assert_eq!(segments[1].min_space_limit, 80.0);
+}
+
+#[test]
+fn scanline_shift_segment_limits_use_nearest_obstacles_like_upstream() {
+    let mut nodes = vec![
+        ScanNode::shift_segment_with_index(60.0, 0),
+        ScanNode::obstacle(Rect::new(20.0, 40.0, 40.0, 80.0), 20.0),
+        ScanNode::shift_segment_with_index(45.0, 1),
+        ScanNode::obstacle(Rect::new(70.0, 40.0, 90.0, 80.0), 70.0),
+        ScanNode::shift_segment_with_index(65.0, 2),
+    ];
+    nodes[0].first_above = Some(2);
+    nodes[2].first_above = Some(1);
+    nodes[0].first_below = Some(4);
+    nodes[4].first_below = Some(3);
+    let mut segments = vec![ScanShiftSegment::new(-10.0, 100.0)];
+
+    nodes[0].apply_shift_segment_limits(&nodes, &mut segments, XDIM);
+
+    assert_eq!(segments[0], ScanShiftSegment::new(40.0, 70.0));
 }
 
 #[test]

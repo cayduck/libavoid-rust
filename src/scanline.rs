@@ -65,6 +65,7 @@ pub(crate) struct ScanNode {
     pub(crate) max: [f64; 2],
     pub(crate) first_above: Option<usize>,
     pub(crate) first_below: Option<usize>,
+    pub(crate) shift_segment: Option<usize>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -73,6 +74,22 @@ pub(crate) struct ScanPointLimits {
     pub(crate) first_below: f64,
     pub(crate) last_above: f64,
     pub(crate) last_below: f64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct ScanShiftSegment {
+    pub(crate) min_space_limit: f64,
+    pub(crate) max_space_limit: f64,
+}
+
+impl ScanShiftSegment {
+    #[allow(dead_code)]
+    pub(crate) fn new(min_space_limit: f64, max_space_limit: f64) -> ScanShiftSegment {
+        ScanShiftSegment {
+            min_space_limit,
+            max_space_limit,
+        }
+    }
 }
 
 #[allow(dead_code)]
@@ -85,6 +102,7 @@ impl ScanNode {
             max: [rect.right, rect.bottom],
             first_above: None,
             first_below: None,
+            shift_segment: None,
         }
     }
 
@@ -96,10 +114,15 @@ impl ScanNode {
             max: [point.x, point.y],
             first_above: None,
             first_below: None,
+            shift_segment: None,
         }
     }
 
     pub(crate) fn shift_segment(pos: f64) -> ScanNode {
+        ScanNode::shift_segment_with_index(pos, 0)
+    }
+
+    pub(crate) fn shift_segment_with_index(pos: f64, shift_segment: usize) -> ScanNode {
         ScanNode {
             kind: ScanNodeKind::ShiftSegment,
             pos,
@@ -107,6 +130,7 @@ impl ScanNode {
             max: [0.0, 0.0],
             first_above: None,
             first_below: None,
+            shift_segment: Some(shift_segment),
         }
     }
 
@@ -230,6 +254,70 @@ impl ScanNode {
         }
 
         limits
+    }
+
+    pub(crate) fn mark_shift_segments_above(
+        &self,
+        nodes: &[ScanNode],
+        shift_segments: &mut [ScanShiftSegment],
+        dim: usize,
+    ) {
+        let mut current = self.first_above;
+        while let Some(index) = current {
+            let node = &nodes[index];
+            if !(node.kind == ScanNodeKind::ShiftSegment || node.pos > self.min[dim]) {
+                break;
+            }
+            if node.kind == ScanNodeKind::ShiftSegment && node.pos <= self.min[dim] {
+                if let Some(segment_index) = node.shift_segment {
+                    if let Some(segment) = shift_segments.get_mut(segment_index) {
+                        segment.max_space_limit = segment.max_space_limit.min(self.min[dim]);
+                    }
+                }
+            }
+            current = node.first_above;
+        }
+    }
+
+    pub(crate) fn mark_shift_segments_below(
+        &self,
+        nodes: &[ScanNode],
+        shift_segments: &mut [ScanShiftSegment],
+        dim: usize,
+    ) {
+        let mut current = self.first_below;
+        while let Some(index) = current {
+            let node = &nodes[index];
+            if !(node.kind == ScanNodeKind::ShiftSegment || node.pos < self.max[dim]) {
+                break;
+            }
+            if node.kind == ScanNodeKind::ShiftSegment && node.pos >= self.max[dim] {
+                if let Some(segment_index) = node.shift_segment {
+                    if let Some(segment) = shift_segments.get_mut(segment_index) {
+                        segment.min_space_limit = segment.min_space_limit.max(self.max[dim]);
+                    }
+                }
+            }
+            current = node.first_below;
+        }
+    }
+
+    pub(crate) fn apply_shift_segment_limits(
+        &self,
+        nodes: &[ScanNode],
+        shift_segments: &mut [ScanShiftSegment],
+        dim: usize,
+    ) {
+        let Some(segment_index) = self.shift_segment else {
+            return;
+        };
+        let min_limit = self.first_obstacle_above(nodes, dim);
+        let max_limit = self.first_obstacle_below(nodes, dim);
+        let Some(segment) = shift_segments.get_mut(segment_index) else {
+            return;
+        };
+        segment.min_space_limit = segment.min_space_limit.max(min_limit);
+        segment.max_space_limit = segment.max_space_limit.min(max_limit);
     }
 }
 
