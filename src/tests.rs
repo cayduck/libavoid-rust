@@ -14,7 +14,7 @@ use crate::orthogonal::{
 use crate::router::{polyline_transition_cost, AvoidRouter};
 use crate::scanline::{
     nearest_obstacle_limits, order_scan_events, ordered_axis_lines, ScanDimension, ScanEvent,
-    ScanEventType, ScanObstacleLimits,
+    ScanEventType, ScanNode, ScanObstacleLimits, ScanPointLimits,
 };
 use crate::vertices::{
     VertId, VertInf, VertInfList, PROP_CONNECTION_PIN, PROP_CONN_CHECKPOINT, PROP_CONN_POINT,
@@ -3838,6 +3838,63 @@ fn scanline_obstacle_limits_ignore_inline_edges_and_find_nearest_blockers() {
         ScanObstacleLimits {
             lower: None,
             upper: Some(40.0),
+        }
+    );
+}
+
+#[test]
+fn scanline_node_point_limits_match_upstream_edge_visibility_rules() {
+    let mut nodes = vec![
+        ScanNode::point(Point { x: 60.0, y: 50.0 }, 60.0),
+        ScanNode::obstacle(Rect::new(20.0, 40.0, 40.0, 80.0), 40.0),
+        ScanNode::obstacle(Rect::new(70.0, 40.0, 90.0, 80.0), 70.0),
+        ScanNode::obstacle(Rect::new(100.0, 50.0, 120.0, 90.0), 100.0),
+        ScanNode::obstacle(Rect::new(60.0, 10.0, 80.0, 30.0), 60.0),
+    ];
+    nodes[0].first_above = Some(1);
+    nodes[1].first_above = Some(4);
+    nodes[0].first_below = Some(2);
+    nodes[2].first_below = Some(3);
+
+    assert_eq!(nodes[0].first_point_above(&nodes, XDIM), 40.0);
+    assert_eq!(nodes[0].first_point_below(&nodes, XDIM), 70.0);
+    assert_eq!(nodes[0].first_obstacle_above(&nodes, XDIM), 40.0);
+    assert_eq!(nodes[0].first_obstacle_below(&nodes, XDIM), 70.0);
+    assert!(nodes[0].is_inside_shape(&nodes, YDIM));
+    assert!(!nodes[0].is_inside_shape(&nodes, XDIM));
+}
+
+#[test]
+fn scanline_node_find_first_point_limits_matches_upstream_overlap_rules() {
+    let mut nodes = vec![
+        ScanNode::obstacle(Rect::new(50.0, 40.0, 80.0, 90.0), 50.0),
+        ScanNode::obstacle(Rect::new(10.0, 10.0, 30.0, 60.0), 10.0),
+        ScanNode::obstacle(Rect::new(100.0, 20.0, 130.0, 70.0), 100.0),
+        ScanNode::obstacle(Rect::new(60.0, 20.0, 90.0, 70.0), 60.0),
+        ScanNode::obstacle(Rect::new(55.0, 60.0, 75.0, 90.0), 55.0),
+    ];
+    nodes[0].first_above = Some(1);
+    nodes[1].first_above = Some(3);
+    nodes[0].first_below = Some(2);
+    nodes[2].first_below = Some(4);
+
+    assert_eq!(
+        nodes[0].find_first_point_above_and_below(&nodes, XDIM, 45.0),
+        ScanPointLimits {
+            first_above: 30.0,
+            first_below: 100.0,
+            last_above: 55.0,
+            last_below: 90.0,
+        }
+    );
+
+    assert_eq!(
+        nodes[0].find_first_point_above_and_below(&nodes, XDIM, 90.0),
+        ScanPointLimits {
+            first_above: 30.0,
+            first_below: 100.0,
+            last_above: 60.0,
+            last_below: 90.0,
         }
     );
 }
