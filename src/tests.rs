@@ -17,8 +17,8 @@ use crate::scanline::{
     ScanEventType, ScanObstacleLimits,
 };
 use crate::vertices::{
-    VertId, PROP_CONNECTION_PIN, PROP_CONN_CHECKPOINT, PROP_CONN_POINT, PROP_DUMMY_PIN_HELPER,
-    PROP_ORTH_SHAPE_EDGE, VERT_ID_SRC, VERT_ID_TAR,
+    VertId, VertInf, VertInfList, PROP_CONNECTION_PIN, PROP_CONN_CHECKPOINT, PROP_CONN_POINT,
+    PROP_DUMMY_PIN_HELPER, PROP_ORTH_SHAPE_EDGE, VERT_ID_SRC, VERT_ID_TAR, VERT_ID_UNASSIGNED,
 };
 use crate::visibility::{build_static_visibility_graph, same_axis, StaticVisibilityGraph};
 
@@ -3378,6 +3378,70 @@ fn vert_id_matches_upstream_identity_and_property_flag_contract() {
     assert!(checkpoint.is_conn_checkpoint());
     assert!(checkpoint.is_dummy_pin_helper());
     assert!(VertId::new(0, 0, PROP_ORTH_SHAPE_EDGE).is_orth_shape_edge());
+}
+
+#[test]
+fn vert_inf_list_matches_upstream_lookup_and_category_contract() {
+    let top_bit = 1_u32 << 31;
+    let mut vertices = VertInfList::default();
+    let shape_a = vertices.add_vertex(VertInf::new(
+        VertId::new(20, 0, PROP_ORTH_SHAPE_EDGE),
+        Point { x: 10.0, y: 20.0 },
+    ));
+    let source = vertices.add_vertex(VertInf::new(
+        VertId::new(10, VERT_ID_SRC, PROP_CONN_POINT),
+        Point { x: 0.0, y: 0.0 },
+    ));
+    let target = vertices.add_vertex(VertInf::new(
+        VertId::new(10, VERT_ID_TAR, PROP_CONN_POINT),
+        Point { x: 100.0, y: 0.0 },
+    ));
+    let shape_b = vertices.add_vertex(VertInf::new(
+        VertId::new(20, 1, PROP_ORTH_SHAPE_EDGE),
+        Point { x: 30.0, y: 40.0 },
+    ));
+
+    assert_eq!(vertices.conns_size(), 2);
+    assert_eq!(vertices.shapes_size(), 2);
+    assert_eq!(
+        vertices
+            .conns_iter()
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>(),
+        vec![source, target]
+    );
+    assert_eq!(
+        vertices
+            .shapes_iter()
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>(),
+        vec![shape_a, shape_b]
+    );
+    assert_eq!(
+        vertices
+            .get_vertex_by_id(VertId::new(
+                top_bit | 10,
+                VERT_ID_UNASSIGNED,
+                PROP_CONN_POINT
+            ))
+            .map(|(index, _)| index),
+        Some(source)
+    );
+    assert_eq!(
+        vertices
+            .get_vertex_by_id(VertId::new(10, VERT_ID_UNASSIGNED, PROP_CONN_POINT))
+            .map(|(index, _)| index),
+        Some(target)
+    );
+    assert_eq!(
+        vertices
+            .get_shape_vertex_by_pos(Point { x: 30.0, y: 40.0 })
+            .map(|(index, _)| index),
+        Some(shape_b)
+    );
+    assert!(vertices
+        .get_shape_vertex_by_pos(Point { x: 0.0, y: 0.0 })
+        .is_none());
 }
 
 #[test]

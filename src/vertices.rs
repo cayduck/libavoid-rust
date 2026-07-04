@@ -6,6 +6,8 @@ use std::hash::{Hash, Hasher};
 pub(crate) const VERT_ID_SRC: u16 = 1;
 #[allow(dead_code)]
 pub(crate) const VERT_ID_TAR: u16 = 2;
+#[allow(dead_code)]
+pub(crate) const VERT_ID_UNASSIGNED: u16 = 8;
 pub(crate) const PROP_CONN_POINT: u16 = 1;
 pub(crate) const PROP_ORTH_SHAPE_EDGE: u16 = 2;
 #[allow(dead_code)]
@@ -117,5 +119,57 @@ impl VertInfList {
 
     pub(crate) fn iter(&self) -> impl Iterator<Item = (usize, &VertInf)> {
         self.vertices.iter().enumerate()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn get_vertex_by_id(&self, id: VertId) -> Option<(usize, &VertInf)> {
+        let search_id = normalize_search_id(id);
+        self.vertices
+            .iter()
+            .enumerate()
+            .find(|(_, vertex)| vertex.id == search_id)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn get_shape_vertex_by_pos(&self, point: Point) -> Option<(usize, &VertInf)> {
+        self.shapes_iter().find(|(_, vertex)| vertex.point == point)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn conns_iter(&self) -> impl Iterator<Item = (usize, &VertInf)> {
+        self.vertices
+            .iter()
+            .enumerate()
+            .filter(|(_, vertex)| vertex.id.is_conn_point())
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn shapes_iter(&self) -> impl Iterator<Item = (usize, &VertInf)> {
+        self.vertices
+            .iter()
+            .enumerate()
+            .filter(|(_, vertex)| !vertex.id.is_conn_point())
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn conns_size(&self) -> usize {
+        self.conns_iter().count()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn shapes_size(&self) -> usize {
+        self.shapes_iter().count()
+    }
+}
+
+fn normalize_search_id(id: VertId) -> VertId {
+    if id.vn != VERT_ID_UNASSIGNED {
+        return id;
+    }
+    let top_bit = 1_u32 << 31;
+    if (id.obj_id & top_bit) != 0 {
+        VertId::new(id.obj_id & !top_bit, VERT_ID_SRC, id.props)
+    } else {
+        VertId::new(id.obj_id, VERT_ID_TAR, id.props)
     }
 }
