@@ -3334,6 +3334,10 @@ fn visibility_graph_records_orthogonal_edges_between_vertices() {
 
     let edge = graph.neighbours(source).next().unwrap().1;
     assert!(edge.orthogonal);
+    assert_eq!(edge.other_vertex(source), Some(target));
+    assert!(edge.is_between(source, target));
+    assert!(edge.is_between(target, source));
+    assert!(!edge.is_between(source, source));
     assert_eq!(
         graph.edge_points(edge.from, edge.to),
         Some((Point { x: 0.0, y: 0.0 }, Point { x: 10.0, y: 0.0 }))
@@ -3451,6 +3455,16 @@ fn visibility_graph_hides_restores_removes_and_tracks_contains_maps() {
     let target = graph.add_vertex(VertId::new(2, 0, PROP_CONN_POINT), Point { x: 3.0, y: 4.0 });
 
     graph.add_visibility_edge(source, target);
+    assert!(graph.existing_edge(source, target).is_some());
+    assert!(graph.existing_edge(target, source).is_some());
+    assert_eq!(
+        graph.edge_ids(source, target),
+        Some((
+            VertId::new(1, 0, PROP_CONN_POINT),
+            VertId::new(2, 0, PROP_CONN_POINT)
+        ))
+    );
+    assert_eq!(graph.edge_is_dummy_connection(source, target), Some(false));
     assert_eq!(graph.visible_edges().count(), 1);
     assert_eq!(graph.invisible_edges().count(), 0);
     assert_eq!(graph.neighbours(source).count(), 1);
@@ -3508,6 +3522,30 @@ fn visibility_graph_hides_restores_removes_and_tracks_contains_maps() {
     assert!(graph.remove_edge(source, target));
     assert!(graph.edge_between(source, target).is_none());
     assert_eq!(graph.visible_edges().count(), 0);
+}
+
+#[test]
+fn edge_dummy_connection_detection_matches_upstream_pin_helper_rule() {
+    let mut graph = VisibilityGraph::default();
+    let pin = graph.add_vertex(
+        VertId::new(1, 3, PROP_CONN_POINT | PROP_CONNECTION_PIN),
+        Point { x: 10.0, y: 0.0 },
+    );
+    let centre = graph.add_vertex(
+        VertId::new(1, VERT_ID_SRC, PROP_CONN_POINT),
+        Point { x: 0.0, y: 0.0 },
+    );
+    let shape = graph.add_vertex(
+        VertId::new(1, 0, PROP_ORTH_SHAPE_EDGE),
+        Point { x: 20.0, y: 0.0 },
+    );
+
+    graph.add_visibility_edge(pin, centre);
+    graph.add_visibility_edge(pin, shape);
+
+    assert_eq!(graph.edge_is_dummy_connection(pin, centre), Some(true));
+    assert_eq!(graph.edge_is_dummy_connection(centre, pin), Some(true));
+    assert_eq!(graph.edge_is_dummy_connection(pin, shape), Some(false));
 }
 
 #[test]

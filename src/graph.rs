@@ -39,6 +39,20 @@ impl EdgeInf {
     pub(crate) fn is_disabled(&self) -> bool {
         self.disabled
     }
+
+    pub(crate) fn is_between(&self, from: usize, to: usize) -> bool {
+        (self.from == from && self.to == to) || (self.from == to && self.to == from)
+    }
+
+    pub(crate) fn other_vertex(&self, vertex: usize) -> Option<usize> {
+        if self.from == vertex {
+            Some(self.to)
+        } else if self.to == vertex {
+            Some(self.from)
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -116,6 +130,31 @@ impl VisibilityGraph {
         self.find_edge_index(from, to)
             .and_then(|index| self.edges.get(index))
             .filter(|edge| edge.active)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn existing_edge(&self, from: usize, to: usize) -> Option<&EdgeInf> {
+        self.edge_between(from, to)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn edge_ids(&self, from: usize, to: usize) -> Option<(VertId, VertId)> {
+        let edge = self.edge_between(from, to)?;
+        Some((
+            self.vertices.get(edge.from)?.id,
+            self.vertices.get(edge.to)?.id,
+        ))
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn edge_is_dummy_connection(&self, from: usize, to: usize) -> Option<bool> {
+        let edge = self.edge_between(from, to)?;
+        let from_id = self.vertices.get(edge.from)?.id;
+        let to_id = self.vertices.get(edge.to)?.id;
+        Some(
+            (from_id.is_connection_pin() && to_id.is_conn_point())
+                || (to_id.is_connection_pin() && from_id.is_conn_point()),
+        )
     }
 
     #[allow(dead_code)]
@@ -307,8 +346,7 @@ impl VisibilityGraph {
             let Some(edge) = self.edges.get(*index) else {
                 return false;
             };
-            edge.active
-                && ((edge.from == from && edge.to == to) || (edge.from == to && edge.to == from))
+            edge.active && edge.is_between(from, to)
         })
     }
 }
