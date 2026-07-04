@@ -1,5 +1,8 @@
 use crate::constants::EPS;
 
+pub(crate) const XDIM: usize = 0;
+pub(crate) const YDIM: usize = 1;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Point {
     pub(crate) x: f64,
@@ -32,6 +35,42 @@ pub(crate) struct Node {
     pub(crate) y: i64,
 }
 
+pub(crate) const DONT_INTERSECT: i32 = 0;
+pub(crate) const DO_INTERSECT: i32 = 1;
+pub(crate) const PARALLEL: i32 = 3;
+
+impl Point {
+    #[allow(dead_code)]
+    pub(crate) fn equals(self, rhs: Point, epsilon: f64) -> bool {
+        (self.x - rhs.x).abs() < epsilon && (self.y - rhs.y).abs() < epsilon
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn component(self, dimension: usize) -> f64 {
+        match dimension {
+            XDIM => self.x,
+            YDIM => self.y,
+            _ => panic!("invalid point dimension"),
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn add(self, rhs: Point) -> Point {
+        Point {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn sub(self, rhs: Point) -> Point {
+        Point {
+            x: self.x - rhs.x,
+            y: self.y - rhs.y,
+        }
+    }
+}
+
 impl Rect {
     pub(crate) fn new(x1: f64, y1: f64, x2: f64, y2: f64) -> Rect {
         Rect {
@@ -40,6 +79,18 @@ impl Rect {
             right: x1.max(x2),
             bottom: y1.max(y2),
         }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn from_center(centre: Point, width: f64, height: f64) -> Rect {
+        let half_width = width / 2.0;
+        let half_height = height / 2.0;
+        Rect::new(
+            centre.x - half_width,
+            centre.y - half_height,
+            centre.x + half_width,
+            centre.y + half_height,
+        )
     }
 
     pub(crate) fn translate(self, x_diff: f64, y_diff: f64) -> Rect {
@@ -56,10 +107,6 @@ impl Rect {
             id: 0,
             points: vec![
                 Point {
-                    x: self.left,
-                    y: self.top,
-                },
-                Point {
                     x: self.right,
                     y: self.top,
                 },
@@ -70,6 +117,10 @@ impl Rect {
                 Point {
                     x: self.left,
                     y: self.bottom,
+                },
+                Point {
+                    x: self.left,
+                    y: self.top,
                 },
             ],
         }
@@ -77,6 +128,15 @@ impl Rect {
 }
 
 impl Box2D {
+    #[allow(dead_code)]
+    pub(crate) fn length(self, dimension: usize) -> f64 {
+        match dimension {
+            XDIM => self.width(),
+            YDIM => self.height(),
+            _ => panic!("invalid box dimension"),
+        }
+    }
+
     pub(crate) fn width(self) -> f64 {
         self.max.x - self.min.x
     }
@@ -193,6 +253,26 @@ impl Polygon {
         }
     }
 
+    #[allow(dead_code)]
+    pub(crate) fn simplify(&self) -> Polygon {
+        let mut simplified = self.clone();
+        let mut index = 2;
+        while index < simplified.points.len() {
+            if vec_dir(
+                simplified.points[index - 2],
+                simplified.points[index - 1],
+                simplified.points[index],
+                0.0,
+            ) == 0
+            {
+                simplified.points.remove(index - 1);
+            } else {
+                index += 1;
+            }
+        }
+        simplified
+    }
+
     pub(crate) fn contains_point(&self, point: Point, count_border: bool) -> bool {
         if self.points.len() < 3 {
             return false;
@@ -204,19 +284,7 @@ impl Polygon {
             return count_border;
         }
 
-        let mut inside = false;
-        let mut j = self.points.len() - 1;
-        for i in 0..self.points.len() {
-            let pi = self.points[i];
-            let pj = self.points[j];
-            if ((pi.y > point.y) != (pj.y > point.y))
-                && (point.x < (pj.x - pi.x) * (point.y - pi.y) / (pj.y - pi.y) + pi.x)
-            {
-                inside = !inside;
-            }
-            j = i;
-        }
-        inside
+        in_poly_gen(self, point)
     }
 
     pub(crate) fn intersects_axis_segment(&self, a: Point, b: Point) -> bool {
@@ -377,6 +445,67 @@ pub(crate) fn in_between(a: Point, b: Point, c: Point) -> bool {
 }
 
 #[allow(dead_code)]
+pub(crate) fn in_poly(poly: &Polygon, point: Point, count_border: bool) -> bool {
+    let n = poly.points.len();
+    if n < 3 {
+        return false;
+    }
+
+    let mut on_border = false;
+    for i in 0..n {
+        let previous = (i + n - 1) % n;
+        let direction = vec_dir(poly.points[previous], poly.points[i], point, 0.0);
+        if direction == -1 {
+            return false;
+        }
+        on_border |= direction == 0;
+    }
+    count_border || !on_border
+}
+
+pub(crate) fn in_poly_gen(poly: &Polygon, point: Point) -> bool {
+    if poly.points.len() < 3 {
+        return false;
+    }
+
+    let mut right_crossings = 0;
+    let mut left_crossings = 0;
+    let shifted = poly
+        .points
+        .iter()
+        .map(|poly_point| Point {
+            x: poly_point.x - point.x,
+            y: poly_point.y - point.y,
+        })
+        .collect::<Vec<_>>();
+
+    for i in 0..shifted.len() {
+        if shifted[i].x == 0.0 && shifted[i].y == 0.0 {
+            return true;
+        }
+
+        let previous = (i + shifted.len() - 1) % shifted.len();
+        if (shifted[i].y > 0.0) != (shifted[previous].y > 0.0) {
+            let x = ((shifted[i].x * shifted[previous].y) - (shifted[previous].x * shifted[i].y))
+                / (shifted[previous].y - shifted[i].y);
+            if x > 0.0 {
+                right_crossings += 1;
+            }
+        }
+
+        if (shifted[i].y < 0.0) != (shifted[previous].y < 0.0) {
+            let x = ((shifted[i].x * shifted[previous].y) - (shifted[previous].x * shifted[i].y))
+                / (shifted[previous].y - shifted[i].y);
+            if x < 0.0 {
+                left_crossings += 1;
+            }
+        }
+    }
+
+    (right_crossings % 2) != (left_crossings % 2) || (right_crossings % 2) == 1
+}
+
+#[allow(dead_code)]
 pub(crate) fn in_valid_region(
     ignore_regions: bool,
     a0: Point,
@@ -435,6 +564,101 @@ pub(crate) fn segment_intersect(a: Point, b: Point, c: Point, d: Point) -> bool 
     let cd_a = vec_dir(c, d, a, 0.0);
     let cd_b = vec_dir(c, d, b, 0.0);
     (ab_c * ab_d) < 0 && (cd_a * cd_b) < 0
+}
+
+#[allow(dead_code)]
+pub(crate) fn segment_intersect_point(
+    a1: Point,
+    a2: Point,
+    b1: Point,
+    b2: Point,
+) -> (i32, Option<Point>) {
+    let ax = a2.x - a1.x;
+    let bx = b1.x - b2.x;
+
+    let (x1lo, x1hi) = if ax < 0.0 { (a2.x, a1.x) } else { (a1.x, a2.x) };
+    if bx > 0.0 {
+        if x1hi < b2.x || b1.x < x1lo {
+            return (DONT_INTERSECT, None);
+        }
+    } else if x1hi < b1.x || b2.x < x1lo {
+        return (DONT_INTERSECT, None);
+    }
+
+    let ay = a2.y - a1.y;
+    let by = b1.y - b2.y;
+
+    let (y1lo, y1hi) = if ay < 0.0 { (a2.y, a1.y) } else { (a1.y, a2.y) };
+    if by > 0.0 {
+        if y1hi < b2.y || b1.y < y1lo {
+            return (DONT_INTERSECT, None);
+        }
+    } else if y1hi < b1.y || b2.y < y1lo {
+        return (DONT_INTERSECT, None);
+    }
+
+    let cx = a1.x - b1.x;
+    let cy = a1.y - b1.y;
+    let d = (by * cx) - (bx * cy);
+    let f = (ay * bx) - (ax * by);
+    if f > 0.0 {
+        if d < 0.0 || d > f {
+            return (DONT_INTERSECT, None);
+        }
+    } else if d > 0.0 || d < f {
+        return (DONT_INTERSECT, None);
+    }
+
+    let e = (ax * cy) - (ay * cx);
+    if f > 0.0 {
+        if e < 0.0 || e > f {
+            return (DONT_INTERSECT, None);
+        }
+    } else if e > 0.0 || e < f {
+        return (DONT_INTERSECT, None);
+    }
+
+    if f == 0.0 {
+        return (PARALLEL, None);
+    }
+
+    (
+        DO_INTERSECT,
+        Some(ray_intersection_from_parts(a1, ax, ay, d, f)),
+    )
+}
+
+#[allow(dead_code)]
+pub(crate) fn ray_intersect_point(
+    a1: Point,
+    a2: Point,
+    b1: Point,
+    b2: Point,
+) -> (i32, Option<Point>) {
+    let ay = a2.y - a1.y;
+    let by = b1.y - b2.y;
+    let ax = a2.x - a1.x;
+    let bx = b1.x - b2.x;
+    let cx = a1.x - b1.x;
+    let cy = a1.y - b1.y;
+    let d = (by * cx) - (bx * cy);
+    let f = (ay * bx) - (ax * by);
+
+    if f == 0.0 {
+        return (PARALLEL, None);
+    }
+
+    (
+        DO_INTERSECT,
+        Some(ray_intersection_from_parts(a1, ax, ay, d, f)),
+    )
+}
+
+fn ray_intersection_from_parts(a1: Point, ax: f64, ay: f64, d: f64, f: f64) -> Point {
+    Point {
+        x: a1.x + ((d * ax) / f),
+        y: a1.y + ((d * ay) / f),
+    }
 }
 
 pub(crate) fn segment_shape_intersect(

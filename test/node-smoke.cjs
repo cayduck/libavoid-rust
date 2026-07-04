@@ -60,18 +60,18 @@ if (!clusterRouter.addClusterRectangle("cluster", 70, 70, 30, 30)) {
   throw new Error("rectangular cluster was not created");
 }
 if (JSON.stringify(clusterRouter.clusterPolygon("cluster")) !== JSON.stringify([
-  { x: 30, y: 30 },
   { x: 70, y: 30 },
   { x: 70, y: 70 },
   { x: 30, y: 70 },
+  { x: 30, y: 30 },
 ])) {
   throw new Error(`unexpected rectangular cluster polygon: ${JSON.stringify(clusterRouter.clusterPolygon("cluster"))}`);
 }
 if (JSON.stringify(clusterRouter.clusterRectangularPolygon("cluster")) !== JSON.stringify([
-  { x: 30, y: 30 },
   { x: 70, y: 30 },
   { x: 70, y: 70 },
   { x: 30, y: 70 },
+  { x: 30, y: 30 },
 ])) {
   throw new Error(`unexpected rectangular cluster boundary: ${JSON.stringify(clusterRouter.clusterRectangularPolygon("cluster"))}`);
 }
@@ -138,10 +138,10 @@ concaveClusterRouter.addCluster("concave", [
   [0, 100],
 ]);
 if (JSON.stringify(concaveClusterRouter.clusterRectangularPolygon("concave")) !== JSON.stringify([
-  { x: 0, y: 0 },
   { x: 100, y: 0 },
   { x: 100, y: 100 },
   { x: 0, y: 100 },
+  { x: 0, y: 0 },
 ])) {
   throw new Error(`unexpected concave cluster rectangular boundary: ${JSON.stringify(concaveClusterRouter.clusterRectangularPolygon("concave"))}`);
 }

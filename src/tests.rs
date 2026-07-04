@@ -1,8 +1,9 @@
 use crate::constants::*;
 use crate::geometry::{
-    angle, colinear, corner_side, euclidean_distance, in_valid_region, manhattan_distance,
-    point_on_line, projection, rotational_angle, segment_intersect, total_length, Point, Polygon,
-    Rect,
+    angle, colinear, corner_side, euclidean_distance, in_poly, in_poly_gen, in_valid_region,
+    manhattan_distance, point_on_line, projection, ray_intersect_point, rotational_angle,
+    segment_intersect, segment_intersect_point, total_length, Point, Polygon, Rect, DONT_INTERSECT,
+    DO_INTERSECT, PARALLEL, XDIM, YDIM,
 };
 use crate::graph::VisibilityGraph;
 use crate::model::Endpoint;
@@ -438,11 +439,11 @@ fn clusters_are_scene_objects_and_constrain_outside_routes() {
     );
     assert_eq!(
         router.cluster_polygon("cluster".to_string()),
-        "[{\"x\":30,\"y\":30},{\"x\":70,\"y\":30},{\"x\":70,\"y\":70},{\"x\":30,\"y\":70}]"
+        "[{\"x\":70,\"y\":30},{\"x\":70,\"y\":70},{\"x\":30,\"y\":70},{\"x\":30,\"y\":30}]"
     );
     assert_eq!(
         router.cluster_rectangular_polygon("cluster".to_string()),
-        "[{\"x\":30,\"y\":30},{\"x\":70,\"y\":30},{\"x\":70,\"y\":70},{\"x\":30,\"y\":70}]"
+        "[{\"x\":70,\"y\":30},{\"x\":70,\"y\":70},{\"x\":30,\"y\":70},{\"x\":30,\"y\":30}]"
     );
     assert_eq!(
         router.cluster_rectangular_polygon("missing".to_string()),
@@ -494,7 +495,7 @@ fn clusters_are_scene_objects_and_constrain_outside_routes() {
     ));
     assert_eq!(
         contained.cluster_rectangular_polygon("concave".to_string()),
-        "[{\"x\":0,\"y\":0},{\"x\":100,\"y\":0},{\"x\":100,\"y\":100},{\"x\":0,\"y\":100}]"
+        "[{\"x\":100,\"y\":0},{\"x\":100,\"y\":100},{\"x\":0,\"y\":100},{\"x\":0,\"y\":0}]"
     );
     contained.add_connector("inside".to_string(), 80.0, 20.0, 80.0, 80.0);
     let inside_route = contained.route(&contained.connectors[0]);
@@ -3085,6 +3086,8 @@ fn polygon_offset_bounding_box_matches_upstream_contract() {
 
     assert_eq!(bbox.min, Point { x: 7.0, y: 17.0 });
     assert_eq!(bbox.max, Point { x: 33.0, y: 53.0 });
+    assert_eq!(bbox.length(XDIM), 26.0);
+    assert_eq!(bbox.length(YDIM), 36.0);
     assert_eq!(bbox.width(), 26.0);
     assert_eq!(bbox.height(), 36.0);
 }
@@ -3093,15 +3096,107 @@ fn polygon_offset_bounding_box_matches_upstream_contract() {
 fn polygon_offset_polygon_expands_edges_like_upstream_contract() {
     let polygon = Polygon::rectangle(10.0, 20.0, 30.0, 50.0);
     assert_eq!(
+        polygon.points,
+        vec![
+            Point { x: 30.0, y: 20.0 },
+            Point { x: 30.0, y: 50.0 },
+            Point { x: 10.0, y: 50.0 },
+            Point { x: 10.0, y: 20.0 },
+        ]
+    );
+    assert_eq!(
         polygon.offset_polygon(3.0).unwrap().points,
         vec![
-            Point { x: 7.0, y: 17.0 },
             Point { x: 33.0, y: 17.0 },
             Point { x: 33.0, y: 53.0 },
             Point { x: 7.0, y: 53.0 },
+            Point { x: 7.0, y: 17.0 },
         ]
     );
     assert_eq!(polygon.offset_polygon(0.0).unwrap(), polygon);
+}
+
+#[test]
+fn upstream_point_and_rectangle_helpers_match_geomtypes_contract() {
+    let point = Point { x: 1.0, y: 2.0 };
+    assert!(point.equals(
+        Point {
+            x: 1.00001,
+            y: 2.00001
+        },
+        0.0001
+    ));
+    assert!(!point.equals(Point { x: 1.001, y: 2.0 }, 0.0001));
+    assert_eq!(point.component(XDIM), 1.0);
+    assert_eq!(point.component(YDIM), 2.0);
+    assert_eq!(
+        point.add(Point { x: 3.0, y: 4.0 }),
+        Point { x: 4.0, y: 6.0 }
+    );
+    assert_eq!(
+        point.sub(Point { x: 3.0, y: 4.0 }),
+        Point { x: -2.0, y: -2.0 }
+    );
+
+    assert_eq!(
+        Rect::from_center(Point { x: 20.0, y: 30.0 }, 10.0, 20.0)
+            .to_polygon()
+            .points,
+        vec![
+            Point { x: 25.0, y: 20.0 },
+            Point { x: 25.0, y: 40.0 },
+            Point { x: 15.0, y: 40.0 },
+            Point { x: 15.0, y: 20.0 },
+        ]
+    );
+}
+
+#[test]
+fn upstream_polygon_simplify_collapses_collinear_segments() {
+    let polyline = Polygon::new(vec![
+        Point { x: 0.0, y: 0.0 },
+        Point { x: 4.0, y: 0.0 },
+        Point { x: 8.0, y: 0.0 },
+        Point { x: 8.0, y: 3.0 },
+        Point { x: 8.0, y: 6.0 },
+        Point { x: 10.0, y: 6.0 },
+    ])
+    .unwrap();
+
+    assert_eq!(
+        polyline.simplify().points,
+        vec![
+            Point { x: 0.0, y: 0.0 },
+            Point { x: 8.0, y: 0.0 },
+            Point { x: 8.0, y: 6.0 },
+            Point { x: 10.0, y: 6.0 },
+        ]
+    );
+}
+
+#[test]
+fn upstream_geometry_polygon_containment_matches_in_poly_contracts() {
+    let convex = Polygon::rectangle(10.0, 20.0, 30.0, 50.0);
+    assert!(in_poly(&convex, Point { x: 20.0, y: 30.0 }, true));
+    assert!(in_poly(&convex, Point { x: 10.0, y: 30.0 }, true));
+    assert!(!in_poly(&convex, Point { x: 10.0, y: 30.0 }, false));
+    assert!(!in_poly(&convex, Point { x: 35.0, y: 30.0 }, true));
+
+    // Upstream geometry.cpp exposes inPolyGen for non-convex polygons and
+    // treats boundary points as inside.
+    let concave = Polygon::new(vec![
+        Point { x: 0.0, y: 0.0 },
+        Point { x: 6.0, y: 0.0 },
+        Point { x: 6.0, y: 6.0 },
+        Point { x: 3.0, y: 3.0 },
+        Point { x: 0.0, y: 6.0 },
+    ])
+    .unwrap();
+    assert!(in_poly_gen(&concave, Point { x: 1.0, y: 1.0 }));
+    assert!(in_poly_gen(&concave, Point { x: 3.0, y: 3.0 }));
+    assert!(!in_poly_gen(&concave, Point { x: 3.0, y: 5.0 }));
+    assert!(concave.contains_point(Point { x: 3.0, y: 3.0 }, true));
+    assert!(!concave.contains_point(Point { x: 3.0, y: 3.0 }, false));
 }
 
 #[test]
@@ -3130,6 +3225,45 @@ fn upstream_geometry_segment_predicates_match_documented_cases() {
         Point { x: 10.0, y: 0.0 },
         Point { x: 20.0, y: 0.0 },
     ));
+}
+
+#[test]
+fn upstream_geometry_segment_and_ray_intersection_points_match_source_contract() {
+    let (result, point) = segment_intersect_point(
+        Point { x: 0.0, y: 0.0 },
+        Point { x: 10.0, y: 10.0 },
+        Point { x: 0.0, y: 10.0 },
+        Point { x: 10.0, y: 0.0 },
+    );
+    assert_eq!(result, DO_INTERSECT);
+    assert_eq!(point.unwrap(), Point { x: 5.0, y: 5.0 });
+
+    let (result, point) = segment_intersect_point(
+        Point { x: 0.0, y: 0.0 },
+        Point { x: 1.0, y: 0.0 },
+        Point { x: 2.0, y: 0.0 },
+        Point { x: 3.0, y: 0.0 },
+    );
+    assert_eq!(result, DONT_INTERSECT);
+    assert_eq!(point, None);
+
+    let (result, point) = segment_intersect_point(
+        Point { x: 0.0, y: 0.0 },
+        Point { x: 10.0, y: 0.0 },
+        Point { x: 5.0, y: 0.0 },
+        Point { x: 15.0, y: 0.0 },
+    );
+    assert_eq!(result, PARALLEL);
+    assert_eq!(point, None);
+
+    let (result, point) = ray_intersect_point(
+        Point { x: 0.0, y: 0.0 },
+        Point { x: 1.0, y: 0.0 },
+        Point { x: 2.0, y: -1.0 },
+        Point { x: 2.0, y: 1.0 },
+    );
+    assert_eq!(result, DO_INTERSECT);
+    assert_eq!(point.unwrap(), Point { x: 2.0, y: 0.0 });
 }
 
 #[test]
