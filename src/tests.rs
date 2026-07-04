@@ -3454,28 +3454,48 @@ fn visibility_graph_hides_restores_removes_and_tracks_contains_maps() {
     assert_eq!(graph.visible_edges().count(), 1);
     assert_eq!(graph.invisible_edges().count(), 0);
     assert_eq!(graph.neighbours(source).count(), 1);
-    assert_eq!(graph.edge_between(source, target).unwrap().dist, 5.0);
+    let edge = graph.edge_between(source, target).unwrap();
+    assert!(edge.added());
+    assert!(!edge.is_orthogonal());
+    assert!(!edge.is_disabled());
+    assert_eq!(edge.blocker(), 0);
+    assert_eq!(edge.get_dist(), 5.0);
 
     assert!(graph.hide_edge(source, target, 42));
     let hidden = graph.edge_between(source, target).unwrap();
     assert!(!hidden.visible);
     assert_eq!(hidden.blocker, Some(42));
+    assert_eq!(hidden.blocker(), 42);
     assert_eq!(hidden.dist, 0.0);
     assert_eq!(graph.visible_edges().count(), 0);
     assert_eq!(graph.invisible_edges().count(), 1);
     assert_eq!(graph.neighbours(source).count(), 0);
 
+    assert!(graph.set_edge_dist(source, target, 12.0));
+    let distance_set = graph.edge_between(source, target).unwrap();
+    assert!(distance_set.visible);
+    assert_eq!(distance_set.blocker(), 0);
+    assert_eq!(distance_set.get_dist(), 12.0);
+
+    assert!(graph.add_cycle_blocker(source, target));
+    let cycle_blocked = graph.edge_between(source, target).unwrap();
+    assert!(!cycle_blocked.visible);
+    assert_eq!(cycle_blocked.blocker(), -1);
+
     assert!(graph.restore_edge(source, target));
     let restored = graph.edge_between(source, target).unwrap();
     assert!(restored.visible);
     assert_eq!(restored.blocker, None);
+    assert_eq!(restored.blocker(), 0);
     assert_eq!(restored.dist, 5.0);
     assert_eq!(graph.neighbours(source).count(), 1);
 
     assert!(graph.set_edge_disabled(source, target, true));
+    assert!(graph.edge_between(source, target).unwrap().is_disabled());
     assert_eq!(graph.visible_edges().count(), 0);
     assert_eq!(graph.neighbours(source).count(), 0);
     assert!(graph.set_edge_disabled(source, target, false));
+    assert!(!graph.edge_between(source, target).unwrap().is_disabled());
     assert_eq!(graph.visible_edges().count(), 1);
 
     assert!(graph.set_contains(source, 99, true));

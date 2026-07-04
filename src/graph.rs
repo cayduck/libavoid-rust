@@ -17,6 +17,29 @@ pub(crate) struct EdgeInf {
     active: bool,
 }
 
+#[allow(dead_code)]
+impl EdgeInf {
+    pub(crate) fn get_dist(&self) -> f64 {
+        self.dist
+    }
+
+    pub(crate) fn added(&self) -> bool {
+        self.active
+    }
+
+    pub(crate) fn blocker(&self) -> i32 {
+        self.blocker.unwrap_or(0)
+    }
+
+    pub(crate) fn is_orthogonal(&self) -> bool {
+        self.orthogonal
+    }
+
+    pub(crate) fn is_disabled(&self) -> bool {
+        self.disabled
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub(crate) struct VisibilityGraph {
     pub(crate) vertices: VertInfList,
@@ -96,6 +119,16 @@ impl VisibilityGraph {
 
     #[allow(dead_code)]
     pub(crate) fn hide_edge(&mut self, from: usize, to: usize, blocker: i32) -> bool {
+        self.add_edge_blocker(from, to, blocker)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn add_cycle_blocker(&mut self, from: usize, to: usize) -> bool {
+        self.add_edge_blocker(from, to, -1)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn add_edge_blocker(&mut self, from: usize, to: usize, blocker: i32) -> bool {
         let Some(index) = self.find_edge_index(from, to) else {
             return false;
         };
@@ -108,20 +141,32 @@ impl VisibilityGraph {
 
     #[allow(dead_code)]
     pub(crate) fn restore_edge(&mut self, from: usize, to: usize) -> bool {
-        let Some(index) = self.find_edge_index(from, to) else {
+        let Some((a, b)) = self.edge_points(from, to) else {
             return false;
         };
-        let Some((a, b)) = self.edge_points(from, to) else {
+        let dist = self
+            .edge_between(from, to)
+            .map(|edge| {
+                if edge.orthogonal {
+                    manhattan(a, b)
+                } else {
+                    euclidean(a, b)
+                }
+            })
+            .unwrap_or(0.0);
+        self.set_edge_dist(from, to, dist)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn set_edge_dist(&mut self, from: usize, to: usize, dist: f64) -> bool {
+        let Some(index) = self.find_edge_index(from, to) else {
             return false;
         };
         let edge = &mut self.edges[index];
         edge.visible = true;
         edge.blocker = None;
-        edge.dist = if edge.orthogonal {
-            manhattan(a, b)
-        } else {
-            euclidean(a, b)
-        };
+        edge.dist = dist;
+        edge.active = true;
         true
     }
 
