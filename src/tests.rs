@@ -16,7 +16,10 @@ use crate::scanline::{
     nearest_obstacle_limits, order_scan_events, ordered_axis_lines, ScanDimension, ScanEvent,
     ScanEventType, ScanObstacleLimits,
 };
-use crate::vertices::{VertId, PROP_CONN_POINT, PROP_ORTH_SHAPE_EDGE};
+use crate::vertices::{
+    VertId, PROP_CONNECTION_PIN, PROP_CONN_CHECKPOINT, PROP_CONN_POINT, PROP_DUMMY_PIN_HELPER,
+    PROP_ORTH_SHAPE_EDGE, VERT_ID_SRC, VERT_ID_TAR,
+};
 use crate::visibility::{build_static_visibility_graph, same_axis, StaticVisibilityGraph};
 
 fn buffered_rect_obstacle(
@@ -3351,6 +3354,30 @@ fn visibility_graph_records_orthogonal_edges_between_vertices() {
         VertId::new(3, 0, PROP_ORTH_SHAPE_EDGE).props,
         PROP_ORTH_SHAPE_EDGE
     );
+}
+
+#[test]
+fn vert_id_matches_upstream_identity_and_property_flag_contract() {
+    let endpoint = VertId::new(12, VERT_ID_SRC, PROP_CONN_POINT);
+    let same_identity_with_more_props =
+        VertId::new(12, VERT_ID_SRC, PROP_CONN_POINT | PROP_CONNECTION_PIN);
+    let target = VertId::new(12, VERT_ID_TAR, PROP_CONN_POINT);
+    let checkpoint = VertId::new(
+        12,
+        VERT_ID_SRC,
+        PROP_CONN_POINT | PROP_CONN_CHECKPOINT | PROP_DUMMY_PIN_HELPER,
+    );
+
+    assert_eq!(endpoint, same_identity_with_more_props);
+    assert_ne!(endpoint, target);
+    assert!(endpoint < target);
+    assert_eq!(endpoint.offset(1), target);
+    assert!(endpoint.is_conn_point());
+    assert!(!endpoint.is_orth_shape_edge());
+    assert!(same_identity_with_more_props.is_connection_pin());
+    assert!(checkpoint.is_conn_checkpoint());
+    assert!(checkpoint.is_dummy_pin_helper());
+    assert!(VertId::new(0, 0, PROP_ORTH_SHAPE_EDGE).is_orth_shape_edge());
 }
 
 #[test]
