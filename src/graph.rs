@@ -1,8 +1,9 @@
 use std::collections::{BTreeSet, HashMap};
 
+use crate::constants::CONN_DIR_ALL;
 use crate::geometry::Point;
 use crate::orthogonal::Direction;
-use crate::vertices::{VertId, VertInf, VertInfList};
+use crate::vertices::{direction_between, VertId, VertInf, VertInfList};
 
 #[derive(Clone, Debug)]
 pub(crate) struct EdgeInf {
@@ -188,6 +189,40 @@ impl VisibilityGraph {
             return false;
         };
         self.edges[index].disabled = disabled;
+        true
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn set_vertex_visible_directions(&mut self, vertex: usize, directions: u32) -> bool {
+        let Some(point) = self.vertices.get(vertex).map(|vertex| vertex.point) else {
+            return false;
+        };
+        if let Some(vertex) = self.vertices.get_mut(vertex) {
+            vertex.vis_directions = directions;
+        }
+        let edge_indices = self.adjacency.get(&vertex).cloned().unwrap_or_default();
+        for edge_index in edge_indices {
+            let Some(edge) = self.edges.get_mut(edge_index) else {
+                continue;
+            };
+            if !edge.active {
+                continue;
+            }
+            if directions == CONN_DIR_ALL {
+                edge.disabled = false;
+                continue;
+            }
+            let other = if edge.from == vertex {
+                edge.to
+            } else {
+                edge.from
+            };
+            let Some(other_point) = self.vertices.get(other).map(|vertex| vertex.point) else {
+                continue;
+            };
+            let direction = direction_between(point, other_point);
+            edge.disabled = (direction & directions) == 0;
+        }
         true
     }
 

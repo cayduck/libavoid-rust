@@ -1,3 +1,4 @@
+use crate::constants::{CONN_DIR_DOWN, CONN_DIR_LEFT, CONN_DIR_NONE, CONN_DIR_RIGHT, CONN_DIR_UP};
 use crate::geometry::Point;
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
@@ -94,11 +95,33 @@ pub(crate) struct VertInf {
     #[allow(dead_code)]
     pub(crate) id: VertId,
     pub(crate) point: Point,
+    #[allow(dead_code)]
+    pub(crate) vis_directions: u32,
 }
 
 impl VertInf {
     pub(crate) fn new(id: VertId, point: Point) -> VertInf {
-        VertInf { id, point }
+        VertInf {
+            id,
+            point,
+            vis_directions: CONN_DIR_NONE,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn reset(&mut self, id: VertId, point: Point) {
+        self.id = id;
+        self.point = point;
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn reset_point(&mut self, point: Point) {
+        self.point = point;
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn direction_from(&self, other: &VertInf) -> u32 {
+        direction_between(other.point, self.point)
     }
 }
 
@@ -115,6 +138,10 @@ impl VertInfList {
 
     pub(crate) fn get(&self, index: usize) -> Option<&VertInf> {
         self.vertices.get(index)
+    }
+
+    pub(crate) fn get_mut(&mut self, index: usize) -> Option<&mut VertInf> {
+        self.vertices.get_mut(index)
     }
 
     pub(crate) fn iter(&self) -> impl Iterator<Item = (usize, &VertInf)> {
@@ -172,4 +199,26 @@ fn normalize_search_id(id: VertId) -> VertId {
     } else {
         VertId::new(id.obj_id, VERT_ID_TAR, id.props)
     }
+}
+
+#[allow(dead_code)]
+pub(crate) fn direction_between(from: Point, to: Point) -> u32 {
+    let epsilon = 0.000001;
+    let mut directions = CONN_DIR_NONE;
+    let dx = to.x - from.x;
+    let dy = to.y - from.y;
+
+    if dy > epsilon {
+        directions |= CONN_DIR_UP;
+    }
+    if dy < -epsilon {
+        directions |= CONN_DIR_DOWN;
+    }
+    if dx > epsilon {
+        directions |= CONN_DIR_RIGHT;
+    }
+    if dx < -epsilon {
+        directions |= CONN_DIR_LEFT;
+    }
+    directions
 }

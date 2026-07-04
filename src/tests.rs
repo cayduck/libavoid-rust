@@ -3511,6 +3511,67 @@ fn visibility_graph_hides_restores_removes_and_tracks_contains_maps() {
 }
 
 #[test]
+fn vertinf_visible_directions_disable_incident_edges_like_upstream() {
+    let mut graph = VisibilityGraph::default();
+    let center = graph.add_vertex(
+        VertId::new(1, VERT_ID_SRC, PROP_CONN_POINT),
+        Point { x: 0.0, y: 0.0 },
+    );
+    let right = graph.add_vertex(
+        VertId::new(2, 0, PROP_ORTH_SHAPE_EDGE),
+        Point { x: 10.0, y: 0.0 },
+    );
+    let left = graph.add_vertex(
+        VertId::new(3, 0, PROP_ORTH_SHAPE_EDGE),
+        Point { x: -10.0, y: 0.0 },
+    );
+    let up = graph.add_vertex(
+        VertId::new(4, 0, PROP_ORTH_SHAPE_EDGE),
+        Point { x: 0.0, y: 10.0 },
+    );
+    let diagonal = graph.add_vertex(
+        VertId::new(5, 0, PROP_ORTH_SHAPE_EDGE),
+        Point { x: 10.0, y: 10.0 },
+    );
+
+    for other in [right, left, up, diagonal] {
+        graph.add_visibility_edge(center, other);
+    }
+
+    assert_eq!(
+        graph
+            .vertices
+            .get(right)
+            .unwrap()
+            .direction_from(graph.vertices.get(center).unwrap()),
+        CONN_DIR_RIGHT
+    );
+    assert_eq!(
+        graph
+            .vertices
+            .get(diagonal)
+            .unwrap()
+            .direction_from(graph.vertices.get(center).unwrap()),
+        CONN_DIR_UP | CONN_DIR_RIGHT
+    );
+
+    assert!(graph.set_vertex_visible_directions(center, CONN_DIR_RIGHT));
+    assert_eq!(
+        graph.vertices.get(center).unwrap().vis_directions,
+        CONN_DIR_RIGHT
+    );
+    assert!(!graph.edge_between(center, right).unwrap().is_disabled());
+    assert!(graph.edge_between(center, left).unwrap().is_disabled());
+    assert!(graph.edge_between(center, up).unwrap().is_disabled());
+    assert!(!graph.edge_between(center, diagonal).unwrap().is_disabled());
+    assert_eq!(graph.neighbours(center).count(), 2);
+
+    assert!(graph.set_vertex_visible_directions(center, CONN_DIR_ALL));
+    assert_eq!(graph.neighbours(center).count(), 4);
+    assert!(graph.visible_edges().all(|edge| !edge.is_disabled()));
+}
+
+#[test]
 fn static_visibility_graph_records_visible_invisible_and_containment_state() {
     let shape = Polygon::rectangle(40.0, 40.0, 80.0, 80.0);
     let graph = build_static_visibility_graph(
