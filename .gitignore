@@ -1,0 +1,29 @@
+# Rust build output
+/target/
+
+# Generated wasm-pack package
+/pkg/
+
+# Upstream source copy used only as a reference
+/vendor/adaptagrams/
+
+# JavaScript dependencies and generated reports
+/node_modules/
+/coverage/
+/.nyc_output/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local environment/editor/OS noise
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# This crate is distributed as a library; npm uses package-lock.json.
+/Cargo.lock

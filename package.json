@@ -1,0 +1,36 @@
+{
+  "name": "libavoid-rust",
+  "version": "0.1.0",
+  "description": "Rust/WASM orthogonal connector routing inspired by libavoid",
+  "main": "index.cjs",
+  "types": "index.d.ts",
+  "files": [
+    "index.cjs",
+    "index.d.ts",
+    "PORTING.md",
+    "pkg",
+    "vendor/adaptagrams/cola/libavoid",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "wasm-pack build --target web --out-dir pkg && node scripts/prepare-pkg.cjs",
+    "build:node": "wasm-pack build --target nodejs --out-dir pkg && node scripts/prepare-pkg.cjs",
+    "test": "cargo test && npm run build:node && npm run test:node",
+    "test:rust": "cargo test",
+    "test:node": "node test/node-smoke.cjs",
+    "prepack": "npm run build:node"
+  },
+  "keywords": [
+    "libavoid",
+    "wasm",
+    "rust",
+    "orthogonal",
+    "routing",
+    "diagram"
+  ],
+  "license": "LGPL-2.1-or-later",
+  "devDependencies": {
+    "wasm-pack": "^0.13.1"
+  }
+}
