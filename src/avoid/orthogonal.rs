@@ -78,7 +78,7 @@ use std::collections::{BTreeSet, VecDeque};
 
 use crate::avoid::arena::{ConnIdx, VertIdx};
 use crate::avoid::connector::{
-    split_branching_segments, ConnType, ConnectorCrossings, PtOrder, PtOrderMap, CROSSING_SHARES_PATH_AT_END,
+    split_branching_segments, ConnType, ConnectorCrossings, PtOrderMap, CROSSING_SHARES_PATH_AT_END,
 };
 use crate::avoid::geomtypes::{cpp_max, cpp_min, Point, PointOrd, Polygon, PolygonInterface, XDIM, YDIM};
 use crate::avoid::graph::EdgeInf;
