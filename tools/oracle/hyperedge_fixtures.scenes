@@ -1,0 +1,1311 @@
+#scene fixture-hyperedge01
+router 2
+param 0 50
+param 1 0
+param 3 4000
+param 7 25
+junction j1 171026375 51075 51225
+shape s1 878674 4 51454 51200 51454 51285 51396 51285 51396 51200
+shape s2 286906544 4 50704 51250 50704 51335 50646 51335 50646 51250
+shape s3 170813081 4 51104 51090 51104 51175 51046 51175 51046 51090
+shape s4 342721632 4 51910 50946 51910 51004 51825 51004 51825 50946
+junction j2 102578723 51275 50725
+junction j3 17922268 50850 50975
+shape s5 11057158 4 51679 51200 51679 51285 51621 51285 51621 51200
+shape s6 322446045 4 50779 51240 50779 51335 50721 51335 50721 51240
+shape s7 767565928 4 51004 50741 51004 50826 50946 50826 50946 50741
+shape s8 280939374 4 51085 50971 51085 51029 51000 51029 51000 50971
+shape s9 630623707 4 51279 50925 51279 51010 51221 51010 51221 50925
+shape s10 28160455 4 50879 51250 50879 51335 50821 51335 50821 51250
+shape s11 525890448 4 51174 50721 51174 50779 51089 50779 51089 50721
+shape s12 157182552 4 51529 51190 51529 51285 51471 51285 51471 51190
+shape s13 799637520 4 50625 50896 50625 50954 50540 50954 50540 50896
+shape s14 60349320 4 50904 51025 50904 51110 50846 51110 50846 51025
+shape s15 119851894 4 51179 51225 51179 51310 51121 51310 51121 51225
+shape s16 233164275 4 51604 51200 51604 51285 51546 51285 51546 51200
+shape s17 807558175 4 51604 51000 51604 51085 51546 51085 51546 51000
+junction j4 265539540 51625 50950
+shape s18 108859552 4 51560 50721 51560 50779 51475 50779 51475 50721
+shape s19 404900496 4 51525 50946 51525 51004 51440 51004 51440 50946
+shape s20 620445000 4 51029 51225 51029 51310 50971 51310 50971 51225
+conn c1 450684531
+src c1 P 51165 50750 8
+dst c1 J j2
+type c1 2
+conn c2 135371350
+src c2 J j2
+dst c2 P 51250 50935 1
+type c2 2
+conn c3 143333770
+src c3 P 51485 50750 4
+dst c3 J j2
+type c3 2
+conn c4 102966575
+src c4 P 50615 50925 8
+dst c4 J j3
+type c4 2
+conn c5 68998920
+src c5 J j3
+dst c5 P 50975 50815 2
+type c5 2
+conn c6 1625709
+src c6 J j3
+dst c6 P 50875 51035 1
+type c6 2
+conn c7 34178450
+src c7 J j3
+dst c7 P 51010 51000 4
+type c7 2
+conn c8 314512308
+src c8 P 51000 51235 1
+dst c8 J j1
+type c8 2
+conn c9 182776308
+src c9 J j1
+dst c9 P 51075 51165 2
+type c9 2
+conn c10 96504835
+src c10 P 51150 51235 1
+dst c10 J j1
+type c10 2
+conn c11 467016913
+src c11 J j4
+dst c11 P 51575 51010 1
+type c11 2
+conn c12 45740440
+src c12 P 51835 50975 4
+dst c12 J j4
+type c12 2
+conn c13 985644192
+src c13 P 51515 50975 8
+dst c13 J j4
+type c13 2
+conn c14 1
+src c14 J j2
+dst c14 J j1
+type c14 2
+conn c15 2
+src c15 J j2
+dst c15 J j3
+type c15 2
+conn c16 3
+src c16 J j2
+dst c16 J j4
+type c16 2
+reroute 1
+registerj j2
+reroute 1
+#endscene
+#scene full-fixture-hyperedge01
+router 2
+param 0 50
+param 1 0
+param 3 4000
+param 7 25
+junction j1 171026375 51075 51225
+shape s1 878674 4 51454 51200 51454 51285 51396 51285 51396 51200
+shape s2 286906544 4 50704 51250 50704 51335 50646 51335 50646 51250
+shape s3 170813081 4 51104 51090 51104 51175 51046 51175 51046 51090
+shape s4 342721632 4 51910 50946 51910 51004 51825 51004 51825 50946
+junction j2 102578723 51275 50725
+junction j3 17922268 50850 50975
+shape s5 11057158 4 51679 51200 51679 51285 51621 51285 51621 51200
+shape s6 322446045 4 50779 51240 50779 51335 50721 51335 50721 51240
+shape s7 767565928 4 51004 50741 51004 50826 50946 50826 50946 50741
+shape s8 280939374 4 51085 50971 51085 51029 51000 51029 51000 50971
+shape s9 630623707 4 51279 50925 51279 51010 51221 51010 51221 50925
+shape s10 28160455 4 50879 51250 50879 51335 50821 51335 50821 51250
+shape s11 525890448 4 51174 50721 51174 50779 51089 50779 51089 50721
+shape s12 157182552 4 51529 51190 51529 51285 51471 51285 51471 51190
+shape s13 799637520 4 50625 50896 50625 50954 50540 50954 50540 50896
+shape s14 60349320 4 50904 51025 50904 51110 50846 51110 50846 51025
+shape s15 119851894 4 51179 51225 51179 51310 51121 51310 51121 51225
+shape s16 233164275 4 51604 51200 51604 51285 51546 51285 51546 51200
+shape s17 807558175 4 51604 51000 51604 51085 51546 51085 51546 51000
+junction j4 265539540 51625 50950
+shape s18 108859552 4 51560 50721 51560 50779 51475 50779 51475 50721
+shape s19 404900496 4 51525 50946 51525 51004 51440 51004 51440 50946
+shape s20 620445000 4 51029 51225 51029 51310 50971 51310 50971 51225
+conn c1 450684531
+src c1 P 51165 50750 8
+dst c1 J j2
+type c1 2
+conn c2 135371350
+src c2 J j2
+dst c2 P 51250 50935 1
+type c2 2
+conn c3 143333770
+src c3 P 51485 50750 4
+dst c3 J j2
+type c3 2
+conn c4 102966575
+src c4 P 50615 50925 8
+dst c4 J j3
+type c4 2
+conn c5 68998920
+src c5 J j3
+dst c5 P 50975 50815 2
+type c5 2
+conn c6 1625709
+src c6 J j3
+dst c6 P 50875 51035 1
+type c6 2
+conn c7 34178450
+src c7 J j3
+dst c7 P 51010 51000 4
+type c7 2
+conn c8 314512308
+src c8 P 51000 51235 1
+dst c8 J j1
+type c8 2
+conn c9 182776308
+src c9 J j1
+dst c9 P 51075 51165 2
+type c9 2
+conn c10 96504835
+src c10 P 51150 51235 1
+dst c10 J j1
+type c10 2
+conn c11 467016913
+src c11 J j4
+dst c11 P 51575 51010 1
+type c11 2
+conn c12 45740440
+src c12 P 51835 50975 4
+dst c12 J j4
+type c12 2
+conn c13 985644192
+src c13 P 51515 50975 8
+dst c13 J j4
+type c13 2
+conn c14 1
+src c14 J j2
+dst c14 J j1
+type c14 2
+conn c15 2
+src c15 J j2
+dst c15 J j3
+type c15 2
+conn c16 3
+src c16 J j2
+dst c16 J j4
+type c16 2
+transaction
+diagram hyperedge01-1
+registerj j2
+transaction
+diagram hyperedge01-2
+diagram hyperedge01-final
+#endscene
+#scene fixture-hyperedge02
+router 2
+shape s1 1 4 461.05 1.66648 461.05 65.6665 376.05 65.6665 376.05 1.66648
+pin p1 s1 102 0.5 1 1 10 2
+shape s2 2 4 404 166 404 227 320 227 320 166
+pin p2 s2 102 0 0.5 1 10 4
+shape s3 3 4 240.001 185 240.001 227 178.001 227 178.001 185
+pin p3 s3 102 1 0.5 1 10 8
+shape s4 4 4 274.526 132 274.526 174 90.526 174 90.526 132
+shape s5 5 4 152.526 1.66648 152.526 40 90.526 40 90.526 1.66648
+pin p4 s5 102 0.5 1 1 10 2
+shape s6 6 4 366.925 1.66648 366.925 92.6665 304.925 92.6665 304.925 1.66648
+shape s7 8 4 345 115 345 140 320 140 320 115
+shape s8 7 4 223.675 1.66648 223.675 50.3333 161.675 50.3333 161.675 1.66648
+pin p5 s8 102 0.5 1 1 10 2
+shape s9 10 4 295.3 1.66648 295.3 40 233.3 40 233.3 1.66648
+pin p6 s9 102 0.5 1 1 10 2
+registerends 6 S s1 102 S s2 102 S s3 102 S s5 102 S s8 102 S s9 102
+reroute 1
+#endscene
+#scene full-fixture-hyperedge02
+router 2
+shape s1 1 4 461.05 1.66648 461.05 65.6665 376.05 65.6665 376.05 1.66648
+pin p1 s1 102 0.5 1 1 10 2
+shape s2 2 4 404 166 404 227 320 227 320 166
+pin p2 s2 102 0 0.5 1 10 4
+shape s3 3 4 240.001 185 240.001 227 178.001 227 178.001 185
+pin p3 s3 102 1 0.5 1 10 8
+shape s4 4 4 274.526 132 274.526 174 90.526 174 90.526 132
+shape s5 5 4 152.526 1.66648 152.526 40 90.526 40 90.526 1.66648
+pin p4 s5 102 0.5 1 1 10 2
+shape s6 6 4 366.925 1.66648 366.925 92.6665 304.925 92.6665 304.925 1.66648
+shape s7 8 4 345 115 345 140 320 140 320 115
+shape s8 7 4 223.675 1.66648 223.675 50.3333 161.675 50.3333 161.675 1.66648
+pin p5 s8 102 0.5 1 1 10 2
+shape s9 10 4 295.3 1.66648 295.3 40 233.3 40 233.3 1.66648
+pin p6 s9 102 0.5 1 1 10 2
+registerends 6 S s1 102 S s2 102 S s3 102 S s5 102 S s8 102 S s9 102
+transaction
+diagram hyperedge02
+diagram hyperedge02-final
+#endscene
+#scene fixture-hyperedgeLoop1
+router 2
+param 0 -1
+param 2 -1
+param 4 9000
+param 7 25
+shape s1 147006780 4 50760 50620 50760 50680 50590 50680 50590 50620
+pin p1 s1 2 0.941176 0.5 1 10 8
+pinexcl p1 1
+shape s2 69758810 4 50585 50765 50585 50935 50365 50935 50365 50765
+pin p2 s2 2 0.954545 0.5 1 10 8
+pinexcl p2 1
+shape s3 149922619 4 51060 51020 51060 51080 50890 51080 50890 51020
+pin p3 s3 2 0.941176 0.5 1 10 8
+pinexcl p3 1
+junction j1 228834480 51050 51050
+connse c1 0 S s2 2 J j1
+invalid c1
+connse c2 0 J j1 S s3 2
+reroute 1
+connse c3 0 S s1 2 J j1
+invalid c3
+reroute 1
+delshape s1
+delshape s2
+delshape s3
+deljunc j1
+delconn c1
+delconn c2
+delconn c3
+reroute 1
+#endscene
+#scene full-fixture-hyperedgeLoop1
+router 2
+param 0 -1
+param 2 -1
+param 4 9000
+param 7 25
+shape s1 147006780 4 50760 50620 50760 50680 50590 50680 50590 50620
+pin p1 s1 2 0.941176 0.5 1 10 8
+pinexcl p1 1
+shape s2 69758810 4 50585 50765 50585 50935 50365 50935 50365 50765
+pin p2 s2 2 0.954545 0.5 1 10 8
+pinexcl p2 1
+shape s3 149922619 4 51060 51020 51060 51080 50890 51080 50890 51020
+pin p3 s3 2 0.941176 0.5 1 10 8
+pinexcl p3 1
+junction j1 228834480 51050 51050
+connse c1 0 S s2 2 J j1
+invalid c1
+connse c2 0 J j1 S s3 2
+transaction
+diagram hyperedgeLoop1-1
+connse c3 0 S s1 2 J j1
+invalid c3
+transaction
+diagram hyperedgeLoop1-2
+delshape s1
+delshape s2
+delshape s3
+deljunc j1
+delconn c1
+delconn c2
+delconn c3
+transaction
+diagram hyperedgeLoop1-final
+#endscene
+#scene fixture-hyperedgeRerouting01
+router 2
+param 0 -1
+param 2 -1
+param 4 9000
+option 2 1
+param 7 25
+option 5 1
+shape s1 478041183 4 27350 26040 27350 26450 26925 26450 26925 26040
+pin p1 s1 1 0 85 0 10 4
+pinexcl p1 1
+pin p2 s1 2 100 -1 0 10 2
+pinexcl p2 1
+pin p3 s1 3 -1 85 0 10 8
+pinexcl p3 1
+pin p4 s1 4 250 -1 0 10 2
+pinexcl p4 1
+pin p5 s1 5 0 235 0 10 4
+pinexcl p5 1
+pin p6 s1 6 0 160 0 10 4
+pinexcl p6 1
+pin p7 s1 7 175 -1 0 10 2
+pinexcl p7 1
+pin p8 s1 8 -1 160 0 10 8
+pinexcl p8 1
+pin p9 s1 9 325 -1 0 10 2
+pinexcl p9 1
+pin p10 s1 10 0 310 0 10 4
+pinexcl p10 1
+shape s2 646972128 4 27030 26900 27030 27050 26970 27050 26970 26900
+pin p11 s2 1 25 -1 0 10 2
+pinexcl p11 1
+pin p12 s2 2 25 0 0 10 1
+pinexcl p12 1
+shape s3 53041512 4 26480 26350 26480 26500 26420 26500 26420 26350
+pin p13 s3 1 30 0 0 10 1
+pinexcl p13 1
+pin p14 s3 2 30 -1 0 10 2
+pinexcl p14 1
+shape s4 241539284 4 26860 26900 26860 27050 26790 27050 26790 26900
+pin p15 s4 1 35 -1 0 10 2
+pinexcl p15 1
+pin p16 s4 2 35 0 0 10 1
+pinexcl p16 1
+junction j1 16268769 27000 27075
+fixj j1 1
+junction j2 142222080 27200 26450
+fixj j2 1
+junction j3 471289251 26350 26325
+fixj j3 1
+connse c1 64950216 S s2 1 J j1
+connse c2 278089510 J j1 S s1 7
+connse c3 41268690 S s4 1 J j1
+connse c4 60256130 S s1 9 J j2
+connse c5 73835204 S s1 3 J j2
+connse c6 93872527 S s1 4 J j2
+connse c7 448284384 S s3 1 J j3
+connse c8 392836745 S s1 1 J j3
+connse c9 836242673 S s4 2 J j3
+reroute 1
+fixj j1 0
+fixj j2 0
+fixj j3 0
+registerj j1
+registerj j2
+registerj j3
+reroute 1
+#endscene
+#scene full-fixture-hyperedgeRerouting01
+router 2
+param 0 -1
+param 2 -1
+param 4 9000
+option 2 1
+param 7 25
+option 5 1
+shape s1 478041183 4 27350 26040 27350 26450 26925 26450 26925 26040
+pin p1 s1 1 0 85 0 10 4
+pinexcl p1 1
+pin p2 s1 2 100 -1 0 10 2
+pinexcl p2 1
+pin p3 s1 3 -1 85 0 10 8
+pinexcl p3 1
+pin p4 s1 4 250 -1 0 10 2
+pinexcl p4 1
+pin p5 s1 5 0 235 0 10 4
+pinexcl p5 1
+pin p6 s1 6 0 160 0 10 4
+pinexcl p6 1
+pin p7 s1 7 175 -1 0 10 2
+pinexcl p7 1
+pin p8 s1 8 -1 160 0 10 8
+pinexcl p8 1
+pin p9 s1 9 325 -1 0 10 2
+pinexcl p9 1
+pin p10 s1 10 0 310 0 10 4
+pinexcl p10 1
+shape s2 646972128 4 27030 26900 27030 27050 26970 27050 26970 26900
+pin p11 s2 1 25 -1 0 10 2
+pinexcl p11 1
+pin p12 s2 2 25 0 0 10 1
+pinexcl p12 1
+shape s3 53041512 4 26480 26350 26480 26500 26420 26500 26420 26350
+pin p13 s3 1 30 0 0 10 1
+pinexcl p13 1
+pin p14 s3 2 30 -1 0 10 2
+pinexcl p14 1
+shape s4 241539284 4 26860 26900 26860 27050 26790 27050 26790 26900
+pin p15 s4 1 35 -1 0 10 2
+pinexcl p15 1
+pin p16 s4 2 35 0 0 10 1
+pinexcl p16 1
+junction j1 16268769 27000 27075
+fixj j1 1
+junction j2 142222080 27200 26450
+fixj j2 1
+junction j3 471289251 26350 26325
+fixj j3 1
+connse c1 64950216 S s2 1 J j1
+connse c2 278089510 J j1 S s1 7
+connse c3 41268690 S s4 1 J j1
+connse c4 60256130 S s1 9 J j2
+connse c5 73835204 S s1 3 J j2
+connse c6 93872527 S s1 4 J j2
+connse c7 448284384 S s3 1 J j3
+connse c8 392836745 S s1 1 J j3
+connse c9 836242673 S s4 2 J j3
+transaction
+fixj j1 0
+fixj j2 0
+fixj j3 0
+registerj j1
+registerj j2
+registerj j3
+transaction
+diagram hyperedgeRerouting01-final
+#endscene
+#scene fixture-improveHyperedge01
+router 2
+param 0 -1
+param 2 -1
+param 4 -1
+param 7 25
+option 1 1
+shape s1 341041314 4 51160 50670 51160 50730 50950 50730 50950 50670
+pin p1 s1 1 0.952381 0.5 1 10 8
+pinexcl p1 1
+pin p2 s1 2 0 0.5 1 10 4
+pinexcl p2 1
+shape s2 47540376 4 51160 50395 51160 50455 50950 50455 50950 50395
+pin p3 s2 1 0.952381 0.5 1 10 8
+pinexcl p3 1
+pin p4 s2 2 0 0.5 1 10 4
+pinexcl p4 1
+shape s3 81920772 4 50850 50770 50850 50830 50665 50830 50665 50770
+pin p5 s3 1 0.047619 0.5 1 10 4
+pinexcl p5 1
+pin p6 s3 2 1 0.5 1 10 8
+pinexcl p6 1
+junction j1 878282342 50875 50700
+fixj j1 0
+shape s4 206564314 4 50850 50470 50850 50530 50665 50530 50665 50470
+pin p7 s4 1 0.047619 0.5 1 10 4
+pinexcl p7 1
+pin p8 s4 2 1 0.5 1 10 8
+pinexcl p8 1
+junction j2 213455341 50875 50500
+fixj j2 0
+connse c1 0 J j1 S s1 2
+invalid c1
+connse c2 0 S s3 2 J j1
+invalid c2
+connse c3 0 S s2 2 J j2
+invalid c3
+connse c4 0 J j2 J j1
+invalid c4
+connse c5 0 S s4 2 J j2
+invalid c5
+reroute 1
+moveto s1 4 51160.0 50645.0 51160.0 50705.0 50950.0 50705.0 50950.0 50645.0
+invalid c1
+invalid c2
+invalid c4
+invalid c3
+reroute 1
+#endscene
+#scene full-fixture-improveHyperedge01
+router 2
+param 0 -1
+param 2 -1
+param 4 -1
+param 7 25
+option 1 1
+shape s1 341041314 4 51160 50670 51160 50730 50950 50730 50950 50670
+pin p1 s1 1 0.952381 0.5 1 10 8
+pinexcl p1 1
+pin p2 s1 2 0 0.5 1 10 4
+pinexcl p2 1
+shape s2 47540376 4 51160 50395 51160 50455 50950 50455 50950 50395
+pin p3 s2 1 0.952381 0.5 1 10 8
+pinexcl p3 1
+pin p4 s2 2 0 0.5 1 10 4
+pinexcl p4 1
+shape s3 81920772 4 50850 50770 50850 50830 50665 50830 50665 50770
+pin p5 s3 1 0.047619 0.5 1 10 4
+pinexcl p5 1
+pin p6 s3 2 1 0.5 1 10 8
+pinexcl p6 1
+junction j1 878282342 50875 50700
+fixj j1 0
+shape s4 206564314 4 50850 50470 50850 50530 50665 50530 50665 50470
+pin p7 s4 1 0.047619 0.5 1 10 4
+pinexcl p7 1
+pin p8 s4 2 1 0.5 1 10 8
+pinexcl p8 1
+junction j2 213455341 50875 50500
+fixj j2 0
+connse c1 0 J j1 S s1 2
+invalid c1
+connse c2 0 S s3 2 J j1
+invalid c2
+connse c3 0 S s2 2 J j2
+invalid c3
+connse c4 0 J j2 J j1
+invalid c4
+connse c5 0 S s4 2 J j2
+invalid c5
+transaction
+diagram improveHyperedge01-1
+moveto s1 4 51160.0 50645.0 51160.0 50705.0 50950.0 50705.0 50950.0 50645.0
+invalid c1
+invalid c2
+invalid c4
+invalid c3
+transaction
+diagram improveHyperedge01-2
+diagram improveHyperedge01-final
+#endscene
+#scene fixture-improveHyperedge02
+router 3
+param 0 50
+param 1 0
+param 2 200
+param 3 4000
+param 4 9000
+param 5 100
+option 0 0
+option 1 1
+option 2 1
+option 5 1
+param 7 25
+shape s1 39761567 4 50754 50975 50754 51060 50696 51060 50696 50975
+pin p1 s1 1 0.5 0 1 10 1
+shape s2 115776716 4 51504 50975 51504 51060 51446 51060 51446 50975
+pin p2 s2 1 0.5 0 1 10 1
+shape s3 238475293 4 50554 50975 50554 51060 50496 51060 50496 50975
+pin p3 s3 1 0.5 0 1 10 1
+shape s4 430971008 4 51004 50465 51004 50550 50946 50550 50946 50465
+pin p4 s4 1 0.5 1 1 10 2
+junction j1 513246008 50925 50725
+conn c1 513246009
+src c1 S s1 1
+dst c1 J j1
+type c1 2
+conn c2 513246010
+src c2 J j1
+dst c2 S s4 1
+type c2 2
+conn c3 513246011
+src c3 J j1
+dst c3 S s3 1
+type c3 2
+conn c4 513246012
+src c4 S s2 1
+dst c4 J j1
+type c4 2
+reroute 1
+#endscene
+#scene full-fixture-improveHyperedge02
+router 3
+param 0 50
+param 1 0
+param 2 200
+param 3 4000
+param 4 9000
+param 5 100
+option 0 0
+option 1 1
+option 2 1
+option 5 1
+param 7 25
+shape s1 39761567 4 50754 50975 50754 51060 50696 51060 50696 50975
+pin p1 s1 1 0.5 0 1 10 1
+shape s2 115776716 4 51504 50975 51504 51060 51446 51060 51446 50975
+pin p2 s2 1 0.5 0 1 10 1
+shape s3 238475293 4 50554 50975 50554 51060 50496 51060 50496 50975
+pin p3 s3 1 0.5 0 1 10 1
+shape s4 430971008 4 51004 50465 51004 50550 50946 50550 50946 50465
+pin p4 s4 1 0.5 1 1 10 2
+junction j1 513246008 50925 50725
+conn c1 513246009
+src c1 S s1 1
+dst c1 J j1
+type c1 2
+conn c2 513246010
+src c2 J j1
+dst c2 S s4 1
+type c2 2
+conn c3 513246011
+src c3 J j1
+dst c3 S s3 1
+type c3 2
+conn c4 513246012
+src c4 S s2 1
+dst c4 J j1
+type c4 2
+transaction
+diagram improveHyperedge02
+diagram improveHyperedge02-final
+#endscene
+#scene fixture-improveHyperedge03
+router 3
+param 0 50
+param 1 0
+param 2 200
+param 3 4000
+param 4 9000
+param 5 100
+option 0 0
+option 1 1
+option 2 1
+option 5 1
+param 7 25
+shape s1 39761567 4 50754 50975 50754 51060 50696 51060 50696 50975
+pin p1 s1 1 0.5 0 1 10 1
+shape s2 115776716 4 51504 50975 51504 51060 51446 51060 51446 50975
+pin p2 s2 1 0.5 0 1 10 1
+shape s3 238475293 4 50554 50975 50554 51060 50496 51060 50496 50975
+pin p3 s3 1 0.5 0 1 10 1
+shape s4 430971008 4 51004 50975 51004 51060 50946 51060 50946 50975
+pin p4 s4 1 0.5 0 1 10 1
+junction j1 513246008 50925 50725
+conn c1 513246009
+src c1 S s1 1
+dst c1 J j1
+type c1 2
+conn c2 513246010
+src c2 J j1
+dst c2 S s4 1
+type c2 2
+conn c3 513246011
+src c3 J j1
+dst c3 S s3 1
+type c3 2
+conn c4 513246012
+src c4 S s2 1
+dst c4 J j1
+type c4 2
+reroute 1
+#endscene
+#scene full-fixture-improveHyperedge03
+router 3
+param 0 50
+param 1 0
+param 2 200
+param 3 4000
+param 4 9000
+param 5 100
+option 0 0
+option 1 1
+option 2 1
+option 5 1
+param 7 25
+shape s1 39761567 4 50754 50975 50754 51060 50696 51060 50696 50975
+pin p1 s1 1 0.5 0 1 10 1
+shape s2 115776716 4 51504 50975 51504 51060 51446 51060 51446 50975
+pin p2 s2 1 0.5 0 1 10 1
+shape s3 238475293 4 50554 50975 50554 51060 50496 51060 50496 50975
+pin p3 s3 1 0.5 0 1 10 1
+shape s4 430971008 4 51004 50975 51004 51060 50946 51060 50946 50975
+pin p4 s4 1 0.5 0 1 10 1
+junction j1 513246008 50925 50725
+conn c1 513246009
+src c1 S s1 1
+dst c1 J j1
+type c1 2
+conn c2 513246010
+src c2 J j1
+dst c2 S s4 1
+type c2 2
+conn c3 513246011
+src c3 J j1
+dst c3 S s3 1
+type c3 2
+conn c4 513246012
+src c4 S s2 1
+dst c4 J j1
+type c4 2
+transaction
+diagram improveHyperedge03
+diagram improveHyperedge03-final
+#endscene
+#scene fixture-improveHyperedge04
+router 3
+param 0 50
+param 1 0
+param 2 200
+param 3 4000
+param 4 9000
+param 5 100
+option 0 0
+option 1 1
+option 2 1
+option 1 0
+option 5 1
+param 7 25
+shape s1 2 4 50354 50975 50354 51060 50296 51060 50296 50975
+pin p1 s1 1 0.5 1 1 10 1
+shape s2 39761567 4 50754 50975 50754 51060 50696 51060 50696 50975
+pin p2 s2 1 0.5 0 1 10 1
+shape s3 115776716 4 51504 50975 51504 51060 51446 51060 51446 50975
+pin p3 s3 1 0.5 0 1 10 1
+shape s4 238475293 4 50554 50975 50554 51060 50496 51060 50496 50975
+pin p4 s4 1 0.5 0 1 10 1
+shape s5 430971008 4 51004 50975 51004 51060 50946 51060 50946 50975
+pin p5 s5 1 0.5 0 1 10 1
+junction j1 513246008 50925 50700
+junction j2 4 50725 50725
+conn c1 3
+src c1 S s1 1
+dst c1 J j1
+type c1 2
+conn c2 5
+src c2 J j2
+dst c2 J j1
+type c2 2
+conn c3 513246009
+src c3 S s2 1
+dst c3 J j2
+type c3 2
+conn c4 513246010
+src c4 J j1
+dst c4 S s5 1
+type c4 2
+conn c5 513246011
+src c5 J j2
+dst c5 S s4 1
+type c5 2
+conn c6 513246012
+src c6 S s3 1
+dst c6 J j1
+type c6 2
+reroute 1
+#endscene
+#scene full-fixture-improveHyperedge04
+router 3
+param 0 50
+param 1 0
+param 2 200
+param 3 4000
+param 4 9000
+param 5 100
+option 0 0
+option 1 1
+option 2 1
+option 1 0
+option 5 1
+param 7 25
+shape s1 2 4 50354 50975 50354 51060 50296 51060 50296 50975
+pin p1 s1 1 0.5 1 1 10 1
+shape s2 39761567 4 50754 50975 50754 51060 50696 51060 50696 50975
+pin p2 s2 1 0.5 0 1 10 1
+shape s3 115776716 4 51504 50975 51504 51060 51446 51060 51446 50975
+pin p3 s3 1 0.5 0 1 10 1
+shape s4 238475293 4 50554 50975 50554 51060 50496 51060 50496 50975
+pin p4 s4 1 0.5 0 1 10 1
+shape s5 430971008 4 51004 50975 51004 51060 50946 51060 50946 50975
+pin p5 s5 1 0.5 0 1 10 1
+junction j1 513246008 50925 50700
+junction j2 4 50725 50725
+conn c1 3
+src c1 S s1 1
+dst c1 J j1
+type c1 2
+conn c2 5
+src c2 J j2
+dst c2 J j1
+type c2 2
+conn c3 513246009
+src c3 S s2 1
+dst c3 J j2
+type c3 2
+conn c4 513246010
+src c4 J j1
+dst c4 S s5 1
+type c4 2
+conn c5 513246011
+src c5 J j2
+dst c5 S s4 1
+type c5 2
+conn c6 513246012
+src c6 S s3 1
+dst c6 J j1
+type c6 2
+transaction
+diagram improveHyperedge04
+diagram improveHyperedge04-final
+#endscene
+#scene fixture-improveHyperedge05
+router 2
+param 0 -1
+param 2 -1
+param 4 9000
+option 2 1
+param 7 25
+option 5 1
+reroute 1
+shape s1 68611488 4 51885 50715 51885 50935 51700 50935 51700 50715
+pin p1 s1 1 0.810810810811 0.0454545454545 1 10 1
+pinexcl p1 1
+pin p2 s1 2 0 0.5 1 10 4
+pinexcl p2 1
+pin p3 s1 3 0.810810810811 0.954545454545 1 10 2
+pinexcl p3 1
+shape s2 84988680 4 51600 50795 51600 50855 51440 50855 51440 50795
+pin p4 s2 1 0.0625 0.5 1 10 4
+pinexcl p4 1
+pin p5 s2 2 1 0.5 1 10 8
+pinexcl p5 1
+shape s3 170757006 4 51705 50640 51705 50800 51645 50800 51645 50640
+pin p6 s3 1 0.5 1 1 10 2
+pinexcl p6 1
+pin p7 s3 2 0.5 0.0625 1 10 1
+pinexcl p7 1
+junction j1 185122667 51675 50825
+shape s4 300278382 4 51705 50925 51705 51085 51645 51085 51645 50925
+pin p8 s4 1 0.5 0.9375 1 10 2
+pinexcl p8 1
+pin p9 s4 2 0.5 0 1 10 1
+pinexcl p9 1
+connse c1 70922320 S s2 2 J j1
+connse c2 141698060 J j1 S s1 2
+connse c3 27983869 S s3 1 J j1
+connse c4 197910572 S s4 2 J j1
+reroute 1
+moveto s3 4 51305.0 50690.0 51305.0 50850.0 51245.0 50850.0 51245.0 50690.0
+reroute 1
+bindnewj j2
+fixj j2 1
+bindnewc c5
+invalid c5
+reroute 1
+#endscene
+#scene full-fixture-improveHyperedge05
+router 2
+param 0 -1
+param 2 -1
+param 4 9000
+option 2 1
+param 7 25
+option 5 1
+transaction
+diagram improveHyperedge05-1
+shape s1 68611488 4 51885 50715 51885 50935 51700 50935 51700 50715
+pin p1 s1 1 0.810810810811 0.0454545454545 1 10 1
+pinexcl p1 1
+pin p2 s1 2 0 0.5 1 10 4
+pinexcl p2 1
+pin p3 s1 3 0.810810810811 0.954545454545 1 10 2
+pinexcl p3 1
+shape s2 84988680 4 51600 50795 51600 50855 51440 50855 51440 50795
+pin p4 s2 1 0.0625 0.5 1 10 4
+pinexcl p4 1
+pin p5 s2 2 1 0.5 1 10 8
+pinexcl p5 1
+shape s3 170757006 4 51705 50640 51705 50800 51645 50800 51645 50640
+pin p6 s3 1 0.5 1 1 10 2
+pinexcl p6 1
+pin p7 s3 2 0.5 0.0625 1 10 1
+pinexcl p7 1
+junction j1 185122667 51675 50825
+shape s4 300278382 4 51705 50925 51705 51085 51645 51085 51645 50925
+pin p8 s4 1 0.5 0.9375 1 10 2
+pinexcl p8 1
+pin p9 s4 2 0.5 0 1 10 1
+pinexcl p9 1
+connse c1 70922320 S s2 2 J j1
+connse c2 141698060 J j1 S s1 2
+connse c3 27983869 S s3 1 J j1
+connse c4 197910572 S s4 2 J j1
+transaction
+diagram improveHyperedge05-2
+moveto s3 4 51305.0 50690.0 51305.0 50850.0 51245.0 50850.0 51245.0 50690.0
+transaction
+bindnewj j2
+fixj j2 1
+bindnewc c5
+diagram improveHyperedge05-3
+invalid c5
+transaction
+diagram improveHyperedge05-4
+#endscene
+#scene fixture-improveHyperedge06
+router 3
+param 0 50
+param 1 0
+param 2 200
+param 3 4000
+param 4 9000
+param 5 100
+option 0 0
+option 1 1
+option 2 1
+option 5 1
+param 7 25
+shape s1 39761567 4 50754 50975 50754 51060 50696 51060 50696 50975
+pin p1 s1 1 0.5 0 1 10 1
+shape s2 115776716 4 51504 50975 51504 51060 51446 51060 51446 50975
+pin p2 s2 1 0.5 0 1 10 1
+shape s3 238475293 4 50554 50975 50554 51060 50496 51060 50496 50975
+pin p3 s3 1 0.5 0 1 10 1
+shape s4 430971008 4 51004 50465 51004 50550 50946 50550 50946 50465
+pin p4 s4 1 0.5 1 1 10 2
+junction j1 513246008 50925 50725
+fixj j1 1
+conn c1 513246009
+src c1 S s1 1
+dst c1 J j1
+type c1 2
+conn c2 513246010
+src c2 J j1
+dst c2 S s4 1
+type c2 2
+conn c3 513246011
+src c3 J j1
+dst c3 S s3 1
+type c3 2
+conn c4 513246012
+src c4 S s2 1
+dst c4 J j1
+type c4 2
+reroute 1
+#endscene
+#scene full-fixture-improveHyperedge06
+router 3
+param 0 50
+param 1 0
+param 2 200
+param 3 4000
+param 4 9000
+param 5 100
+option 0 0
+option 1 1
+option 2 1
+option 5 1
+param 7 25
+shape s1 39761567 4 50754 50975 50754 51060 50696 51060 50696 50975
+pin p1 s1 1 0.5 0 1 10 1
+shape s2 115776716 4 51504 50975 51504 51060 51446 51060 51446 50975
+pin p2 s2 1 0.5 0 1 10 1
+shape s3 238475293 4 50554 50975 50554 51060 50496 51060 50496 50975
+pin p3 s3 1 0.5 0 1 10 1
+shape s4 430971008 4 51004 50465 51004 50550 50946 50550 50946 50465
+pin p4 s4 1 0.5 1 1 10 2
+junction j1 513246008 50925 50725
+fixj j1 1
+conn c1 513246009
+src c1 S s1 1
+dst c1 J j1
+type c1 2
+conn c2 513246010
+src c2 J j1
+dst c2 S s4 1
+type c2 2
+conn c3 513246011
+src c3 J j1
+dst c3 S s3 1
+type c3 2
+conn c4 513246012
+src c4 S s2 1
+dst c4 J j1
+type c4 2
+transaction
+diagram improveHyperedge06
+diagram improveHyperedge06-final
+#endscene
+#scene fixture-junction02
+router 2
+param 0 50
+param 1 0
+param 2 0
+param 3 4000
+param 4 105
+param 7 25
+junction j1 0 50700 51075
+rect s1 92712048 51246 50475 51304 50585
+rect s2 23127921 50365 50766 50485 50834
+rect s3 159957148 51740 50891 51860 50959
+rect s4 1350214 50375 51015 50625 51135
+rect s5 247197258 50265 51046 50375 51104
+rect s6 281096654 50700 50390 51000 50610
+connse c1 342420237 P 50425 50800 15 P 50710 50450 4
+connse c2 352019675 P 50990 50500 8 J j1
+connse c3 42699400 J j1 P 50615 51075 8
+connse c4 94712625 P 50710 50550 4 J j1
+connse c5 92802970 P 50990 50450 8 P 51275 50485 1
+connse c6 716502036 P 50710 50500 4 P 51800 50925 15
+reroute 1
+movej j1 585 0
+reroute 1
+#endscene
+#scene full-fixture-junction02
+router 2
+param 0 50
+param 1 0
+param 2 0
+param 3 4000
+param 4 105
+param 7 25
+junction j1 0 50700 51075
+rect s1 92712048 51246 50475 51304 50585
+rect s2 23127921 50365 50766 50485 50834
+rect s3 159957148 51740 50891 51860 50959
+rect s4 1350214 50375 51015 50625 51135
+rect s5 247197258 50265 51046 50375 51104
+rect s6 281096654 50700 50390 51000 50610
+connse c1 342420237 P 50425 50800 15 P 50710 50450 4
+connse c2 352019675 P 50990 50500 8 J j1
+connse c3 42699400 J j1 P 50615 51075 8
+connse c4 94712625 P 50710 50550 4 J j1
+connse c5 92802970 P 50990 50450 8 P 51275 50485 1
+connse c6 716502036 P 50710 50500 4 P 51800 50925 15
+transaction
+diagram junction02-1
+movej j1 585 0
+transaction
+diagram junction02-2
+diagram junction02-final
+#endscene
+#scene fixture-junction03
+router 2
+param 0 50
+param 1 0
+param 2 0
+param 3 4000
+param 4 105
+param 7 25
+junction j1 478845150 50700 51075
+rect s1 92712048 51246 50475 51304 50585
+rect s2 23127921 50365 50766 50485 50834
+rect s3 159957148 51740 50891 51860 50959
+rect s4 1350214 50375 51015 50625 51135
+rect s5 247197258 50265 51046 50375 51104
+rect s6 281096654 50700 50390 51000 50610
+connse c1 342420237 P 50425 50800 15 P 50710 50450 4
+connse c2 352019675 P 50990 50500 8 J j1
+connse c3 42699400 J j1 P 50615 51075 8
+connse c4 94712625 P 50710 50550 4 J j1
+connse c5 92802970 P 50990 50450 8 P 51275 50485 1
+connse c6 716502036 P 50710 50500 4 P 51800 50925 15
+reroute 1
+movej j1 585 0
+reroute 1
+#endscene
+#scene full-fixture-junction03
+router 2
+param 0 50
+param 1 0
+param 2 0
+param 3 4000
+param 4 105
+param 7 25
+junction j1 478845150 50700 51075
+rect s1 92712048 51246 50475 51304 50585
+rect s2 23127921 50365 50766 50485 50834
+rect s3 159957148 51740 50891 51860 50959
+rect s4 1350214 50375 51015 50625 51135
+rect s5 247197258 50265 51046 50375 51104
+rect s6 281096654 50700 50390 51000 50610
+connse c1 342420237 P 50425 50800 15 P 50710 50450 4
+connse c2 352019675 P 50990 50500 8 J j1
+connse c3 42699400 J j1 P 50615 51075 8
+connse c4 94712625 P 50710 50550 4 J j1
+connse c5 92802970 P 50990 50450 8 P 51275 50485 1
+connse c6 716502036 P 50710 50500 4 P 51800 50925 15
+transaction
+diagram junction03-1
+movej j1 585 0
+transaction
+diagram junction03-2
+diagram junction03-final
+#endscene
+#scene fixture-2junctions
+router 2
+param 0 -1
+param 2 -1
+param 4 -1
+option 2 1
+param 7 25
+shape s1 365249936 4 51410 50640 51410 50960 51050 50960 51050 50640
+pin p1 s1 3 0 0.5 1 10 4
+pinexcl p1 1
+pin p2 s1 5 0 0.734375 1 10 4
+pinexcl p2 1
+shape s2 386142480 4 50760 50691 50760 50775 50640 50775 50640 50691
+pin p3 s2 2 0.5 1 1 10 2
+pinexcl p3 1
+junction j1 328922310 50700 50800
+fixj j1 1
+connse c1 0 S s1 3 J j1
+connse c2 0 J j1 S s2 2
+connse c3 0 S s1 5 J j1
+reroute 1
+shape s3 150429385 4 50879 50885 50879 50960 50821 50960 50821 50885
+pin p4 s3 1 0.5 0 1 10 1
+pinexcl p4 1
+junction j2 550292508 50850 50875
+delconn c3
+connse c4 0 S s1 5 J j2
+invalid c4
+connse c5 0 J j2 J j1
+invalid c5
+connse c6 0 S s3 1 J j2
+invalid c6
+reroute 1
+#endscene
+#scene full-fixture-2junctions
+router 2
+param 0 -1
+param 2 -1
+param 4 -1
+option 2 1
+param 7 25
+shape s1 365249936 4 51410 50640 51410 50960 51050 50960 51050 50640
+pin p1 s1 3 0 0.5 1 10 4
+pinexcl p1 1
+pin p2 s1 5 0 0.734375 1 10 4
+pinexcl p2 1
+shape s2 386142480 4 50760 50691 50760 50775 50640 50775 50640 50691
+pin p3 s2 2 0.5 1 1 10 2
+pinexcl p3 1
+junction j1 328922310 50700 50800
+fixj j1 1
+connse c1 0 S s1 3 J j1
+connse c2 0 J j1 S s2 2
+connse c3 0 S s1 5 J j1
+transaction
+diagram 2junctions-1
+shape s3 150429385 4 50879 50885 50879 50960 50821 50960 50821 50885
+pin p4 s3 1 0.5 0 1 10 1
+pinexcl p4 1
+junction j2 550292508 50850 50875
+delconn c3
+connse c4 0 S s1 5 J j2
+invalid c4
+connse c5 0 J j2 J j1
+invalid c5
+connse c6 0 S s3 1 J j2
+invalid c6
+transaction
+diagram 2junctions-2
+diagram 2junctions-final
+#endscene
+#scene fixture-removeJunctions01
+router 2
+param 0 2
+param 1 0
+param 2 0
+param 3 4000
+param 4 9000
+param 5 0
+param 6 0
+param 7 16
+param 8 0
+option 0 0
+option 1 1
+option 2 0
+option 3 0
+option 4 1
+option 5 0
+option 6 1
+shape s1 1 4 450 330 490 330 490 450 450 450
+pin p1 s1 1 0 0.333333 1 10 0
+pinexcl p1 0
+pin p2 s1 2 0 0.666667 1 10 0
+pinexcl p2 0
+pin p2 s1 3 1 0.5 1 10 0
+pinexcl p2 0
+pin p2 s1 4 0.5 0 1 10 0
+pinexcl p2 0
+shape s2 8 4 502 237.5 502 262.5 438 262.5 438 237.5
+pin p2 s2 1 0 0.5 1 1 0
+pin p2 s2 2 1 0.5 1 1 0
+pin p2 s2 3 0.5 1 1 1 0
+pin p2 s2 4 0.5 0 1 1 0
+junction j1 6 470 300
+conn c1 9
+src c1 J j1
+dst c1 S s2 3
+type c1 2
+conn c2 10
+src c2 J j1
+dst c2 S s1 4
+type c2 2
+reroute 1
+removejunc j1
+reroute 1
+#endscene
+#scene full-fixture-removeJunctions01
+router 2
+param 0 2
+param 1 0
+param 2 0
+param 3 4000
+param 4 9000
+param 5 0
+param 6 0
+param 7 16
+param 8 0
+option 0 0
+option 1 1
+option 2 0
+option 3 0
+option 4 1
+option 5 0
+option 6 1
+shape s1 1 4 450 330 490 330 490 450 450 450
+pin p1 s1 1 0 0.333333 1 10 0
+pinexcl p1 0
+pin p2 s1 2 0 0.666667 1 10 0
+pinexcl p2 0
+pin p2 s1 3 1 0.5 1 10 0
+pinexcl p2 0
+pin p2 s1 4 0.5 0 1 10 0
+pinexcl p2 0
+shape s2 8 4 502 237.5 502 262.5 438 262.5 438 237.5
+pin p2 s2 1 0 0.5 1 1 0
+pin p2 s2 2 1 0.5 1 1 0
+pin p2 s2 3 0.5 1 1 1 0
+pin p2 s2 4 0.5 0 1 1 0
+junction j1 6 470 300
+conn c1 9
+src c1 J j1
+dst c1 S s2 3
+type c1 2
+conn c2 10
+src c2 J j1
+dst c2 S s1 4
+type c2 2
+transaction
+removejunc j1
+transaction
+diagram removeJunctions01
+diagram removeJunctions01-final
+#endscene
+#scene fixture-tjunct
+router 2
+param 0 50
+param 1 0
+param 2 200
+param 3 4000
+param 4 105
+param 7 25
+junction j1 0 50700 51075
+rect s1 92712048 51246 50475 51304 50585
+rect s2 23127921 50365 50766 50485 50834
+rect s3 159957148 51740 50891 51860 50959
+rect s4 1350214 50375 51015 50625 51135
+rect s5 247197258 50265 51046 50375 51104
+rect s6 281096654 50700 50390 51000 50610
+connse c1 342420237 P 50425 50800 15 P 50710 50450 4
+connse c2 352019675 P 50990 50500 8 J j1
+connse c3 42699400 J j1 P 50615 51075 8
+connse c4 94712625 P 50710 50550 4 J j1
+connse c5 92802970 P 50990 50450 8 P 51275 50485 1
+connse c6 716502036 P 50710 50500 4 P 51800 50925 15
+reroute 1
+#endscene
+#scene full-fixture-tjunct
+router 2
+param 0 50
+param 1 0
+param 2 200
+param 3 4000
+param 4 105
+param 7 25
+junction j1 0 50700 51075
+rect s1 92712048 51246 50475 51304 50585
+rect s2 23127921 50365 50766 50485 50834
+rect s3 159957148 51740 50891 51860 50959
+rect s4 1350214 50375 51015 50625 51135
+rect s5 247197258 50265 51046 50375 51104
+rect s6 281096654 50700 50390 51000 50610
+connse c1 342420237 P 50425 50800 15 P 50710 50450 4
+connse c2 352019675 P 50990 50500 8 J j1
+connse c3 42699400 J j1 P 50615 51075 8
+connse c4 94712625 P 50710 50550 4 J j1
+connse c5 92802970 P 50990 50450 8 P 51275 50485 1
+connse c6 716502036 P 50710 50500 4 P 51800 50925 15
+transaction
+diagram tjunct
+diagram tjunct-final
+#endscene

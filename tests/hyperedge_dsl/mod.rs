@@ -1,0 +1,673 @@
+//! Interpreter of the scene DSL of `tools/oracle/hyperedge_oracle.cpp`
+//! (see the command reference there), shared by `tests/hyperedge_oracle.rs`
+//! and `tests/fixtures_hyperedge.rs`.
+
+#![allow(dead_code)]
+#![allow(clippy::uninlined_format_args, clippy::too_many_arguments)]
+
+use std::collections::{BTreeMap, HashMap, HashSet};
+
+use libavoid_rust::avoid::arena::{ConnIdx, PinIdx, VertIdx};
+use libavoid_rust::avoid::connectionpin::ShapeConnectionPin;
+use libavoid_rust::avoid::connector::{ConnRef, ConnType};
+use libavoid_rust::avoid::connend::{ConnEnd, ConnEndType};
+use libavoid_rust::avoid::geomtypes::{Point, Polygon, Rectangle};
+use libavoid_rust::avoid::hyperedge::{ConnEndList, HyperedgeRerouter};
+use libavoid_rust::avoid::hyperedgeimprover::HyperedgeImprover;
+use libavoid_rust::avoid::hyperedgetree::{HeEdgeIdx, HeNodeIdx, HyperedgeTreeStore};
+use libavoid_rust::avoid::junction::JunctionRef;
+use libavoid_rust::avoid::mtst::{vert_key, MinimumTerminalSpanningTree, VertexSet};
+use libavoid_rust::avoid::obstacle::Obstacle;
+use libavoid_rust::avoid::router::*;
+use libavoid_rust::avoid::shape::ShapeRef;
+use libavoid_rust::avoid::vertices::VertID;
+
+pub fn g17(v: f64) -> String {
+    if v.is_nan() {
+        return "nan".into();
+    }
+    format_g(v, 17)
+}
+
+pub fn pt(p: &Point) -> String {
+    format!("({},{})", g17(p.x), g17(p.y))
+}
+
+pub fn fnv(lines: &[String]) -> u64 {
+    let mut h: u64 = 1469598103934665603;
+    for s in lines {
+        for b in s.bytes().chain(std::iter::once(b'\n')) {
+            h ^= b as u64;
+            h = h.wrapping_mul(1099511628211);
+        }
+    }
+    h
+}
+
+pub const FULL_DUMP_LIMIT: usize = 200;
+
+pub fn out_lines(out: &mut Vec<String>, lines: Vec<String>) {
+    if lines.len() <= FULL_DUMP_LIMIT {
+        out.extend(lines);
+    } else {
+        out.push(format!("hash lines={} fnv={:016x}", lines.len(), fnv(&lines)));
+    }
+}
+
+pub fn poly_str(poly: &Polygon) -> String {
+    let v: Vec<String> = poly.ps.iter().map(pt).collect();
+    format!("[{}]", v.join(" "))
+}
+
+pub fn vid_str(id: &VertID) -> String {
+    format!("{},{},p={}", id.obj_id, id.vn, id.props)
+}
+
+pub fn end_str(r: &Router, e: &ConnEnd) -> String {
+    match e.type_() {
+        ConnEndType::ConnEndPoint => format!("P{}d{}", pt(&e.position(r)), e.directions(r)),
+        ConnEndType::ConnEndShapePin => format!("S{}:{}", e.shape(r).unwrap().id(r), e.pin_class_id()),
+        ConnEndType::ConnEndJunction => format!("J{}", e.junction(r).unwrap().id(r)),
+        _ => "E".into(),
+    }
+}
+
+pub type ConnIdMap = HashMap<ConnIdx, u32>;
+
+pub fn conn_id_map(r: &Router) -> ConnIdMap {
+    r.conn_refs.iter().map(|&c| (c, r.conns[c].m_id)).collect()
+}
+
+// Twin of the oracle's connListStr().
+pub fn conn_list_str(r: &Router, l: &[ConnIdx], m: &ConnIdMap) -> String {
+    let mut s = String::new();
+    for c in l {
+        if let Some(&id) = m.get(c) {
+            s += &format!(" {}", id);
+        } else if r.conn_refs.contains(c) {
+            s += &format!(" {}", r.conns[*c].m_id);
+        } else {
+            s += " dead";
+        }
+    }
+    s
+}
+
+pub fn junc_list_str(r: &Router, l: &[JunctionRef]) -> String {
+    let mut s = String::new();
+    for j in l {
+        s += &format!(" {}", j.id(r));
+    }
+    s
+}
+
+pub fn dump_conns_and_junctions(r: &mut Router, out: &mut Vec<String>) {
+    let mut lines = Vec::new();
+    for c in r.conn_refs.clone() {
+        let ends = r.conns[c].endpoint_conn_ends(r);
+        let conn = &r.conns[c];
+        lines.push(format!(
+            "C {} {} {} fixed={} route={} disp={}",
+            conn.m_id,
+            end_str(r, &ends.0),
+            end_str(r, &ends.1),
+            conn.has_fixed_route() as i32,
+            poly_str(conn.route()),
+            poly_str(&conn.m_display_route)
+        ));
+    }
+    for &o in r.m_obstacles.iter() {
+        if let Some(j) = Obstacle::as_junction(r, o) {
+            lines.push(format!(
+                "J {} pos={} rec={} fixed={} conns={}",
+                j.id(r),
+                pt(&j.position(r)),
+                pt(&j.recommended_position(r)),
+                j.position_fixed(r) as i32,
+                j.attached_connectors(r).len()
+            ));
+        }
+    }
+    out_lines(out, lines);
+}
+
+pub fn dump_rerouter_lists(r: &Router, pre: &ConnIdMap, out: &mut Vec<String>) {
+    let h = &r.m_hyperedge_rerouter;
+    for i in 0..h.m_new_junctions_vector.len() {
+        out.push(format!(
+            "RL {} newJ{} | newC{} | delJ{} | delC{}",
+            i,
+            junc_list_str(r, &h.m_new_junctions_vector[i]),
+            conn_list_str(r, &h.m_new_connectors_vector[i], &ConnIdMap::new()),
+            junc_list_str(r, &h.m_deleted_junctions_vector[i]),
+            conn_list_str(r, &h.m_deleted_connectors_vector[i], pre)
+        ));
+    }
+}
+
+pub fn dump_improver_lists(r: &Router, pre: &ConnIdMap, out: &mut Vec<String>) {
+    let h = &r.m_hyperedge_improver;
+    out.push(format!(
+        "IL newJ{} | newC{} | delJ{} | delC{} | chgC{}",
+        junc_list_str(r, &h.m_new_junctions),
+        conn_list_str(r, &h.m_new_connectors, &ConnIdMap::new()),
+        junc_list_str(r, &h.m_deleted_junctions),
+        conn_list_str(r, &h.m_deleted_connectors, pre),
+        conn_list_str(r, &h.m_changed_connectors, &ConnIdMap::new())
+    ));
+}
+
+pub struct Scene {
+    pub router: Option<Router>,
+    pub shapes: BTreeMap<String, ShapeRef>,
+    pub juncs: BTreeMap<String, JunctionRef>,
+    pub conns: BTreeMap<String, ConnIdx>,
+    pub pins: BTreeMap<String, PinIdx>,
+    pub stage: i32,
+    pub out: Vec<String>,
+    /// Called for `diagram NAME` (upstream `outputDiagram("output/NAME")`).
+    pub diagram: fn(&mut Router, &str),
+}
+
+pub struct Toks<'a> {
+    it: std::str::SplitWhitespace<'a>,
+}
+
+impl<'a> Toks<'a> {
+    fn word(&mut self) -> &'a str {
+        self.it.next().expect("missing token")
+    }
+    fn num(&mut self) -> f64 {
+        self.word().parse::<f64>().expect("bad number")
+    }
+    fn unum(&mut self) -> u32 {
+        self.word().parse::<u32>().expect("bad unsigned")
+    }
+    fn poly(&mut self) -> Polygon {
+        let n = self.unum() as usize;
+        let mut poly = Polygon::with_size(n);
+        for i in 0..n {
+            let x = self.num();
+            let y = self.num();
+            poly.ps[i] = Point::new(x, y);
+        }
+        poly
+    }
+}
+
+pub fn read_end(sc: &Scene, t: &mut Toks) -> ConnEnd {
+    let r = sc.router.as_ref().unwrap();
+    match t.word() {
+        "P" => {
+            let x = t.num();
+            let y = t.num();
+            let dirs = t.unum();
+            ConnEnd::from_point_dirs(Point::new(x, y), dirs)
+        }
+        "S" => {
+            let s = sc.shapes[t.word()];
+            let cls = t.unum();
+            ConnEnd::from_shape_pin(r, s, cls)
+        }
+        "J" => {
+            let j = sc.juncs[t.word()];
+            ConnEnd::from_junction(r, j)
+        }
+        k => panic!("bad end {}", k),
+    }
+}
+
+pub fn dump_tree_node(
+    r: &Router,
+    tree: &HyperedgeTreeStore,
+    node: HeNodeIdx,
+    parent: Option<HeEdgeIdx>,
+    depth: usize,
+    seen: &mut HashSet<HeNodeIdx>,
+    v_index: &HashMap<VertIdx, usize>,
+    lines: &mut Vec<String>,
+) {
+    let n = tree.node(node);
+    if seen.contains(&node) {
+        lines.push(format!("{}N revisit {}", " ".repeat(depth), pt(&n.point)));
+        return;
+    }
+    seen.insert(node);
+    let fv = match n.final_vertex {
+        None => "-".to_string(),
+        Some(v) => {
+            let idx = match v_index.get(&v) {
+                Some(i) => format!("{}", i),
+                None => "x".into(),
+            };
+            format!("{}[{}]", idx, vid_str(&r.vert_infs[v].id))
+        }
+    };
+    lines.push(format!(
+        "{}N {} j={} fv={} cs={} pd={} e={}",
+        " ".repeat(depth),
+        pt(&n.point),
+        match n.junction {
+            Some(j) => format!("{}", j.id(r)),
+            None => "-".into(),
+        },
+        fv,
+        n.is_connector_source as i32,
+        n.is_pin_dummy_endpoint as i32,
+        n.edges.len()
+    ));
+    for &e in n.edges.iter() {
+        if Some(e) == parent {
+            continue;
+        }
+        let child = tree.edge_follow_from(e, node);
+        dump_tree_node(r, tree, child, Some(e), depth + 1, seen, v_index, lines);
+    }
+}
+
+// Twin of the oracle's rerouteStage().
+pub fn reroute_stage(r: &mut Router, with_improver: bool, out: &mut Vec<String>) {
+    r.process_actions();
+    r.m_static_orthogonal_graph_invalidated = true;
+    let pre = conn_id_map(r);
+
+    {
+        let Router {
+            m_conn_reroute_flags,
+            conns,
+            ..
+        } = r;
+        m_conn_reroute_flags.alert_conns(conns);
+    }
+    r.regenerate_static_built_graph();
+    for c in r.conn_refs.clone() {
+        ConnRef::free_active_pins(r, c);
+    }
+    let hyperedge_conns = HyperedgeRerouter::calc_hyperedge_connectors(r);
+    for connector in r.conn_refs.clone() {
+        let key = libavoid_rust::avoid::arena::PtrKey::new(r.conns[connector].serial, connector);
+        if hyperedge_conns.contains(&key) {
+            continue;
+        }
+        if r.conns[connector].has_fixed_route() {
+            continue;
+        }
+        r.conns[connector].m_needs_repaint = false;
+        ConnRef::generate_path(r, connector);
+    }
+    HyperedgeRerouter::perform_rerouting(r);
+    r.improve_crossings();
+    out.push("after rerouting".into());
+    dump_rerouter_lists(r, &pre, out);
+    if with_improver {
+        let pre3 = conn_id_map(r);
+        let with_minor = r.routing_option(RoutingOption::ImproveHyperedgeRoutesMovingJunctions);
+        let with_major = r.routing_option(RoutingOption::ImproveHyperedgeRoutesMovingAddingAndDeletingJunctions);
+        if with_minor || with_major {
+            r.m_hyperedge_improver.clear();
+            HyperedgeImprover::execute(r, with_major);
+        }
+        out.push("after improver".into());
+        dump_improver_lists(r, &pre3, out);
+    }
+    dump_conns_and_junctions(r, out);
+}
+
+pub fn run_command(sc: &mut Scene, line: &str) {
+    let mut t = Toks {
+        it: line.split_whitespace(),
+    };
+    let cmd = match t.it.next() {
+        None => return,
+        Some(c) => c,
+    };
+    if cmd.starts_with('#') {
+        return;
+    }
+    if cmd == "router" {
+        let flags = t.unum();
+        sc.router = Some(Router::new(flags));
+        return;
+    }
+    match cmd {
+        "param" => {
+            let k = t.unum() as usize;
+            let v = t.num();
+            sc.router.as_mut().unwrap().set_routing_parameter(RoutingParameter::ALL[k], v);
+        }
+        "option" => {
+            let k = t.unum() as usize;
+            let v = t.unum();
+            sc.router.as_mut().unwrap().set_routing_option(RoutingOption::ALL[k], v != 0);
+        }
+        "shape" => {
+            let name = t.word().to_string();
+            let id = t.unum();
+            let poly = t.poly();
+            let s = ShapeRef::new(sc.router.as_mut().unwrap(), &poly, id);
+            sc.shapes.insert(name, s);
+        }
+        "rect" => {
+            let name = t.word().to_string();
+            let id = t.unum();
+            let x1 = t.num();
+            let y1 = t.num();
+            let x2 = t.num();
+            let y2 = t.num();
+            let rect = Rectangle::new(&Point::new(x1, y1), &Point::new(x2, y2));
+            let s = ShapeRef::new(sc.router.as_mut().unwrap(), &rect, id);
+            sc.shapes.insert(name, s);
+        }
+        "junction" => {
+            let name = t.word().to_string();
+            let id = t.unum();
+            let x = t.num();
+            let y = t.num();
+            let j = JunctionRef::new(sc.router.as_mut().unwrap(), Point::new(x, y), id);
+            sc.juncs.insert(name, j);
+        }
+        "fixj" => {
+            let j = sc.juncs[t.word()];
+            let v = t.unum();
+            j.set_position_fixed(sc.router.as_mut().unwrap(), v != 0);
+        }
+        "pin" => {
+            let name = t.word().to_string();
+            let s = sc.shapes[t.word()];
+            let cls = t.unum();
+            let xo = t.num();
+            let yo = t.num();
+            let prop = t.unum();
+            let inside = t.num();
+            let dirs = t.unum();
+            let p = ShapeConnectionPin::new_shape(sc.router.as_mut().unwrap(), s, cls, xo, yo, prop != 0, inside, dirs);
+            sc.pins.insert(name, p);
+        }
+        "pinexcl" => {
+            let p = sc.pins[t.word()];
+            let v = t.unum();
+            p.set_exclusive(sc.router.as_mut().unwrap(), v != 0);
+        }
+        "conn" => {
+            let name = t.word().to_string();
+            let id = t.unum();
+            let c = ConnRef::new(sc.router.as_mut().unwrap(), id);
+            sc.conns.insert(name, c);
+        }
+        "connse" => {
+            let name = t.word().to_string();
+            let id = t.unum();
+            let src = read_end(sc, &mut t);
+            let dst = read_end(sc, &mut t);
+            let c = ConnRef::new_with_ends(sc.router.as_mut().unwrap(), &src, &dst, id);
+            sc.conns.insert(name, c);
+        }
+        "src" | "dst" => {
+            let c = sc.conns[t.word()];
+            let end = read_end(sc, &mut t);
+            let r = sc.router.as_mut().unwrap();
+            if cmd == "src" {
+                c.set_source_endpoint(r, &end);
+            } else {
+                c.set_dest_endpoint(r, &end);
+            }
+        }
+        "move" => {
+            let s = sc.shapes[t.word()];
+            let dx = t.num();
+            let dy = t.num();
+            sc.router.as_mut().unwrap().move_shape_by(s, dx, dy);
+        }
+        "movej" => {
+            let j = sc.juncs[t.word()];
+            let dx = t.num();
+            let dy = t.num();
+            sc.router.as_mut().unwrap().move_junction_by(j, dx, dy);
+        }
+        "type" => {
+            let c = sc.conns[t.word()];
+            let ty = t.unum();
+            let ty = match ty {
+                0 => ConnType::ConnTypeNone,
+                1 => ConnType::ConnTypePolyLine,
+                2 => ConnType::ConnTypeOrthogonal,
+                _ => panic!("bad conn type"),
+            };
+            c.set_routing_type(sc.router.as_mut().unwrap(), ty);
+        }
+        "jpin" => {
+            let name = t.word().to_string();
+            let j = sc.juncs[t.word()];
+            let cls = t.unum();
+            let dirs = t.unum();
+            let p = ShapeConnectionPin::new_junction(sc.router.as_mut().unwrap(), j, cls, dirs);
+            sc.pins.insert(name, p);
+        }
+        "invalid" => {
+            let c = sc.conns[t.word()];
+            sc.router.as_mut().unwrap().conns[c].make_path_invalid();
+        }
+        "moveto" => {
+            let s = sc.shapes[t.word()];
+            let poly = t.poly();
+            sc.router.as_mut().unwrap().move_shape(s, &poly, false);
+        }
+        "delshape" => {
+            let name = t.word().to_string();
+            let s = sc.shapes.remove(&name).unwrap();
+            sc.router.as_mut().unwrap().delete_shape(s);
+        }
+        "deljunc" => {
+            let name = t.word().to_string();
+            let j = sc.juncs.remove(&name).unwrap();
+            sc.router.as_mut().unwrap().delete_junction(j);
+        }
+        "removejunc" => {
+            let j = sc.juncs[t.word()];
+            j.remove_junction_and_merge_connectors(sc.router.as_mut().unwrap());
+        }
+        "bindnewj" => {
+            let name = t.word().to_string();
+            let j = sc.router.as_ref().unwrap().m_hyperedge_improver.m_new_junctions[0];
+            sc.juncs.insert(name, j);
+        }
+        "bindnewc" => {
+            let name = t.word().to_string();
+            let c = sc.router.as_ref().unwrap().m_hyperedge_improver.m_new_connectors[0];
+            sc.conns.insert(name, c);
+        }
+        "diagram" => {
+            let name = t.word().to_string();
+            (sc.diagram)(sc.router.as_mut().unwrap(), &name);
+        }
+        "delconn" => {
+            let name = t.word().to_string();
+            let c = sc.conns.remove(&name).unwrap();
+            sc.router.as_mut().unwrap().delete_connector(c);
+        }
+        "prep" => {
+            let r = sc.router.as_mut().unwrap();
+            r.process_actions();
+            r.m_static_orthogonal_graph_invalidated = true;
+            r.regenerate_static_built_graph();
+            sc.out.push(format!(
+                "prep verts={}+{} edges={}",
+                r.vertices.conns_size(),
+                r.vertices.shapes_size(),
+                r.vis_orthog_graph.size()
+            ));
+        }
+        "route" => {
+            let c = sc.conns[t.word()];
+            let poly = t.poly();
+            sc.router.as_mut().unwrap().conns[c].m_display_route = poly;
+        }
+        "fixroute" => {
+            let c = sc.conns[t.word()];
+            let poly = t.poly();
+            c.set_fixed_route(sc.router.as_mut().unwrap(), &poly);
+        }
+        "mtst" => {
+            let mode = t.word().to_string();
+            let n = t.unum();
+            let mut terminals = VertexSet::new();
+            for _ in 0..n {
+                let e = read_end(sc, &mut t);
+                let r = sc.router.as_mut().unwrap();
+                let v = e.get_hyperedge_vertex(r);
+                terminals.insert(vert_key(r, v.1));
+            }
+            let r = sc.router.as_mut().unwrap();
+            let n_terminals = terminals.len();
+            let mut mtst = MinimumTerminalSpanningTree::new(terminals, true);
+            if mode == "seq" {
+                mtst.construct_sequential(r);
+            } else {
+                mtst.construct_interleaved(r);
+            }
+            let verts: Vec<VertIdx> = r.vertices.to_vec(&r.vert_infs);
+            let v_index: HashMap<VertIdx, usize> = verts.iter().enumerate().map(|(i, &v)| (v, i)).collect();
+            sc.out.push(format!(
+                "mtst {} terminals={} root={}",
+                mode,
+                n_terminals,
+                mtst.root_junction().is_some() as i32
+            ));
+            let mut lines = Vec::new();
+            if let Some(root) = mtst.root_junction() {
+                let mut seen = HashSet::new();
+                dump_tree_node(r, &mtst.tree, root, None, 0, &mut seen, &v_index, &mut lines);
+            }
+            out_lines(&mut sc.out, lines);
+            let mut lines = Vec::new();
+            for (i, &v) in verts.iter().enumerate() {
+                let vi = &r.vert_infs[v];
+                let pn = match vi.path_next {
+                    None => "-".to_string(),
+                    Some(p) => match v_index.get(&p) {
+                        Some(k) => format!("{}", k),
+                        None => "x".into(),
+                    },
+                };
+                lines.push(format!("V {} d={} pn={}", i, g17(vi.sptf_dist), pn));
+            }
+            let mut hs = String::from("H");
+            for (k, e) in r.vis_orthog_graph.to_vec(&r.edge_infs).iter().enumerate() {
+                if r.edge_infs[*e].is_hyperedge_segment() {
+                    hs += &format!(" {}", k);
+                }
+            }
+            lines.push(hs);
+            out_lines(&mut sc.out, lines);
+            if mtst.root_junction().is_some() {
+                mtst.destruct();
+            }
+            dump_conns_and_junctions(r, &mut sc.out);
+        }
+        "registerj" => {
+            let j = sc.juncs[t.word()];
+            sc.router
+                .as_mut()
+                .unwrap()
+                .hyperedge_rerouter()
+                .register_hyperedge_for_rerouting_junction(j);
+        }
+        "registerends" => {
+            let n = t.unum();
+            let mut ends = ConnEndList::new();
+            for _ in 0..n {
+                ends.push(read_end(sc, &mut t));
+            }
+            sc.router.as_mut().unwrap().hyperedge_rerouter().register_hyperedge_for_rerouting(ends);
+        }
+        "reroute" => {
+            let v = t.unum();
+            sc.out.push(format!("stage {} reroute {}", sc.stage, v));
+            sc.stage += 1;
+            reroute_stage(sc.router.as_mut().unwrap(), v != 0, &mut sc.out);
+        }
+        "improve" => {
+            let v = t.unum();
+            sc.out.push(format!("stage {} improve {}", sc.stage, v));
+            sc.stage += 1;
+            let r = sc.router.as_mut().unwrap();
+            let pre = conn_id_map(r);
+            r.m_hyperedge_improver.clear();
+            HyperedgeImprover::execute(r, v != 0);
+            dump_improver_lists(r, &pre, &mut sc.out);
+            dump_conns_and_junctions(r, &mut sc.out);
+        }
+        "transaction" => {
+            sc.out.push(format!("stage {} transaction", sc.stage));
+            sc.stage += 1;
+            let r = sc.router.as_mut().unwrap();
+            r.process_transaction();
+            let h = &r.m_hyperedge_improver;
+            sc.out.push(format!(
+                "IL counts {} {} {} {} {}",
+                h.m_new_junctions.len(),
+                h.m_new_connectors.len(),
+                h.m_deleted_junctions.len(),
+                h.m_deleted_connectors.len(),
+                h.m_changed_connectors.len()
+            ));
+            dump_conns_and_junctions(r, &mut sc.out);
+        }
+        _ => panic!("unknown command: {}", line),
+    }
+}
+
+pub struct GoldenScene {
+    pub name: String,
+    pub dsl: Vec<String>,
+    pub out: Vec<String>,
+}
+
+pub fn parse_golden(text: &str) -> Vec<GoldenScene> {
+    let mut scenes = Vec::new();
+    let mut cur: Option<GoldenScene> = None;
+    let mut in_out = false;
+    for line in text.lines() {
+        if let Some(name) = line.strip_prefix("#scene ") {
+            cur = Some(GoldenScene {
+                name: name.to_string(),
+                dsl: Vec::new(),
+                out: Vec::new(),
+            });
+            in_out = false;
+        } else if line == "#out" {
+            in_out = true;
+        } else if line == "#end" {
+            scenes.push(cur.take().unwrap());
+        } else if let Some(c) = cur.as_mut() {
+            if in_out {
+                c.out.push(line.to_string());
+            } else {
+                c.dsl.push(line.to_string());
+            }
+        }
+    }
+    scenes
+}
+
+pub fn run_scene(dsl: &[String]) -> Vec<String> {
+    run_scene_with(dsl, |_, _| {})
+}
+
+pub fn run_scene_with(dsl: &[String], diagram: fn(&mut Router, &str)) -> Vec<String> {
+    let mut sc = Scene {
+        diagram,
+        router: None,
+        shapes: BTreeMap::new(),
+        juncs: BTreeMap::new(),
+        conns: BTreeMap::new(),
+        pins: BTreeMap::new(),
+        stage: 0,
+        out: Vec::new(),
+    };
+    for line in dsl {
+        run_command(&mut sc, line);
+    }
+    sc.out
+}
+
