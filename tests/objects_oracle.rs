@@ -900,3 +900,103 @@ fn objects_oracle_matches_golden() {
         std::panic::resume_unwind(e);
     }
 }
+
+fn scenario_routed(o: &mut Out) {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    o.line("#### routed");
+    let log = Rc::new(RefCell::new(String::new()));
+    let cb = |id: u32, log: &Rc<RefCell<String>>| -> Box<dyn FnMut(ConnIdx)> {
+        let log = Rc::clone(log);
+        Box::new(move |_c: ConnIdx| {
+            log.borrow_mut().push_str(&format!("  callback conn={}\n", id));
+        })
+    };
+    let flush = |o: &mut Out, log: &Rc<RefCell<String>>| {
+        o.0.push_str(&log.borrow());
+        log.borrow_mut().clear();
+    };
+    let mut r = Router::new(ORTHOGONAL_ROUTING);
+    r.set_routing_parameter(RoutingParameter::SegmentPenalty, 50.0);
+    let pa = rect(0.0, 0.0, 40.0, 40.0);
+    let a = ShapeRef::new(&mut r, &pa, 1);
+    let pb = rect(200.0, 100.0, 240.0, 140.0);
+    let b = ShapeRef::new(&mut r, &pb, 2);
+    ShapeConnectionPin::new_shape(&mut r, a, 1, ATTACH_POS_RIGHT, ATTACH_POS_CENTRE, true, 0.0, CONN_DIR_RIGHT);
+    ShapeConnectionPin::new_shape(&mut r, a, 1, ATTACH_POS_CENTRE, ATTACH_POS_BOTTOM, true, 0.0, CONN_DIR_DOWN);
+    ShapeConnectionPin::new_shape(&mut r, b, 1, ATTACH_POS_LEFT, ATTACH_POS_CENTRE, true, 0.0, CONN_DIR_LEFT);
+    ShapeConnectionPin::new_shape(&mut r, b, 1, ATTACH_POS_CENTRE, ATTACH_POS_TOP, true, 0.0, CONN_DIR_UP);
+    let (ea, eb) = (ConnEnd::from_shape_pin(&r, a, 1), ConnEnd::from_shape_pin(&r, b, 1));
+    let c1 = ConnRef::new_with_ends(&mut r, &ea, &eb, 10);
+    c1.set_callback(&mut r, Some(cb(10, &log)));
+    let c2 = ConnRef::new_with_ends(
+        &mut r,
+        &ConnEnd::from_point(Point::new(100.0, -50.0)),
+        &ConnEnd::from_point(Point::new(100.0, 200.0)),
+        11,
+    );
+    c2.set_callback(&mut r, Some(cb(11, &log)));
+    let j = JunctionRef::new(&mut r, Point::new(120.0, 250.0), 3);
+    let ej = ConnEnd::from_junction(&r, j);
+    let c3 = ConnRef::new_with_ends(&mut r, &ea, &ej, 12);
+    let c4 = ConnRef::new_with_ends(&mut r, &ej, &eb, 13);
+    c3.set_callback(&mut r, Some(cb(12, &log)));
+    c4.set_callback(&mut r, Some(cb(13, &log)));
+    let mut callbacks = 0usize;
+    let t = r.process_transaction();
+    callbacks += r.m_callback_log.len();
+    flush(o, &log);
+    o.line(&format!("transaction={}", t as i32));
+    o.line(&format!("callbacks={}", callbacks));
+    o.dump(&mut r, "routed");
+    r.move_shape_by(b, 0.0, 30.0);
+    let t = r.process_transaction();
+    callbacks += r.m_callback_log.len();
+    flush(o, &log);
+    o.line(&format!("transaction={}", t as i32));
+    o.line(&format!("callbacks={}", callbacks));
+    o.dump(&mut r, "routed-moved");
+    o.line(&format!("transaction-empty={}", r.process_transaction() as i32));
+    r.set_routing_parameter(RoutingParameter::CrossingPenalty, CHOOSE_SENSIBLE_PARAM_VALUE);
+    let t = r.process_transaction();
+    callbacks += r.m_callback_log.len();
+    flush(o, &log);
+    o.line(&format!("transaction-settings={}", t as i32));
+    o.line(&format!("callbacks={}", callbacks));
+    let line = format!(
+        "overlap={} fixedOverlap={} touching={} crossings={}/{} invalid={}",
+        r.exists_orthogonal_segment_overlap(true) as i32,
+        r.exists_orthogonal_fixed_segment_overlap(true) as i32,
+        r.exists_orthogonal_touching_paths() as i32,
+        r.exists_crossings(false),
+        r.exists_crossings(true),
+        r.exists_invalid_orthogonal_paths() as i32
+    );
+    o.line(&line);
+    o.dump(&mut r, "routed-crossing-penalty");
+    let text = r.output_diagram_text_g();
+    o.0.push_str(&text);
+    r.destruct();
+}
+
+#[test]
+#[ignore = "needs routing: visibility.rs, makepath.rs, orthogonal.rs, hyperedge*.rs and ConnectorCrossings are todo! stubs"]
+fn objects_oracle_routed_matches_golden() {
+    let golden =
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/golden/objects_oracle_routed.txt"))
+            .expect("golden file");
+    let mut o = Out(String::new());
+    scenario_routed(&mut o);
+    let ours = o.0;
+    if ours != golden {
+        let gl: Vec<&str> = golden.lines().collect();
+        let ol: Vec<&str> = ours.lines().collect();
+        for i in 0..gl.len().max(ol.len()) {
+            let g = gl.get(i).copied().unwrap_or("<EOF>");
+            let m = ol.get(i).copied().unwrap_or("<EOF>");
+            assert_eq!(g, m, "routed oracle mismatch at line {}", i + 1);
+        }
+        panic!("routed oracle mismatch (trailing newline?)");
+    }
+}

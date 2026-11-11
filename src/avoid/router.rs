@@ -2509,3 +2509,227 @@ impl Router {
         self.m_hyperedge_improver.new_and_deleted_object_lists()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::avoid::connectionpin::{ShapeConnectionPin, ATTACH_POS_CENTRE, ATTACH_POS_LEFT, ATTACH_POS_TOP};
+    use crate::avoid::connend::{CONN_DIR_ALL, CONN_DIR_LEFT, CONN_DIR_NONE};
+    use crate::avoid::geomtypes::Rectangle;
+    use crate::avoid::vertices::VertID;
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    fn rect(x1: f64, y1: f64, x2: f64, y2: f64) -> Polygon {
+        Rectangle::new(&Point::new(x1, y1), &Point::new(x2, y2))
+    }
+
+    #[test]
+    fn format_g_matches_c_printf() {
+        assert_eq!(format_g(1.0 / 3.0, 6), "0.333333");
+        assert_eq!(format_g(123456789.0 - 100.0, 6), "1.23457e+08");
+        assert_eq!(format_g(1e-7, 6), "1e-07");
+        assert_eq!(format_g(100.0, 6), "100");
+        assert_eq!(format_g(-0.0, 6), "-0");
+        assert_eq!(format_g(0.0001, 6), "0.0001");
+        assert_eq!(format_g(0.00001, 6), "1e-05");
+        assert_eq!(format_g(1e21, 17), "1e+21");
+        assert_eq!(format_g(0.1, 17), "0.10000000000000001");
+        assert_eq!(format_g(50695.0, 17), "50695");
+        assert_eq!(format_g(f64::INFINITY, 6), "inf");
+    }
+
+    #[test]
+    fn pin_set_ignores_equal_pins_and_erases_by_key() {
+        let mut r = Router::new(ORTHOGONAL_ROUTING);
+        let s = ShapeRef::new(&mut r, &rect(0.0, 0.0, 10.0, 10.0), 1);
+        let p1 = ShapeConnectionPin::new_shape(&mut r, s, 1, ATTACH_POS_LEFT, ATTACH_POS_TOP, true, 0.0, CONN_DIR_NONE);
+        let p2 = ShapeConnectionPin::new_shape(&mut r, s, 1, ATTACH_POS_LEFT, ATTACH_POS_TOP, true, 0.0, CONN_DIR_NONE);
+        let p3 =
+            ShapeConnectionPin::new_shape(&mut r, s, 1, ATTACH_POS_CENTRE, ATTACH_POS_TOP, true, 0.0, CONN_DIR_NONE);
+        // p2 is "equal" to p1 under operator<, so std::set::insert ignores it.
+        assert_eq!(s.connection_pins(&r), vec![p1, p3]);
+        // erase(p2) erases the equal element p1 (std::set::erase by key).
+        let mut set = r.obstacles[s.0].m_connection_pins.clone();
+        assert_eq!(set.erase(&r.pins, &r.obstacles, p2), 1);
+        assert_eq!(set.items, vec![p3]);
+        assert_eq!(set.erase(&r.pins, &r.obstacles, p1), 0);
+        // All three pins have vertices in the router's list.
+        assert_eq!(r.vertices.conns_size(), 3);
+        r.process_actions();
+        r.destruct();
+        // The duplicate pin is never deleted (as upstream, where it leaks).
+        assert_eq!(r.vertices.conns_size(), 1);
+        assert!(r.pins.contains(p2));
+        assert!(!r.pins.contains(p1));
+    }
+
+    #[test]
+    fn destruct_frees_connectors_and_obstacles() {
+        let mut r = Router::new(ORTHOGONAL_ROUTING);
+        let a = ShapeRef::new(&mut r, &rect(0.0, 0.0, 10.0, 10.0), 0);
+        ShapeConnectionPin::new_shape(&mut r, a, 1, ATTACH_POS_LEFT, ATTACH_POS_TOP, true, 0.0, CONN_DIR_NONE);
+        let j = JunctionRef::new(&mut r, Point::new(30.0, 30.0), 0);
+        let ea = ConnEnd::from_shape_pin(&r, a, 1);
+        let ej = ConnEnd::from_junction(&r, j);
+        ConnRef::new_with_ends(&mut r, &ea, &ej, 0);
+        r.process_actions();
+        assert_eq!(r.conn_refs.len(), 1);
+        assert_eq!(r.m_obstacles.len(), 2);
+        r.destruct();
+        assert!(r.conn_refs.is_empty());
+        assert!(r.m_obstacles.is_empty());
+        assert_eq!(r.vertices.conns_size() + r.vertices.shapes_size(), 0);
+        assert!(r.conns.is_empty() && r.obstacles.is_empty() && r.pins.is_empty());
+        assert!(r.vert_infs.is_empty());
+    }
+
+    #[test]
+    fn callbacks_record_and_receive_handle() {
+        let mut r = Router::new(ORTHOGONAL_ROUTING);
+        let c = ConnRef::new(&mut r, 0);
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let seen2 = Rc::clone(&seen);
+        c.set_callback(&mut r, Some(std::boxed::Box::new(move |h| seen2.borrow_mut().push(h))));
+        ConnRef::perform_callback(&mut r, c);
+        let d = ConnRef::new(&mut r, 0);
+        ConnRef::perform_callback(&mut r, d); // no callback: not logged
+        assert_eq!(*seen.borrow(), vec![c]);
+        assert_eq!(r.m_callback_log, vec![c]);
+    }
+
+    #[test]
+    fn reroute_flag_delegate_alerts_live_connectors() {
+        let mut r = Router::new(ORTHOGONAL_ROUTING);
+        let c1 = ConnRef::new(&mut r, 0);
+        let c2 = ConnRef::new(&mut r, 0);
+        r.conns[c1].m_needs_reroute_flag = false;
+        r.conns[c2].m_needs_reroute_flag = false;
+        let f1 = r.conns[c1].m_reroute_flag_ptr.unwrap();
+        let f2 = r.conns[c2].m_reroute_flag_ptr.unwrap();
+        *r.m_conn_reroute_flags.flag_mut(f1) = true;
+        *r.m_conn_reroute_flags.flag_mut(f2) = true;
+        r.m_conn_reroute_flags.remove_conn(c2);
+        let Router {
+            m_conn_reroute_flags,
+            conns,
+            ..
+        } = &mut r;
+        m_conn_reroute_flags.alert_conns(conns);
+        assert!(r.conns[c1].m_needs_reroute_flag);
+        assert!(!r.conns[c2].m_needs_reroute_flag);
+        assert!(!*r.m_conn_reroute_flags.flag_mut(f1));
+        // Flags of removed connectors are left alone.
+        assert!(*r.m_conn_reroute_flags.flag_mut(f2));
+    }
+
+    #[test]
+    fn action_list_sort_order() {
+        let mut r = Router::new(ORTHOGONAL_ROUTING);
+        let s5 = ShapeRef::new(&mut r, &rect(0.0, 0.0, 1.0, 1.0), 5);
+        let s2 = ShapeRef::new(&mut r, &rect(0.0, 0.0, 1.0, 1.0), 2);
+        let c9 = ConnRef::new(&mut r, 9);
+        let c3 = ConnRef::new(&mut r, 3);
+        let p_late = ShapeConnectionPin::new_shape(&mut r, s5, 1, 0.5, 0.5, true, 0.0, CONN_DIR_ALL);
+        let p_early = ShapeConnectionPin::new_shape(&mut r, s2, 1, 0.5, 0.5, true, 0.0, CONN_DIR_ALL);
+        r.modify_connector(c9);
+        r.modify_connector(c3);
+        r.move_shape(s5, &rect(1.0, 1.0, 2.0, 2.0), false); // folded into the add
+        let list = std::mem::take(&mut r.action_list);
+        let sorted = libstdcxx_list_sort(list, &mut |a: &ActionInfo, b: &ActionInfo| a.less_than(b));
+        let summary: Vec<(ActionType, u32)> = sorted.iter().map(|a| (a.type_, a.obj_id)).collect();
+        assert_eq!(
+            summary,
+            vec![
+                (ActionType::ShapeAdd, 2),
+                (ActionType::ShapeAdd, 5),
+                (ActionType::ConnChange, 3),
+                (ActionType::ConnChange, 9),
+                (ActionType::ConnectionPinChange, 0),
+                (ActionType::ConnectionPinChange, 0),
+            ]
+        );
+        // Pin changes are ordered by creation serial (PTR-ORDER).
+        assert_eq!(sorted[4].obj_ptr, ActionObj::Pin(p_late));
+        assert_eq!(sorted[5].obj_ptr, ActionObj::Pin(p_early));
+        assert_eq!(r.obstacles[s5.0].m_polygon.ps[0], Point::new(2.0, 1.0));
+    }
+
+    #[test]
+    fn deleting_connector_removes_its_queued_actions() {
+        let mut r = Router::new(ORTHOGONAL_ROUTING);
+        let c = ConnRef::new(&mut r, 0);
+        c.set_source_endpoint(&mut r, &ConnEnd::from_point(Point::new(1.0, 1.0)));
+        assert_eq!(r.action_list.len(), 1);
+        r.delete_connector(c);
+        assert!(r.action_list.is_empty());
+        assert!(!r.conns.contains(c));
+    }
+
+    #[test]
+    fn junction_merge_uses_creation_order() {
+        // PTR-ORDER: the first ConnEnd in creation order survives here; the
+        // C++ result depends on malloc addresses.
+        let mut r = Router::new(ORTHOGONAL_ROUTING);
+        let j = JunctionRef::new(&mut r, Point::new(50.0, 50.0), 0);
+        let s = ShapeRef::new(&mut r, &rect(90.0, 40.0, 110.0, 60.0), 0);
+        ShapeConnectionPin::new_shape(&mut r, s, 1, ATTACH_POS_LEFT, ATTACH_POS_CENTRE, true, 0.0, CONN_DIR_LEFT);
+        let ej = ConnEnd::from_junction(&r, j);
+        let es = ConnEnd::from_shape_pin(&r, s, 1);
+        let c1 = ConnRef::new_with_ends(&mut r, &ConnEnd::from_point(Point::new(0.0, 50.0)), &ej, 0);
+        let c2 = ConnRef::new_with_ends(&mut r, &ej, &es, 0);
+        r.process_actions();
+        let merged = j.remove_junction_and_merge_connectors(&mut r);
+        assert_eq!(merged, Some(c1));
+        assert!(!r.conns.contains(c2));
+        r.process_actions();
+        let ends = c1.endpoint_conn_ends(&r);
+        assert_eq!(ends.1.m_anchor_obj, Some(s.0));
+        assert_eq!(r.m_obstacles, vec![s.0]);
+        assert_eq!(r.conns[c1].m_dst_connend.as_ref().unwrap().m_conn_ref, Some(c1));
+        let _ = VertID::SRC;
+    }
+
+    #[test]
+    fn crossing_connectors_info_groups_and_removal() {
+        let mut r = Router::new(ORTHOGONAL_ROUTING);
+        let cs: Vec<ConnIdx> = (0..5).map(|_| ConnRef::new(&mut r, 0)).collect();
+        for (n, &c) in cs.iter().enumerate() {
+            // Longer display routes have higher estimated cost.
+            let mut route = Polygon::new();
+            route.ps.push(Point::new(0.0, 0.0));
+            route.ps.push(Point::new(10.0 * (n + 1) as f64, 0.0));
+            r.conns[c].set_route(&route);
+        }
+        let mut info = CrossingConnectorsInfo::default();
+        info.add_crossing(&r, cs[0], cs[1]);
+        info.add_crossing(&r, cs[2], cs[3]);
+        assert_eq!(info.pairs_set_list.len(), 2);
+        assert!(info.conns_known_to_cross(&r, cs[1], cs[0]));
+        assert!(!info.conns_known_to_cross(&r, cs[1], cs[2]));
+        // Joining the two groups merges them.
+        info.add_crossing(&r, cs[1], cs[3]);
+        assert_eq!(info.pairs_set_list.len(), 1);
+        info.add_crossing(&r, cs[4], cs[0]);
+        let sets = info.crossing_sets_list_to_remove_crossings_from_groups(&mut r);
+        assert_eq!(sets.len(), 1);
+        // cs[0] and cs[1] (and cs[3]) have two crossings each, the tie is
+        // broken by estimated cost: cs[3] first, then cs[0].
+        let chosen: Vec<u32> = sets[0].keys().copied().collect();
+        let id = |c: ConnIdx| r.conns[c].m_id;
+        assert_eq!(chosen, vec![id(cs[0]), id(cs[3])]);
+        assert_eq!(sets[0][&id(cs[3])].0, 2.0);
+    }
+
+    #[test]
+    fn valid_conn_type_and_parameter_defaults() {
+        let r = Router::new(POLY_LINE_ROUTING | ORTHOGONAL_ROUTING);
+        assert_eq!(r.valid_conn_type(ConnType::ConnTypeNone), ConnType::ConnTypePolyLine);
+        assert_eq!(r.valid_conn_type(ConnType::ConnTypeOrthogonal), ConnType::ConnTypeOrthogonal);
+        let mut r = Router::new(ORTHOGONAL_ROUTING);
+        r.set_routing_parameter(RoutingParameter::ReverseDirectionPenalty, -3.0);
+        assert_eq!(r.routing_parameter(RoutingParameter::ReverseDirectionPenalty), 50.0);
+        assert!(r.m_settings_changes);
+        let _ = CONN_DIR_LEFT;
+    }
+}

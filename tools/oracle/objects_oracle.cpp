@@ -18,6 +18,11 @@
 //       tools/oracle/objects_oracle.cpp "$VENDOR"/libavoid/*.cpp \
 //       -o /tmp/objects_oracle
 //   (cd /tmp && ./objects_oracle) > tests/golden/objects_oracle.txt
+//   (cd /tmp && ./objects_oracle routed) > tests/golden/objects_oracle_routed.txt
+//
+// The "routed" mode runs scenarios that need processTransaction() (full
+// routing); its Rust counterpart is #[ignore]d until visibility, makepath
+// and orthogonal routing are ported.
 //
 // (-fno-access-control lets us read private members; asserts stay enabled.
 // The program writes and removes one scratch file, objects_oracle_diagram.txt,
@@ -841,8 +846,77 @@ static void scenarioDiagram(void)
     delete r;
 }
 
-int main(void)
+static int g_callbacks = 0;
+
+static void countCallback(void *ptr)
 {
+    ConnRef *conn = (ConnRef *) ptr;
+    printf("  callback conn=%u\n", conn->id());
+    ++g_callbacks;
+}
+
+// Scenarios that need full routing (processTransaction).  Their golden is
+// tests/golden/objects_oracle_routed.txt; the Rust test is #[ignore]d until
+// visibility/makepath/orthogonal are ported.
+static void scenarioRouted(void)
+{
+    printf("#### routed\n");
+    Router *r = new Router(OrthogonalRouting);
+    r->setRoutingParameter(segmentPenalty, 50);
+    Polygon pa = rect(0, 0, 40, 40);
+    ShapeRef *a = new ShapeRef(r, pa, 1);
+    Polygon pb = rect(200, 100, 240, 140);
+    ShapeRef *b = new ShapeRef(r, pb, 2);
+    new ShapeConnectionPin(a, 1, ATTACH_POS_RIGHT, ATTACH_POS_CENTRE, true, 0.0, ConnDirRight);
+    new ShapeConnectionPin(a, 1, ATTACH_POS_CENTRE, ATTACH_POS_BOTTOM, true, 0.0, ConnDirDown);
+    new ShapeConnectionPin(b, 1, ATTACH_POS_LEFT, ATTACH_POS_CENTRE, true, 0.0, ConnDirLeft);
+    new ShapeConnectionPin(b, 1, ATTACH_POS_CENTRE, ATTACH_POS_TOP, true, 0.0, ConnDirUp);
+    ConnRef *c1 = new ConnRef(r, ConnEnd(a, 1), ConnEnd(b, 1), 10);
+    c1->setCallback(countCallback, c1);
+    ConnRef *c2 = new ConnRef(r, ConnEnd(Point(100, -50)), ConnEnd(Point(100, 200)), 11);
+    c2->setCallback(countCallback, c2);
+    JunctionRef *j = new JunctionRef(r, Point(120, 250), 3);
+    ConnRef *c3 = new ConnRef(r, ConnEnd(a, 1), ConnEnd(j), 12);
+    ConnRef *c4 = new ConnRef(r, ConnEnd(j), ConnEnd(b, 1), 13);
+    c3->setCallback(countCallback, c3);
+    c4->setCallback(countCallback, c4);
+    printf("transaction=%d\n", (int) r->processTransaction());
+    printf("callbacks=%d\n", g_callbacks);
+    dump(r, "routed");
+    r->moveShape(b, 0, 30);
+    printf("transaction=%d\n", (int) r->processTransaction());
+    printf("callbacks=%d\n", g_callbacks);
+    dump(r, "routed-moved");
+    printf("transaction-empty=%d\n", (int) r->processTransaction());
+    r->setRoutingParameter(crossingPenalty);
+    printf("transaction-settings=%d\n", (int) r->processTransaction());
+    printf("callbacks=%d\n", g_callbacks);
+    printf("overlap=%d fixedOverlap=%d touching=%d crossings=%d/%d invalid=%d\n",
+            (int) r->existsOrthogonalSegmentOverlap(true),
+            (int) r->existsOrthogonalFixedSegmentOverlap(true),
+            (int) r->existsOrthogonalTouchingPaths(),
+            r->existsCrossings(false), r->existsCrossings(true),
+            (int) r->existsInvalidOrthogonalPaths());
+    dump(r, "routed-crossing-penalty");
+    r->outputDiagramText("objects_oracle_diagram");
+    FILE *fp = fopen("objects_oracle_diagram.txt", "r");
+    int ch;
+    while ((ch = fgetc(fp)) != EOF)
+    {
+        putchar(ch);
+    }
+    fclose(fp);
+    remove("objects_oracle_diagram.txt");
+    delete r;
+}
+
+int main(int argc, char **argv)
+{
+    if (argc > 1 && std::string(argv[1]) == "routed")
+    {
+        scenarioRouted();
+        return 0;
+    }
     scenarioDefaults();
     scenarioIds();
     scenarioActions();
