@@ -38,6 +38,29 @@
 //! `tools/oracle/orthogonal_vis_oracle.cpp`).  `CmpNodePos` ties do not
 //! influence this graph (all scanline queries here are symmetric), only
 //! `buildOrthogonalChannelInfo`.
+//!
+//! # Nudging: sorts, ties and pointer order
+//! * `NudgingShiftSegment::mergeWith` `std::sort(indexes, CmpIndexes)`:
+//!   ties (equal alt-dimension coordinates) cannot matter -- every merged
+//!   index gets the same `dimension` coordinate right after the sort, so
+//!   tied indexes name equal points, and only point values and the index
+//!   set are used later.  Ported as libstdc++'s `__insertion_sort` (exactly
+//!   what `std::sort` runs for <= 16 elements).
+//! * `linesort` (partial order `CmpLineOrder` with the `comparable` flag):
+//!   upstream's hand-written insertion/deferral algorithm, ported verbatim.
+//! * `potentialConstraints.sort()` (`std::list::sort`, stable merge sort):
+//!   a stable sort of a strict weak order yields a unique permutation, so
+//!   `slice::sort_by` (stable) is identical; ties keep list order.
+//! * `buildOrthogonalChannelInfo` (scanline.rs) breaks `CmpNodePos` ties by
+//!   `ShiftSegment*` / `Obstacle*` address (`// PTR-ORDER:` there); each
+//!   `NudgingShiftSegment` takes its creation serial at the upstream
+//!   `new NudgingShiftSegment` site, i.e. after every obstacle.
+//! * Everything else is pointer *identity* (`connRef == rhs->connRef`,
+//!   `constraint->left == vs[i]`), never pointer order; region building and
+//!   VPSC variable/constraint creation follow list order exactly.
+//!   `m_shared_path_connectors_with_common_endpoints` is keyed by connector
+//!   ids (`UnsignedPair`, truncated to `unsigned short` as upstream) and only
+//!   queried with `count()`.
 
 #![allow(dead_code)]
 #![allow(
@@ -60,7 +83,7 @@ use crate::avoid::geomtypes::{cpp_max, cpp_min, Point, PointOrd, Polygon, Polygo
 use crate::avoid::graph::EdgeInf;
 use crate::avoid::obstacle::Obstacle;
 use crate::avoid::router::{
-    Router, RoutingOption, RoutingParameter, TRANSACTION_PHASE_ORTHOGONAL_NUDGING_X,
+    format_g, Router, RoutingOption, RoutingParameter, TRANSACTION_PHASE_ORTHOGONAL_NUDGING_X,
     TRANSACTION_PHASE_ORTHOGONAL_NUDGING_Y, TRANSACTION_PHASE_ORTHOGONAL_VISIBILITY_GRAPH_SCAN_X,
     TRANSACTION_PHASE_ORTHOGONAL_VISIBILITY_GRAPH_SCAN_Y,
 };
@@ -1540,6 +1563,44 @@ pub fn generate_static_orthogonal_vis_graph(router: &mut Router) {
 //   `constraint->left == vs[range.first]` become index comparisons (each
 //   variable occurs exactly once in `vs`).
 
+/// Test hook (not upstream): when enabled, `nudgeOrthogonalRoutes` records
+/// every region's sorted segment list and the VPSC result, in the format
+/// of the trace calls that `tools/oracle/nudging_oracle.sh` patches into a
+/// copy of the C++ (`tests/nudging_oracle.rs`).  Disabled by default; the
+/// trace is per thread.
+pub fn nudge_oracle_trace_enable(enable: bool) {
+    NUDGE_ORACLE_TRACE.with(|t| *t.borrow_mut() = if enable { Some(Vec::new()) } else { None });
+}
+
+/// Takes the lines recorded since the last call (see
+/// [`nudge_oracle_trace_enable`]).
+pub fn nudge_oracle_trace_take() -> Vec<String> {
+    NUDGE_ORACLE_TRACE.with(|t| t.borrow_mut().as_mut().map(std::mem::take).unwrap_or_default())
+}
+
+thread_local! {
+    static NUDGE_ORACLE_TRACE: std::cell::RefCell<Option<Vec<String>>> = const { std::cell::RefCell::new(None) };
+}
+
+fn nudge_oracle_tracing() -> bool {
+    NUDGE_ORACLE_TRACE.with(|t| t.borrow().is_some())
+}
+
+fn nudge_oracle_trace(s: String) {
+    NUDGE_ORACLE_TRACE.with(|t| {
+        if let Some(v) = t.borrow_mut().as_mut() {
+            v.push(s);
+        }
+    });
+}
+
+fn nudge_oracle_g17(v: f64) -> String {
+    if v.is_nan() {
+        return "nan".to_string();
+    }
+    format_g(v, 17)
+}
+
 /// libstdc++ `std::__insertion_sort`, which is exactly what `std::sort`
 /// does for ranges of at most 16 elements (`__introsort_loop` returns
 /// immediately and `__final_insertion_sort` insertion-sorts the range).
@@ -2601,6 +2662,38 @@ impl ImproveOrthogonalRoutes {
                 current_region = linesort(router, nudge_final_segments, current_region, &mut line_sort_comp);
             }
 
+            if nudge_oracle_tracing() {
+                let o_alt_dim = (dimension + 1) % 2;
+                nudge_oracle_trace(format!(
+                    "R d={} u={} n={}",
+                    dimension,
+                    just_unifying as i32,
+                    current_region.len()
+                ));
+                for g in current_region.iter() {
+                    let mut t = format!("S c={} i=", router.conns[g.conn_ref].id());
+                    for (k, ix) in g.indexes.iter().enumerate() {
+                        t += &format!("{}{}", if k > 0 { "," } else { "" }, ix);
+                    }
+                    t += &format!(
+                        " p={} a={},{} lim={},{} f={}{}{}{}{}{} cp={}",
+                        nudge_oracle_g17(g.low_point_of(router)[dimension]),
+                        nudge_oracle_g17(g.low_point_of(router)[o_alt_dim]),
+                        nudge_oracle_g17(g.high_point_of(router)[o_alt_dim]),
+                        nudge_oracle_g17(g.base.min_space_limit),
+                        nudge_oracle_g17(g.base.max_space_limit),
+                        g.fixed as i32,
+                        g.final_segment as i32,
+                        g.ends_in_shape as i32,
+                        g.single_connected_segment as i32,
+                        g.s_bend as i32,
+                        g.z_bend as i32,
+                        g.checkpoints.len()
+                    );
+                    nudge_oracle_trace(t);
+                }
+            }
+
             if current_region.len() == 1 {
                 // Save creating the solver instance if there is just one
                 // immovable segment, or if we are in the unifying stage.
@@ -2842,13 +2935,21 @@ impl ImproveOrthogonalRoutes {
                             cs.pop();
                         } else {
                             // We could position these two segments together.
-                            let pc = *potential_constraints.front().unwrap();
+                            // (Upstream `pc` is a *reference* to the front
+                            // element, and the loop below rewrites that very
+                            // element first: afterwards pc.index1 ==
+                            // pc.index2, so every later rewriteIndex() call is
+                            // a no-op.  The arguments are re-read from the
+                            // front element on every iteration to keep that
+                            // aliasing behaviour exactly.)
 
                             // Rewrite the indexes of these two variables to
                             // one, so we need not worry about redundant
                             // equality constraints.
-                            for it in potential_constraints.iter_mut() {
-                                it.rewrite_index(pc.index1, pc.index2);
+                            for it in 0..potential_constraints.len() {
+                                let (pc_index1, pc_index2) =
+                                    (potential_constraints[0].index1, potential_constraints[0].index2);
+                                potential_constraints[it].rewrite_index(pc_index1, pc_index2);
                             }
                             potential_constraints.pop_front();
                         }
@@ -2930,6 +3031,35 @@ impl ImproveOrthogonalRoutes {
 
                 if !(!satisfied && (sep_dist > 0.0001)) {
                     break;
+                }
+            }
+
+            if nudge_oracle_tracing() {
+                nudge_oracle_trace(format!(
+                    "X sat={} sep={} nv={} nc={}",
+                    satisfied as i32,
+                    nudge_oracle_g17(sep_dist),
+                    vs.len(),
+                    cs.len()
+                ));
+                for v in vs.iter() {
+                    nudge_oracle_trace(format!(
+                        "v {} {} {} {}",
+                        v.id,
+                        nudge_oracle_g17(v.desired_position),
+                        nudge_oracle_g17(v.final_position),
+                        nudge_oracle_g17(v.weight)
+                    ));
+                }
+                for c in cs.iter() {
+                    nudge_oracle_trace(format!(
+                        "k {} {} {} {} {}",
+                        c.left,
+                        c.right,
+                        nudge_oracle_g17(c.gap),
+                        c.equality as i32,
+                        c.unsatisfiable as i32
+                    ));
                 }
             }
 
