@@ -252,6 +252,12 @@ impl AvoidRouter {
         })
     }
 
+    /// Number of transactions processed so far (Rust-only diagnostic used
+    /// by the wrapper tests).
+    pub fn transaction_count(&self) -> u64 {
+        self.transactions.get()
+    }
+
     /// Read access to the wrapped core router (for tests and Rust users).
     pub fn core(&self) -> &Router {
         &self.router
