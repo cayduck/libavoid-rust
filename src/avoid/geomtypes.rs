@@ -979,7 +979,7 @@ mod tests {
         p.vn = 2;
         cluster.ps.push(p);
         cluster.ps.push(Point::new(50.0, 50.0)); // id 0: copied by value
-        let rp = ReferencingPolygon::from_polygon(&cluster, vec![(7u32, ObstacleIdx(0))]);
+        let rp = ReferencingPolygon::from_polygon(&cluster, vec![(7u32, ObstacleIdx::dangling())]);
         let mut lookup = OneObstacle(shape);
         assert_eq!(rp.at(0, &lookup), Point::new(0.0, 10.0));
         assert_eq!(rp.at(1, &lookup), Point::new(50.0, 50.0));

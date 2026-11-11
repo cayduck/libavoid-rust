@@ -892,7 +892,7 @@ mod tests {
         // Reroute flags are raised by alertConns.
         let flag = r
             .m_conn_reroute_flags
-            .add_conn(crate::avoid::arena::ConnIdx(0));
+            .add_conn(crate::avoid::arena::ConnIdx::dangling());
         r.edge_infs[e2].add_conn(flag);
         EdgeInf::alert_conns(&mut r, e2);
         assert!(*r.m_conn_reroute_flags.flag_mut(flag));
@@ -995,7 +995,7 @@ mod tests {
         let e_old = EdgeInf::new(&mut r, centre, n2, true); // slot 1, older
         EdgeInf::delete(&mut r, filler_e); // frees slot 0
         let e_new = EdgeInf::new(&mut r, centre, n1, true); // slot 0, newer
-        assert!(e_new.0 < e_old.0);
+        assert!(e_new.slot() < e_old.slot());
         assert!(r.edge_infs[e_old].serial < r.edge_infs[e_new].serial);
         assert!(cmp_vis_edge_rotation(&r, None, e_old, e_new));
         assert!(!cmp_vis_edge_rotation(&r, None, e_new, e_old));
