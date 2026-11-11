@@ -90,7 +90,11 @@ fi
 
 run_one() {
   local n="$1"
-  g++ $CXXFLAGS "$SRC/tests/$n.cpp" "$BUILD/libavoid.a" -o "$BUILD/bin/$n" || { echo "BUILD-FAIL $n"; return; }
+  # A few stale upstream fixtures call now-private Router methods; retry those
+  # with access control disabled rather than editing the vendored tests.
+  g++ $CXXFLAGS "$SRC/tests/$n.cpp" "$BUILD/libavoid.a" -o "$BUILD/bin/$n" 2>/dev/null \
+    || g++ $CXXFLAGS -fno-access-control "$SRC/tests/$n.cpp" "$BUILD/libavoid.a" -o "$BUILD/bin/$n" \
+    || { echo "BUILD-FAIL $n"; return; }
   local code=0
   (cd "$BUILD/run" && rm -f "output/$n.txt" && ORACLE_FINAL="output/$n" timeout "$TIMEOUT" "$BUILD/bin/$n" > "$BUILD/run/$n.stdout" 2>&1) || code=$?
   echo "$code" > "$GOLDEN/$n.exit"
