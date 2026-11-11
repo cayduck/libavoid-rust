@@ -100,7 +100,6 @@ fn hyperedge_stages_match_cpp_oracle() {
 }
 
 #[test]
-#[ignore = "needs improve_orthogonal_routes"]
 fn hyperedge_full_pipeline_matches_cpp_oracle() {
     check_scenes(true);
 }

@@ -8,7 +8,6 @@
 //!
 //! * `golden NAME;` -- must reproduce every `outputDiagram()` dump, the
 //!   final router state, the exit code and (if the fixture prints) stdout.
-//! * `#[ignore = "blocked: ..."]` -- currently hits a `todo!()` in a module
 //!   that is not ported yet.  `cargo test --test fixtures_ops -- --ignored`
 //!   (or `tools/fixtures/run_all.sh`) shows what remains.  Remove the
 //!   attribute when the fixture passes.
@@ -71,169 +70,92 @@ macro_rules! fixtures {
 }
 
 fixtures! {
-    #[ignore = "blocked: orthogonal.rs (then hyperedgeimprover.rs)"]
     golden _2junctions = "2junctions";
-    #[ignore = "blocked: orthogonal.rs (then hyperedgeimprover.rs)"]
     golden buildOrthogonalChannelInfo1;
-    #[ignore = "blocked: orthogonal.rs"]
     golden checkpointNudging1;
-    #[ignore = "blocked: orthogonal.rs"]
     golden checkpointNudging2;
-    #[ignore = "blocked: orthogonal.rs"]
     golden checkpointNudging3;
-    #[ignore = "blocked: orthogonal.rs (then hyperedgeimprover.rs)"]
     golden checkpoints01;
-    #[ignore = "blocked: orthogonal.rs"]
     golden checkpoints02;
-    #[ignore = "blocked: orthogonal.rs"]
     golden checkpoints03;
-    #[ignore = "blocked: orthogonal.rs"]
     golden complex;
-    #[ignore = "blocked: orthogonal.rs"]
     golden connectionpin01;
-    #[ignore = "blocked: orthogonal.rs"]
     golden connectionpin02;
-    #[ignore = "blocked: orthogonal.rs (then hyperedgeimprover.rs)"]
     golden connectionpin03;
-    #[ignore = "blocked: orthogonal.rs"]
     golden connendmove;
-    #[ignore = "blocked: orthogonal.rs"]
     smoke corneroverlap01;
-    #[ignore = "blocked: orthogonal.rs (then hyperedgeimprover.rs)"]
     golden endlessLoop01;
     golden example;
-    #[ignore = "blocked: orthogonal.rs"]
     golden finalSegmentNudging1;
-    #[ignore = "blocked: orthogonal.rs"]
     golden finalSegmentNudging2;
-    #[ignore = "blocked: orthogonal.rs"]
     golden finalSegmentNudging3;
-    #[ignore = "blocked: orthogonal.rs"]
     golden forwardFlowingConnectors01;
-    #[ignore = "blocked: orthogonal.rs"]
     golden freeFloatingDirection01;
-    #[ignore = "blocked: orthogonal.rs"]
     golden hola01;
-    #[ignore = "blocked: orthogonal.rs (then hyperedge.rs, hyperedgeimprover.rs)"]
     golden hyperedge01;
-    #[ignore = "blocked: orthogonal.rs (then hyperedge.rs)"]
     golden hyperedge02;
-    #[ignore = "blocked: orthogonal.rs (then hyperedgeimprover.rs)"]
     golden hyperedgeLoop1;
-    #[ignore = "blocked: orthogonal.rs (then hyperedge.rs, hyperedgeimprover.rs)"]
     golden hyperedgeRerouting01;
-    #[ignore = "blocked: orthogonal.rs (then hyperedgeimprover.rs)"]
     golden improveHyperedge01;
-    #[ignore = "blocked: orthogonal.rs (then hyperedgeimprover.rs)"]
     golden improveHyperedge02;
-    #[ignore = "blocked: orthogonal.rs (then hyperedgeimprover.rs)"]
     golden improveHyperedge03;
-    #[ignore = "blocked: orthogonal.rs (then hyperedgeimprover.rs)"]
     golden improveHyperedge04;
-    #[ignore = "blocked: orthogonal.rs (then hyperedgeimprover.rs)"]
     golden improveHyperedge05;
-    #[ignore = "blocked: orthogonal.rs (then hyperedgeimprover.rs)"]
     golden improveHyperedge06;
-    #[ignore = "blocked: orthogonal.rs"]
     golden infinity;
-    #[ignore = "blocked: orthogonal.rs"]
     golden inline;
-    #[ignore = "blocked: orthogonal.rs"]
     golden inlineOverlap09;
-    #[ignore = "blocked: orthogonal.rs"]
     golden inlineOverlap10;
-    #[ignore = "blocked: orthogonal.rs"]
     golden inlineOverlap11;
-    #[ignore = "blocked: orthogonal.rs"]
     golden inlineShapes;
-    #[ignore = "blocked: orthogonal.rs"]
     golden inlineoverlap01;
-    #[ignore = "blocked: orthogonal.rs"]
     golden inlineoverlap02;
-    #[ignore = "blocked: orthogonal.rs"]
     golden inlineoverlap03;
-    #[ignore = "blocked: orthogonal.rs"]
     golden inlineoverlap04;
-    #[ignore = "blocked: orthogonal.rs"]
     golden inlineoverlap05;
-    #[ignore = "blocked: orthogonal.rs"]
     golden inlineoverlap06;
-    #[ignore = "blocked: orthogonal.rs"]
     golden inlineoverlap07;
-    #[ignore = "blocked: orthogonal.rs"]
     golden inlineoverlap08;
-    #[ignore = "blocked: orthogonal.rs"]
     golden junction01;
-    #[ignore = "blocked: orthogonal.rs (then hyperedgeimprover.rs)"]
     golden junction02;
-    #[ignore = "blocked: orthogonal.rs (then hyperedgeimprover.rs)"]
     golden junction03;
-    #[ignore = "blocked: orthogonal.rs (then hyperedgeimprover.rs)"]
     golden junction04;
     golden latesetup;
-    #[ignore = "blocked: orthogonal.rs"]
     golden lineSegWrapperCrash1;
-    #[ignore = "blocked: orthogonal.rs"]
     golden lineSegWrapperCrash2;
-    #[ignore = "blocked: orthogonal.rs"]
     golden lineSegWrapperCrash3;
-    #[ignore = "blocked: orthogonal.rs"]
     golden lineSegWrapperCrash4;
-    #[ignore = "blocked: orthogonal.rs"]
     golden lineSegWrapperCrash5;
-    #[ignore = "blocked: orthogonal.rs"]
     golden lineSegWrapperCrash6;
-    #[ignore = "blocked: orthogonal.rs"]
     golden lineSegWrapperCrash7;
-    #[ignore = "blocked: orthogonal.rs"]
     golden lineSegWrapperCrash8;
-    #[ignore = "blocked: orthogonal.rs"]
     golden multiconnact;
-    #[ignore = "blocked: orthogonal.rs (then hyperedgeimprover.rs)"]
     golden node1;
-    #[ignore = "blocked: orthogonal.rs"]
     smoke nudgeCrossing01;
-    #[ignore = "blocked: orthogonal.rs"]
     golden nudgeintobug;
-    #[ignore = "blocked: orthogonal.rs"]
     golden nudgeold;
-    #[ignore = "blocked: orthogonal.rs"]
     golden nudgingSkipsCheckpoint01;
-    #[ignore = "blocked: orthogonal.rs"]
     golden nudgingSkipsCheckpoint02;
-    #[ignore = "blocked: orthogonal.rs"]
     golden orderassertion;
-    #[ignore = "blocked: orthogonal.rs"]
     golden orthordering01;
-    #[ignore = "blocked: orthogonal.rs"]
     golden orthordering02;
-    #[ignore = "blocked: orthogonal.rs"]
     golden overlappingRects;
-    #[ignore = "blocked: orthogonal.rs"]
     golden penaltyRerouting01;
-    #[ignore = "blocked: orthogonal.rs; slow"]
+    #[ignore = "slow: set LIBAVOID_SLOW_FIXTURES=1"]
     slow performance01;
-    #[ignore = "blocked: orthogonal.rs; slow"]
+    #[ignore = "slow: set LIBAVOID_SLOW_FIXTURES=1"]
     slow reallyslowrouting;
-    #[ignore = "blocked: orthogonal.rs (then hyperedgeimprover.rs)"]
     golden removeJunctions01;
-    #[ignore = "blocked: orthogonal.rs"]
     golden restrictedNudging;
-    #[ignore = "blocked: orthogonal.rs (then hyperedgeimprover.rs); slow"]
+    #[ignore = "slow: set LIBAVOID_SLOW_FIXTURES=1"]
     slow slowrouting;
-    #[ignore = "blocked: orthogonal.rs (then hyperedgeimprover.rs)"]
     golden tjunct;
-    #[ignore = "blocked: orthogonal.rs (then hyperedge.rs, hyperedgeimprover.rs)"]
     golden treeRootCrash01;
-    #[ignore = "blocked: orthogonal.rs (then hyperedge.rs, hyperedgeimprover.rs)"]
     golden treeRootCrash02;
-    #[ignore = "blocked: orthogonal.rs; slow"]
+    #[ignore = "slow: set LIBAVOID_SLOW_FIXTURES=1"]
     slow unsatisfiableRangeAssertion;
-    #[ignore = "blocked: orthogonal.rs"]
     golden validPaths01;
-    #[ignore = "blocked: orthogonal.rs"]
     golden validPaths02;
-    #[ignore = "blocked: orthogonal.rs"]
     golden vertlineassertion;
 }
 

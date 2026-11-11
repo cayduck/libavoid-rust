@@ -5,7 +5,7 @@
 //! [`run_fixture`] executes one script against `libavoid_rust::avoid`:
 //!
 //! * every `output ROUTER GOLDEN` op compares `outputDiagramText()` with
-//!   `tests/golden/GOLDEN.txt` ([`assert_matches_golden`]);
+//!   `tests/golden-bump/GOLDEN.txt` ([`assert_matches_golden_bump`]);
 //! * `delete ROUTER GOLDEN` compares the final state (the oracle dumps it
 //!   from the C++ `Router` destructor) and then calls `Router::destruct()`;
 //! * `ret EXPR` is the fixture's `main()` return value and must equal the
@@ -38,7 +38,7 @@ use libavoid_rust::avoid::junction::JunctionRef;
 use libavoid_rust::avoid::router::{Router, RoutingOption, RoutingParameter, POLY_LINE_ROUTING};
 use libavoid_rust::avoid::shape::{ShapeRef, ShapeTransformationType};
 
-use crate::common::{assert_matches_golden, golden_exit_code, printf_f, read_golden_file};
+use crate::common::{assert_matches_golden_bump, golden_exit_code, printf_f, read_golden_file};
 
 // ---------------------------------------------------------------------------
 // Script representation
@@ -1383,7 +1383,7 @@ impl Interp {
             Op::Output { router, golden, checked } => {
                 self.check_router_var(router);
                 if self.golden_mode && *checked && !self.dry_run {
-                    assert_matches_golden(self.r(), golden);
+                    assert_matches_golden_bump(self.r(), golden);
                 } else {
                     // Still call it: displayRoute() caches routes, so the
                     // call has side effects upstream too.
@@ -1394,7 +1394,7 @@ impl Interp {
                 self.check_router_var(router);
                 match golden {
                     Some(g) if self.golden_mode && !self.dry_run => {
-                        assert_matches_golden(self.r(), g);
+                        assert_matches_golden_bump(self.r(), g);
                     }
                     Some(_) if !self.golden_mode => self.err("golden name in smoke mode"),
                     Some(_) => {

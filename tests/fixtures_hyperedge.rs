@@ -41,7 +41,7 @@ fn scene_dsl(name: &str) -> Vec<String> {
 }
 
 fn check_diagram(router: &mut Router, name: &str) {
-    common::assert_matches_golden(router, name);
+    common::assert_matches_golden_bump(router, name);
 }
 
 fn run_fixture(name: &str) {
@@ -53,7 +53,6 @@ macro_rules! fixture {
     ($test:ident, $name:expr) => {
         // upstream: tests/<name>.cpp
         #[test]
-        #[ignore = "needs improve_orthogonal_routes"]
         fn $test() {
             run_fixture($name);
         }

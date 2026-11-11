@@ -2855,7 +2855,6 @@ fn connendmove() {
 
 // upstream: tests/connectionpin03.cpp
 #[test]
-#[ignore = "junctions with improveHyperedgeRoutesMovingJunctions (default on): needs the HyperedgeImprover port (todo! in hyperedgeimprover.rs)"]
 fn connectionpin03() {
     let mut router = Router::new( POLY_LINE_ROUTING | ORTHOGONAL_ROUTING);
     router.set_routing_penalty(RoutingParameter::ALL[0], 50.0);
@@ -3137,7 +3136,6 @@ fn connectionpin03() {
 
 // upstream: tests/checkpoints01.cpp
 #[test]
-#[ignore = "junctions with improveHyperedgeRoutesMovingJunctions (default on): needs the HyperedgeImprover port (todo! in hyperedgeimprover.rs)"]
 fn checkpoints01() {
     let mut router = Router::new(ORTHOGONAL_ROUTING);
     router.set_routing_penalty(RoutingParameter::ALL[0], 50.0);
@@ -3195,7 +3193,6 @@ fn checkpoints01() {
 
 // upstream: tests/junction04.cpp
 #[test]
-#[ignore = "junctions with improveHyperedgeRoutesMovingJunctions (default on): needs the HyperedgeImprover port (todo! in hyperedgeimprover.rs)"]
 fn junction04() {
     let mut router = Router::new(ORTHOGONAL_ROUTING);
     router.set_routing_penalty(RoutingParameter::ALL[0], 50.0);
@@ -3242,7 +3239,6 @@ fn junction04() {
 
 // upstream: tests/node1.cpp
 #[test]
-#[ignore = "junctions with improveHyperedgeRoutesMovingJunctions (default on): needs the HyperedgeImprover port (todo! in hyperedgeimprover.rs)"]
 fn node1() {
     let mut router = Router::new( POLY_LINE_ROUTING | ORTHOGONAL_ROUTING);
     router.set_routing_penalty(RoutingParameter::ALL[0], 50.0);
@@ -3300,7 +3296,6 @@ fn node1() {
 
 // upstream: tests/buildOrthogonalChannelInfo1.cpp
 #[test]
-#[ignore = "junctions with improveHyperedgeRoutesMovingJunctions (default on): needs the HyperedgeImprover port (todo! in hyperedgeimprover.rs)"]
 fn buildOrthogonalChannelInfo1() {
     let mut end1 = ConnEnd::new();
     let mut end2 = ConnEnd::new();
@@ -3359,7 +3354,6 @@ fn buildOrthogonalChannelInfo1() {
 
 // upstream: tests/treeRootCrash01.cpp
 #[test]
-#[ignore = "junctions with improveHyperedgeRoutesMovingJunctions (default on): needs the HyperedgeImprover port (todo! in hyperedgeimprover.rs)"]
 fn treeRootCrash01() {
     let mut end1_0 = ConnEnd::new();
     let mut end2_0 = ConnEnd::new();
@@ -3467,7 +3461,6 @@ fn treeRootCrash01() {
 
 // upstream: tests/treeRootCrash02.cpp
 #[test]
-#[ignore = "junctions with improveHyperedgeRoutesMovingJunctions (default on): needs the HyperedgeImprover port (todo! in hyperedgeimprover.rs)"]
 fn treeRootCrash02() {
     let mut end1_0 = ConnEnd::new();
     let mut end2_0 = ConnEnd::new();
