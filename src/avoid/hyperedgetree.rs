@@ -38,6 +38,14 @@
 
 #![allow(dead_code)]
 #![allow(clippy::collapsible_if, clippy::collapsible_else_if, clippy::new_without_default)]
+// Keep upstream statement shapes.
+#![allow(
+    clippy::unnecessary_unwrap,
+    clippy::only_used_in_recursion,
+    clippy::needless_range_loop,
+    clippy::if_same_then_else,
+    clippy::print_with_newline
+)]
 
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};

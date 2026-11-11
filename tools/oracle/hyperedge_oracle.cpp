@@ -29,6 +29,9 @@
 //
 // Every scene runs in a forked child (so that a scene on which upstream
 // asserts or crashes is simply dropped; the count is reported on stderr).
+// Scenes that hit the upstream use-after-free of a stale `start->pathNext`
+// in A* (see tools/oracle/build_hyperedge_oracle.sh) are dropped too
+// (exit code 7), and so are the full-pipeline twins of dropped scenes.
 // The child's stdout is /dev/null (libavoid prints warnings there); its
 // output comes back through a pipe.
 //
@@ -43,7 +46,11 @@
 //   g++ -std=c++11 -O2 -ffp-contract=off -fno-access-control -I"$VENDOR" \
 //       tools/oracle/hyperedge_oracle.cpp "$VENDOR"/libavoid/*.cpp \
 //       -o /tmp/hyperedge_oracle
-//   /tmp/hyperedge_oracle > tests/golden/hyperedge_oracle.txt
+//   /tmp/hyperedge_oracle tools/oracle/hyperedge_fixtures.scenes \
+//       > tests/golden/hyperedge_oracle.txt
+// (or simply tools/oracle/build_hyperedge_oracle.sh).  The fixture scenes
+// are translations of upstream fixtures by
+// tools/oracle/hyperedge_fixture_scenes.py.
 //
 // (asserts stay enabled; ORACLE_RANDOM=n sets the number of random scenes
 // per kind.)
@@ -58,6 +65,7 @@
 #include <set>
 #include <list>
 #include <sstream>
+#include <fstream>
 #include <new>
 #include <sys/mman.h>
 #include <sys/wait.h>
@@ -423,56 +431,6 @@ static void dumpTreeNode(HyperedgeTreeNode *node, HyperedgeTreeEdge *parent,
     }
 }
 
-// Upstream use-after-free: A* reads `start->pathNext` of a connector's
-// source vertex (makepath.cpp, "If we are doing checkpoint routing ...")
-// even when that pointer is stale -- left by an earlier MTST or A* search --
-// and its target has since been deleted (e.g. an orthogonal visibility graph
-// dummy vertex freed by regenerateStaticBuiltGraph(), or the vertex of a
-// deleted connector).  Under the bump allocator the dead vertex is still
-// readable; the Rust port's arenas cannot model that (the handle is dead or
-// reused), so scenes that may hit it are dropped (exit code 7).  The MTST's
-// own dummy vertices (id (0,42)) are modelled by the port and are allowed.
-// Orthogonal dummy vertices (id (0,0)) count as dead because the coming
-// graph regeneration frees them.
-static void checkDanglingPathNext(Router *r)
-{
-    std::set<VertInf *> live;
-    for (VertInf *v = r->vertices.connsBegin(); v; v = v->lstNext)
-    {
-        live.insert(v);
-    }
-    const VertID mtstDummy(0, 42);
-    for (ConnRefList::iterator it = r->connRefs.begin(); it != r->connRefs.end(); ++it)
-    {
-        ConnRef *c = *it;
-        std::vector<VertInf *> ends;
-        ends.push_back(c->m_src_vert);
-        ends.push_back(c->m_dst_vert);
-        ends.insert(ends.end(), c->m_checkpoint_vertices.begin(),
-                c->m_checkpoint_vertices.end());
-        for (size_t k = 0; k < ends.size(); ++k)
-        {
-            VertInf *v = ends[k];
-            if (!v || !v->pathNext)
-            {
-                continue;
-            }
-            VertInf *p = v->pathNext;
-            if (live.count(p) == 0)
-            {
-                if (!(p->id == mtstDummy))
-                {
-                    _exit(7);
-                }
-            }
-            else if (p->id.objID == 0 && p->id.vn == 0)
-            {
-                _exit(7);
-            }
-        }
-    }
-}
-
 // Replicates Router::rerouteAndCallbackConnectors() up to (and excluding)
 // improveOrthogonalRoutes().  withImprover: also run the hyperedge improver
 // as the routing options say.
@@ -483,7 +441,6 @@ static void rerouteStage(Router *r, bool withImprover)
     // (Connectors become active in processActions(); the rerouter's deleted
     // connectors are freed, so their ids are looked up here.)
     ConnIdMap pre = connIdMap(r);
-    checkDanglingPathNext(r);
 
     r->m_conn_reroute_flags.alertConns();
     r->regenerateStaticBuiltGraph();
@@ -545,6 +502,13 @@ static void rerouteStage(Router *r, bool withImprover)
 //   reroute 0|1              see rerouteStage()
 //   improve 0|1              m_hyperedge_improver.clear()/execute(b)
 //   transaction              processTransaction() (full pipeline)
+//   type CONN T / jpin NAME JUNC CLASS DIRS / invalid CONN (makePathInvalid)
+//   moveto SHAPE N x y ...   moveShape(shape, polygon)
+//   delshape SHAPE / deljunc JUNC / removejunc JUNC
+//                            (removeJunctionAndMergeConnectors())
+//   bindnewj NAME / bindnewc NAME   name the first new junction / connector
+//                            of the hyperedge improver's last run
+//   diagram NAME             outputDiagram("output/NAME") (no-op here)
 static void runCommand(Scene& sc, const std::string& line)
 {
     std::istringstream in(line);
@@ -663,6 +627,65 @@ static void runCommand(Scene& sc, const std::string& line)
         double dx = num(in);
         double dy = num(in);
         r->moveJunction(sc.juncs.at(name), dx, dy);
+    }
+    else if (cmd == "type")
+    {
+        std::string name = word(in);
+        unsigned t = unum(in);
+        sc.conns.at(name)->setRoutingType((ConnType) t);
+    }
+    else if (cmd == "jpin")
+    {
+        std::string name = word(in);
+        std::string junc = word(in);
+        unsigned cls = unum(in);
+        unsigned dirs = unum(in);
+        sc.pins[name] = new ShapeConnectionPin(sc.juncs.at(junc), cls,
+                (ConnDirFlags) dirs);
+    }
+    else if (cmd == "invalid")
+    {
+        std::string name = word(in);
+        sc.conns.at(name)->makePathInvalid();
+    }
+    else if (cmd == "moveto")
+    {
+        std::string name = word(in);
+        Polygon poly = readPoly(in);
+        r->moveShape(sc.shapes.at(name), poly);
+    }
+    else if (cmd == "delshape")
+    {
+        std::string name = word(in);
+        r->deleteShape(sc.shapes.at(name));
+        sc.shapes.erase(name);
+    }
+    else if (cmd == "deljunc")
+    {
+        std::string name = word(in);
+        r->deleteJunction(sc.juncs.at(name));
+        sc.juncs.erase(name);
+    }
+    else if (cmd == "removejunc")
+    {
+        std::string name = word(in);
+        sc.juncs.at(name)->removeJunctionAndMergeConnectors();
+    }
+    else if (cmd == "bindnewj")
+    {
+        std::string name = word(in);
+        sc.juncs[name] = r->m_hyperedge_improver.m_new_junctions.front();
+    }
+    else if (cmd == "bindnewc")
+    {
+        std::string name = word(in);
+        sc.conns[name] = r->m_hyperedge_improver.m_new_connectors.front();
+    }
+    else if (cmd == "diagram")
+    {
+        // outputDiagram("output/NAME"): compared with tests/golden/NAME.txt
+        // by tests/fixtures_hyperedge.rs (full-fixture-* scenes); nothing
+        // to do here.
     }
     else if (cmd == "delconn")
     {
@@ -792,9 +815,6 @@ static void runCommand(Scene& sc, const std::string& line)
     else if (cmd == "transaction")
     {
         out("stage " + std::to_string(sc.stage++) + " transaction");
-        // (Approximate: processActions() has not run yet.  Full scenes are
-        // also skipped when their non-full twin was dropped.)
-        checkDanglingPathNext(r);
         r->processTransaction();
         HyperedgeImprover& h = r->m_hyperedge_improver;
         out("IL counts " + std::to_string(h.m_new_junctions.size()) + " " +
@@ -1325,14 +1345,42 @@ static std::vector<std::string> genHandRouteScene(void)
 
 int main(int argc, char **argv)
 {
-    (void) argc;
-    (void) argv;
+    unsigned total = 0;
+    if (argc > 1)
+    {
+        // Scenes from a file (tools/oracle/hyperedge_fixtures.scenes).
+        std::ifstream f(argv[1]);
+        if (!f)
+        {
+            fprintf(stderr, "cannot open %s\n", argv[1]);
+            return 1;
+        }
+        std::string line;
+        std::string name;
+        std::vector<std::string> dsl;
+        while (std::getline(f, line))
+        {
+            if (line.compare(0, 7, "#scene ") == 0)
+            {
+                name = line.substr(7);
+                dsl.clear();
+            }
+            else if (line == "#endscene")
+            {
+                runScene(name, dsl);
+                ++total;
+            }
+            else
+            {
+                dsl.push_back(line);
+            }
+        }
+    }
     unsigned nRandom = 300;
     if (getenv("ORACLE_RANDOM"))
     {
         nRandom = (unsigned) atoi(getenv("ORACLE_RANDOM"));
     }
-    unsigned total = 0;
     for (unsigned i = 0; i < nRandom; ++i)
     {
         runScene("mtst-" + std::to_string(i), genMtstScene());
