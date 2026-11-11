@@ -25,6 +25,7 @@
 //! not bit-identical.
 
 #![allow(dead_code)]
+#![allow(clippy::uninlined_format_args)]
 
 use libavoid_rust::avoid::router::Router;
 

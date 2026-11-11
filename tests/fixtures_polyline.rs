@@ -18,6 +18,8 @@
 //! callbacks of a transaction) right after the statement that triggered
 //! the transaction.
 
+#![allow(clippy::uninlined_format_args)]
+
 mod common;
 
 use std::cell::RefCell;
