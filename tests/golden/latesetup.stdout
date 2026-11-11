@@ -1,0 +1,18 @@
+
+Create connector.
+
+Add endpoints.
+Connector 1 needs rerouting!
+New path: (1.200000, 0.500000)-(1.500000, 4.000000)
+
+Adding a shape.
+Connector 1 needs rerouting!
+New path: (1.200000, 0.500000)-(1.000000, 1.000000)-(1.500000, 4.000000)
+
+Shifting endpoint.
+Connector 1 needs rerouting!
+New path: (1.200000, 0.500000)-(2.500000, 1.500000)-(6.000000, 4.500000)
+
+Moving shape right by 0.5.
+Connector 1 needs rerouting!
+New path: (1.200000, 0.500000)-(3.000000, 1.500000)-(6.000000, 4.500000)
