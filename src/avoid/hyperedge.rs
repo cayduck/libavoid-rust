@@ -103,14 +103,58 @@ impl HyperedgeRerouter {
     /// Operates on `router.m_hyperedge_rerouter`.
     // upstream: hyperedge.cpp HyperedgeRerouter::calcHyperedgeConnectors()
     pub fn calc_hyperedge_connectors(router: &mut Router) -> ConnRefSet {
-        let _ = router;
-        todo!("upstream: hyperedge.cpp HyperedgeRerouter::calcHyperedgeConnectors — not yet ported")
+        // PARTIAL (added by the visibility/makepath port): only the path
+        // with no registered hyperedges is ported; every transaction runs it.
+        let this = &mut router.m_hyperedge_rerouter;
+        let all_registered_hyperedge_conns = ConnRefSet::new();
+
+        // Clear the deleted-object vectors.  We populate them here if necessary.
+        let count = this.count();
+        this.m_deleted_junctions_vector.clear();
+        this.m_deleted_junctions_vector.resize(count, JunctionRefList::new());
+        this.m_deleted_connectors_vector.clear();
+        this.m_deleted_connectors_vector.resize(count, ConnRefList::new());
+
+        this.m_terminal_vertices_vector.clear();
+        this.m_terminal_vertices_vector.resize(count, VertexSet::new());
+        this.m_added_vertices.clear();
+
+        // Populate the deleted-object vectors.
+        let num_hyperedges = this.count();
+        if num_hyperedges > 0 {
+            todo!("upstream: hyperedge.cpp HyperedgeRerouter::calcHyperedgeConnectors — registered hyperedges not yet ported")
+        }
+
+        // Return these connectors that don't require rerouting.
+        all_registered_hyperedge_conns
     }
 
     /// Operates on `router.m_hyperedge_rerouter`.
     // upstream: hyperedge.cpp HyperedgeRerouter::performRerouting()
     pub fn perform_rerouting(router: &mut Router) {
-        let _ = router;
-        todo!("upstream: hyperedge.cpp HyperedgeRerouter::performRerouting — not yet ported")
+        // PARTIAL (added by the visibility/makepath port): only the path
+        // with no registered hyperedges is ported; every transaction runs it.
+        let this = &mut router.m_hyperedge_rerouter;
+        let count = this.count();
+        this.m_new_junctions_vector.clear();
+        this.m_new_junctions_vector.resize(count, JunctionRefList::new());
+        this.m_new_connectors_vector.clear();
+        this.m_new_connectors_vector.resize(count, ConnRefList::new());
+
+        // For each hyperedge...
+        let num_hyperedges = this.count();
+        if num_hyperedges > 0 {
+            todo!("upstream: hyperedge.cpp HyperedgeRerouter::performRerouting — registered hyperedges not yet ported")
+        }
+
+        // Clear the input to this class, so that new objects can be registered
+        // for rerouting for the next time that transaction that is processed.
+        this.m_terminals_vector.clear();
+        this.m_root_junction_vector.clear();
+
+        // Free temporarily added vertices.  (calcHyperedgeConnectors() only
+        // adds vertices for registered hyperedges, so there are none here.)
+        debug_assert!(this.m_added_vertices.is_empty());
+        this.m_added_vertices.clear();
     }
 }
