@@ -589,7 +589,6 @@ fn visibility_oracle_matches_golden() {
 }
 
 #[test]
-#[ignore = "needs ConnectorCrossings (connector.rs second half, todo! stub until merged)"]
 fn visibility_oracle_penalties_matches_golden() {
     let ours = run_oracle(true);
     compare_with_golden(&ours, "visibility_oracle_penalties.txt");
