@@ -24,11 +24,12 @@
 //! of a connector whose source vertex was explored by the MTST reads
 //! `start->pathNext` (makepath.cpp, "If we are doing checkpoint routing
 //! ...") and creates a search node on the deleted vertex.  That is
-//! undefined behaviour upstream; under the oracle's bump allocator (the
-//! model this port follows) the deleted vertex keeps its last contents.
-//! To reproduce that, a deleted dummy vertex is removed from the graph but
-//! its arena slot is only freed by the next MTST construction, after its
-//! initialisation loop has reset every router vertex.
+//! undefined behaviour upstream.  The dummy vertices are freed immediately
+//! here, as upstream; the generation-checked handle left in `pathNext`
+//! reads as null at those sites (`VertInf::live_path_next`, see "Stale
+//! `pathNext`" in the `router.rs` module docs).  `m_orthogonalPartner`
+//! links to them are only read by later MTST constructions, after their
+//! initialisation loop has reset them.
 //!
 //! (`drawForest`, `setDebuggingOutput` and the `DEBUGHANDLER` hooks are
 //! debug output and are not ported; timers are not ported.)
@@ -89,21 +90,11 @@ pub fn cmp_edge_inf(router: &Router, a: EdgeIdx, b: EdgeIdx) -> bool {
 }
 
 /// Upstream `delete_vertex`: removes the dummy vertex from the graph and
-/// frees it.  The free is deferred (see the module docs, "Deleted dummy
-/// vertices"): the slot is parked in `Router::m_mtst_zombie_vertices`.
+/// frees it (see the module docs, "Deleted dummy vertices").
 // upstream: mtst.cpp struct delete_vertex
 fn delete_vertex(router: &mut Router, ptr: VertIdx) {
     VertInf::remove_from_graph(router, ptr, false);
-    router.m_mtst_zombie_vertices.push(ptr);
-}
-
-/// Frees the dummy vertices deleted by earlier MTST constructions.  Called
-/// right after a construction has reset `pathNext` / `m_orthogonalPartner`
-/// of every router vertex, i.e. once nothing can refer to them any more.
-fn free_zombie_vertices(router: &mut Router) {
-    for v in std::mem::take(&mut router.m_mtst_zombie_vertices) {
-        VertInf::delete(router, v);
-    }
+    VertInf::delete(router, ptr);
 }
 
 fn v_make_heap(router: &Router, heap: &mut [VertIdx]) {
@@ -400,7 +391,6 @@ impl MinimumTerminalSpanningTree {
             v.set_sptf_root(Some(kv));
             k = v.lst_next;
         }
-        free_zombie_vertices(router);
         // PTR-ORDER: iterates std::set<VertInf *> terminals.
         let terminals: Vec<VertIdx> = self.terminals.iter().map(|k| k.idx).collect();
         for t in terminals {
@@ -717,7 +707,6 @@ impl MinimumTerminalSpanningTree {
             v.m_orthogonal_partner = None;
             k = v.lst_next;
         }
-        free_zombie_vertices(router);
 
         debug_assert!(self.root_vertex_pointers.is_empty());
         // PTR-ORDER: iterates std::set<VertInf *> terminals.

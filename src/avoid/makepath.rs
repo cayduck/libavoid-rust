@@ -1047,7 +1047,9 @@ impl AStarPathPrivate {
                 last = Some(curr);
             }
         } else {
-            if let Some(start_next) = router.vert_infs[start].path_next {
+            // Stale-pathNext policy: a link to a deleted vertex reads as
+            // null (VertInf::live_path_next; router.rs module docs).
+            if let Some(start_next) = VertInf::live_path_next(router, start) {
                 // If we are doing checkpoint routing and have already done one
                 // path, then we have an existing segment to consider for the
                 // cost of the  choice from the start node, so we add a dummy

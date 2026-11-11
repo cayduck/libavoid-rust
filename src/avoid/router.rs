@@ -83,6 +83,37 @@
 //! * `Router::shouldContinueTransactionWithProgress()` (virtual upstream)
 //!   is overridable through [`Router::m_progress_callback`].
 //! * `TopologyAddonInterface` is the trait [`TopologyAddonInterface`].
+//!
+//! ## Dangling handles
+//! Arena handles are generation-checked in all builds (`arena.rs`): a
+//! handle to a freed object never aliases a later object in the same slot;
+//! `Arena::contains`/`get` report it dead and indexing with it panics.
+//! Upstream pointers that may legitimately outlive their object are read
+//! through liveness checks; everything else indexes directly, so a bug
+//! that dereferences a dead handle stops deterministically instead of
+//! silently reading another object.
+//!
+//! ### Stale `pathNext`
+//! `VertInf::pathNext` is written by every A* search (the found path) and
+//! every MTST construction (the shortest-path forest) and is never cleared
+//! when the vertex it points at is deleted (orthogonal visibility graph
+//! regeneration, MTST dummy vertices, deleted connector/checkpoint
+//! vertices).  Upstream's only *intended* reader of a pre-existing
+//! `pathNext` is the start of `AStarPathPrivate::search`
+//! (`if (start->pathNext)`): during checkpoint routing the previous
+//! segment's search has just set it, so the next segment prefers to leave
+//! the checkpoint collinearly.  For any other search the value is a
+//! left-over of an unrelated earlier search; upstream still honours it
+//! (defined, deterministic behaviour while the target vertex is alive,
+//! which this port reproduces exactly) but dereferences freed memory when
+//! the target was deleted.  Policy: a `pathNext` link to a deleted vertex
+//! reads as null ([`VertInf::live_path_next`]), at the search start, in
+//! the rubber-band unwind walk and in `generatePath`'s path check.  This
+//! is bit-identical with upstream whenever upstream's behaviour is defined
+//! and never touches freed or reused slots.  The hyperedge oracle
+//! (`tools/oracle/build_hyperedge_oracle.sh`) patches exactly this rule into
+//! its copy of upstream, so the scenes that hit the use-after-free are
+//! compared byte for byte instead of being dropped.
 
 #![allow(dead_code)]
 // Keep upstream statement shapes.
@@ -314,11 +345,6 @@ pub struct Router {
     pub edge_infs: EdgeArena,
     /// Cells allocated by `VertInf::makeTreeRootPointer()`.
     pub tree_root_cells: Arena<TreeRootPtr, Option<VertIdx>>,
-    /// Dummy vertices deleted by `MinimumTerminalSpanningTree` whose arena
-    /// slots are kept until the next MTST construction, because upstream
-    /// keeps reading them through dangling `pathNext` pointers (see
-    /// `mtst.rs`, "Deleted dummy vertices").
-    pub m_mtst_zombie_vertices: Vec<VertIdx>,
     pub obstacles: ObstacleArena,
     pub conns: ConnArena,
     pub pins: PinArena,
@@ -758,7 +784,6 @@ impl Router {
             vert_infs: Arena::new(),
             edge_infs: Arena::new(),
             tree_root_cells: Arena::new(),
-            m_mtst_zombie_vertices: Vec::new(),
             obstacles: Arena::new(),
             conns: Arena::new(),
             pins: Arena::new(),

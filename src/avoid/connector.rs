@@ -915,7 +915,7 @@ impl ConnRef {
             }
 
             let vertex = vertices[i];
-            if let Some(pn) = router.vert_infs[vertex].path_next {
+            if let Some(pn) = VertInf::live_path_next(router, vertex) {
                 if router.vert_infs[pn].point == router.vert_infs[vertex].point {
                     if !(router.vert_infs[pn].id.is_conn_pt()) && !(router.vert_infs[vertex].id.is_conn_pt()) {
                         // Check for consecutive points on opposite
@@ -1109,11 +1109,14 @@ impl ConnRef {
                 let mut unwind = false;
 
                 let mut prior: Option<VertIdx> = None;
-                let stop = router.vert_infs[router.conns[c].m_start_vert.unwrap()].path_next;
+                // Stale-pathNext policy (router.rs module docs): links to
+                // deleted vertices read as null, consistently for `stop`
+                // and for the walk.
+                let stop = VertInf::live_path_next(router, router.conns[c].m_start_vert.unwrap());
                 let mut curr = Some(tar);
                 while curr != stop {
                     let cv = curr.unwrap();
-                    let pn = router.vert_infs[cv].path_next;
+                    let pn = VertInf::live_path_next(router, cv);
                     if !validate_bend_point(router, pn, cv, prior) {
                         unwind = true;
                         break;
@@ -1217,14 +1220,9 @@ pub fn validate_bend_point(
         _ => return bend_okay,
     };
 
-    let d_inf = b_v.sh_prev.expect("validateBendPoint: no shPrev");
-    let e_inf = b_v.sh_next.expect("validateBendPoint: no shNext");
-
     let a = &verts[a_inf].point;
     let b = &b_v.point;
     let c = &verts[c_inf].point;
-    let d = &verts[d_inf].point;
-    let e = &verts[e_inf].point;
 
     if (a == b) || (b == c) {
         return bend_okay;
@@ -1241,6 +1239,17 @@ pub fn validate_bend_point(
         bend_okay = true;
     } else {
         // (abc != 0)
+        // Upstream binds `d`/`e` (b's shape neighbours) up front but only
+        // reads them here.  A vertex that is not a shape corner (e.g. a
+        // free connector end reached through a stale pathNext) has none:
+        // upstream dereferences null.  It is not a corner, so no zigzag
+        // test applies and the bend is accepted.
+        let (d_inf, e_inf) = match (b_v.sh_prev, b_v.sh_next) {
+            (Some(d), Some(e)) => (d, e),
+            _ => return true,
+        };
+        let d = &verts[d_inf].point;
+        let e = &verts[e_inf].point;
         debug_assert!(vec_dir(d, b, e, 0.0) > 0);
         let abe = vec_dir(a, b, e, 0.0);
         let abd = vec_dir(a, b, d, 0.0);
