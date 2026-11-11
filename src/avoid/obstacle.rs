@@ -17,6 +17,20 @@
 //!   serials (`// PTR-ORDER:`).
 
 #![allow(dead_code)]
+// Keep upstream statement shapes.
+#![allow(
+    clippy::collapsible_if,
+    clippy::collapsible_else_if,
+    clippy::print_with_newline,
+    clippy::field_reassign_with_default,
+    clippy::assign_op_pattern,
+    clippy::explicit_counter_loop,
+    clippy::if_same_then_else,
+    clippy::question_mark,
+    clippy::neg_multiply,
+    clippy::needless_late_init,
+    clippy::uninlined_format_args
+)]
 #![allow(clippy::new_ret_no_self)]
 
 use std::collections::BTreeSet;

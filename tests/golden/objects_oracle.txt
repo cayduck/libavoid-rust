@@ -1,0 +1,2173 @@
+#### defaults
+flags=1 poly=1 orth=0 valid(0)=1 valid(1)=1 valid(2)=1 transactions=1
+ params 10 0 0 4000 0 0 0 4 0
+ options 0 1 0 0 1 0 1
+ flagsRouter partial=0 simple=0 clustered=1 ignore=1 lees=1 invis=1 selective=1 feedback=0 rubber=0
+ emptyTransaction=0
+flags=2 poly=0 orth=1 valid(0)=2 valid(1)=2 valid(2)=2 transactions=1
+ params 10 0 0 4000 0 0 0 4 0
+ options 0 1 0 0 1 0 1
+ flagsRouter partial=0 simple=0 clustered=1 ignore=1 lees=1 invis=1 selective=1 feedback=0 rubber=0
+ emptyTransaction=0
+flags=3 poly=1 orth=1 valid(0)=1 valid(1)=1 valid(2)=2 transactions=1
+ params 10 0 0 4000 0 0 0 4 0
+ options 0 1 0 0 1 0 1
+ flagsRouter partial=0 simple=0 clustered=1 ignore=1 lees=1 invis=1 selective=1 feedback=0 rubber=0
+ emptyTransaction=0
+set -1: 50/1 50/1 200/1 4000/1 110/1 100/1 50/1 4/1 50/1 penaltyDefault=50 opt=0/1
+set -0.5: 50/1 50/1 200/1 4000/1 110/1 100/1 50/1 4/1 50/1 penaltyDefault=50 opt=0/1
+set 0: 0/1 0/1 0/1 0/1 0/1 0/1 0/1 0/1 0/1 penaltyDefault=50 opt=0/1
+set 7.5: 7.5/1 7.5/1 7.5/1 7.5/1 7.5/1 7.5/1 7.5/1 7.5/1 7.5/1 penaltyDefault=50 opt=0/1
+set 1000000000: 1000000000/1 1000000000/1 1000000000/1 1000000000/1 1000000000/1 1000000000/1 1000000000/1 1000000000/1 1000000000/1 penaltyDefault=50 opt=0/1
+#### ids
+ids 1 10 11 5 12 13 3 100 101 next=102
+unused 1:1 2:1 3:1 5:1 10:1 11:1 12:1 13:0 100:1 101:1 102:1
+== ids-queued
+  largest=101 next=102 settings=0 static=1 consolidate=1
+  cluster id=13 active=1 rect=[(50,-5,0,8) (50,50,0,8) (-5,50,0,8) (-5,-5,0,8)] n=4 (50,-5) (50,50) (-5,50) (-5,-5)
+  vertices conns=2 shapes=0
+    [101,9,p=5] (1,1,101,9) vis=15
+    [5,9,p=5] (5,5,5,9) vis=15
+  contains
+  clusters [5,9]{13}
+  actions 7
+    action type=1 obstacle=1
+    action type=1 obstacle=10
+    action type=7 pin=5:2147483646
+    action type=4 obstacle=5
+    action type=1 obstacle=3
+    action type=7 pin=101:2147483646
+    action type=4 obstacle=101
+unused-after 1:0 2:1 3:0 5:0 10:0 11:1 12:1 13:0 100:1 101:0 102:1
+== ids-processed
+  largest=101 next=102 settings=0 static=1 consolidate=1
+  obstacle id=101 kind=junction active=1 poly=[(2,0,0,8) (2,2,0,8) (0,2,0,8) (0,0,0,8)] pos=(1,1)
+    junction pos=(1,1) rec=(1,1) fixed=0
+    ring [101,0,p=0] (2,0,101,0) vis=0
+    ring [101,1,p=0] (2,2,101,1) vis=0
+    ring [101,2,p=0] (0,2,101,2) vis=0
+    ring [101,3,p=0] (0,0,101,3) vis=0
+    lastVert [101,3,p=0] (0,0,101,3) vis=0
+    pin 101:2147483646 x=0 y=0 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=0 users=0 pos=(1,1,0,8) v=[101,9,p=5] (1,1,101,9) vis=15
+    following
+    attached
+  obstacle id=5 kind=junction active=1 poly=[(6,4,0,8) (6,6,0,8) (4,6,0,8) (4,4,0,8)] pos=(5,5)
+    junction pos=(5,5) rec=(5,5) fixed=0
+    ring [5,0,p=0] (6,4,5,0) vis=0
+    ring [5,1,p=0] (6,6,5,1) vis=0
+    ring [5,2,p=0] (4,6,5,2) vis=0
+    ring [5,3,p=0] (4,4,5,3) vis=0
+    lastVert [5,3,p=0] (4,4,5,3) vis=0
+    pin 5:2147483646 x=0 y=0 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=0 users=0 pos=(5,5,0,8) v=[5,9,p=5] (5,5,5,9) vis=15
+    following
+    attached
+  obstacle id=10 kind=shape active=1 poly=[(10,0,0,8) (10,10,0,8) (0,10,0,8) (0,0,0,8)] pos=(5,5)
+    ring [10,0,p=0] (10,0,10,0) vis=0
+    ring [10,1,p=0] (10,10,10,1) vis=0
+    ring [10,2,p=0] (0,10,10,2) vis=0
+    ring [10,3,p=0] (0,0,10,3) vis=0
+    lastVert [10,3,p=0] (0,0,10,3) vis=0
+    following
+    attached
+  obstacle id=3 kind=shape active=1 poly=[(10,0,0,8) (10,10,0,8) (0,10,0,8) (0,0,0,8)] pos=(5,5)
+    ring [3,0,p=0] (10,0,3,0) vis=0
+    ring [3,1,p=0] (10,10,3,1) vis=0
+    ring [3,2,p=0] (0,10,3,2) vis=0
+    ring [3,3,p=0] (0,0,3,3) vis=0
+    lastVert [3,3,p=0] (0,0,3,3) vis=0
+    following
+    attached
+  obstacle id=1 kind=shape active=1 poly=[(10,0,0,8) (10,10,0,8) (0,10,0,8) (0,0,0,8)] pos=(5,5)
+    ring [1,0,p=0] (10,0,1,0) vis=0
+    ring [1,1,p=0] (10,10,1,1) vis=0
+    ring [1,2,p=0] (0,10,1,2) vis=0
+    ring [1,3,p=0] (0,0,1,3) vis=0
+    lastVert [1,3,p=0] (0,0,1,3) vis=0
+    following
+    attached
+  cluster id=13 active=1 rect=[(50,-5,0,8) (50,50,0,8) (-5,50,0,8) (-5,-5,0,8)] n=4 (50,-5) (50,50) (-5,50) (-5,-5)
+  vertices conns=2 shapes=20
+    [101,9,p=5] (1,1,101,9) vis=15
+    [5,9,p=5] (5,5,5,9) vis=15
+    [1,0,p=0] (10,0,1,0) vis=0
+    [1,1,p=0] (10,10,1,1) vis=0
+    [1,2,p=0] (0,10,1,2) vis=0
+    [1,3,p=0] (0,0,1,3) vis=0
+    [3,0,p=0] (10,0,3,0) vis=0
+    [3,1,p=0] (10,10,3,1) vis=0
+    [3,2,p=0] (0,10,3,2) vis=0
+    [3,3,p=0] (0,0,3,3) vis=0
+    [10,0,p=0] (10,0,10,0) vis=0
+    [10,1,p=0] (10,10,10,1) vis=0
+    [10,2,p=0] (0,10,10,2) vis=0
+    [10,3,p=0] (0,0,10,3) vis=0
+    [5,0,p=0] (6,4,5,0) vis=0
+    [5,1,p=0] (6,6,5,1) vis=0
+    [5,2,p=0] (4,6,5,2) vis=0
+    [5,3,p=0] (4,4,5,3) vis=0
+    [101,0,p=0] (2,0,101,0) vis=0
+    [101,1,p=0] (2,2,101,1) vis=0
+    [101,2,p=0] (0,2,101,2) vis=0
+    [101,3,p=0] (0,0,101,3) vis=0
+  contains [5,9]{1,3,5,10} [101,9]{1,3,10,101}
+  clusters [5,9]{13}
+  actions 0
+#### actions
+== two-adds
+  largest=2 next=3 settings=0 static=1 consolidate=1
+  vertices conns=0 shapes=0
+  contains
+  clusters
+  actions 2
+    action type=1 obstacle=1
+    action type=1 obstacle=2
+== moves-while-add-queued
+  largest=2 next=3 settings=0 static=1 consolidate=1
+  vertices conns=0 shapes=0
+  contains
+  clusters
+  actions 2
+    action type=1 obstacle=1
+    action type=1 obstacle=2
+== processed-adds
+  largest=2 next=3 settings=0 static=1 consolidate=1
+  obstacle id=2 kind=shape active=1 poly=[(120,100,0,8) (120,130,0,8) (100,130,0,8) (100,100,0,8)] pos=(110,115)
+    ring [2,0,p=0] (120,100,2,0) vis=0
+    ring [2,1,p=0] (120,130,2,1) vis=0
+    ring [2,2,p=0] (100,130,2,2) vis=0
+    ring [2,3,p=0] (100,100,2,3) vis=0
+    lastVert [2,3,p=0] (100,100,2,3) vis=0
+    following
+    attached
+  obstacle id=1 kind=shape active=1 poly=[(11,2,0,8) (11,12,0,8) (1,12,0,8) (1,2,0,8)] pos=(6,7)
+    ring [1,0,p=0] (11,2,1,0) vis=0
+    ring [1,1,p=0] (11,12,1,1) vis=0
+    ring [1,2,p=0] (1,12,1,2) vis=0
+    ring [1,3,p=0] (1,2,1,3) vis=0
+    lastVert [1,3,p=0] (1,2,1,3) vis=0
+    following
+    attached
+  vertices conns=0 shapes=8
+    [1,0,p=0] (11,2,1,0) vis=0
+    [1,1,p=0] (11,12,1,1) vis=0
+    [1,2,p=0] (1,12,1,2) vis=0
+    [1,3,p=0] (1,2,1,3) vis=0
+    [2,0,p=0] (120,100,2,0) vis=0
+    [2,1,p=0] (120,130,2,1) vis=0
+    [2,2,p=0] (100,130,2,2) vis=0
+    [2,3,p=0] (100,100,2,3) vis=0
+  contains
+  clusters
+  actions 0
+== queued-moves
+  largest=2 next=3 settings=0 static=1 consolidate=1
+  obstacle id=2 kind=shape active=1 poly=[(120,100,0,8) (120,130,0,8) (100,130,0,8) (100,100,0,8)] pos=(110,115)
+    ring [2,0,p=0] (120,100,2,0) vis=0
+    ring [2,1,p=0] (120,130,2,1) vis=0
+    ring [2,2,p=0] (100,130,2,2) vis=0
+    ring [2,3,p=0] (100,100,2,3) vis=0
+    lastVert [2,3,p=0] (100,100,2,3) vis=0
+    following
+    attached
+  obstacle id=1 kind=shape active=1 poly=[(11,2,0,8) (11,12,0,8) (1,12,0,8) (1,2,0,8)] pos=(6,7)
+    ring [1,0,p=0] (11,2,1,0) vis=0
+    ring [1,1,p=0] (11,12,1,1) vis=0
+    ring [1,2,p=0] (1,12,1,2) vis=0
+    ring [1,3,p=0] (1,2,1,3) vis=0
+    lastVert [1,3,p=0] (1,2,1,3) vis=0
+    following
+    attached
+  vertices conns=0 shapes=8
+    [1,0,p=0] (11,2,1,0) vis=0
+    [1,1,p=0] (11,12,1,1) vis=0
+    [1,2,p=0] (1,12,1,2) vis=0
+    [1,3,p=0] (1,2,1,3) vis=0
+    [2,0,p=0] (120,100,2,0) vis=0
+    [2,1,p=0] (120,130,2,1) vis=0
+    [2,2,p=0] (100,130,2,2) vis=0
+    [2,3,p=0] (100,100,2,3) vis=0
+  contains
+  clusters
+  actions 2
+    action type=0 obstacle=1 first=0 poly=[(17,8,0,8) (17,18,0,8) (7,18,0,8) (7,8,0,8)]
+    action type=0 obstacle=2 first=1 poly=[(51,41,0,8) (51,61,0,8) (41,61,0,8) (41,41,0,8)]
+== junction-add-moved
+  largest=7 next=8 settings=0 static=1 consolidate=1
+  obstacle id=2 kind=shape active=1 poly=[(120,100,0,8) (120,130,0,8) (100,130,0,8) (100,100,0,8)] pos=(110,115)
+    ring [2,0,p=0] (120,100,2,0) vis=0
+    ring [2,1,p=0] (120,130,2,1) vis=0
+    ring [2,2,p=0] (100,130,2,2) vis=0
+    ring [2,3,p=0] (100,100,2,3) vis=0
+    lastVert [2,3,p=0] (100,100,2,3) vis=0
+    following
+    attached
+  obstacle id=1 kind=shape active=1 poly=[(11,2,0,8) (11,12,0,8) (1,12,0,8) (1,2,0,8)] pos=(6,7)
+    ring [1,0,p=0] (11,2,1,0) vis=0
+    ring [1,1,p=0] (11,12,1,1) vis=0
+    ring [1,2,p=0] (1,12,1,2) vis=0
+    ring [1,3,p=0] (1,2,1,3) vis=0
+    lastVert [1,3,p=0] (1,2,1,3) vis=0
+    following
+    attached
+  vertices conns=1 shapes=8
+    [7,9,p=5] (80,80,7,9) vis=15
+    [1,0,p=0] (11,2,1,0) vis=0
+    [1,1,p=0] (11,12,1,1) vis=0
+    [1,2,p=0] (1,12,1,2) vis=0
+    [1,3,p=0] (1,2,1,3) vis=0
+    [2,0,p=0] (120,100,2,0) vis=0
+    [2,1,p=0] (120,130,2,1) vis=0
+    [2,2,p=0] (100,130,2,2) vis=0
+    [2,3,p=0] (100,100,2,3) vis=0
+  contains
+  clusters
+  actions 4
+    action type=0 obstacle=1 first=0 poly=[(17,8,0,8) (17,18,0,8) (7,18,0,8) (7,8,0,8)]
+    action type=0 obstacle=2 first=1 poly=[(51,41,0,8) (51,61,0,8) (41,61,0,8) (41,41,0,8)]
+    action type=7 pin=7:2147483646
+    action type=4 obstacle=7
+== processed-moves
+  largest=7 next=8 settings=0 static=1 consolidate=1
+  obstacle id=7 kind=junction active=1 poly=[(81,79,0,8) (81,81,0,8) (79,81,0,8) (79,79,0,8)] pos=(80,80)
+    junction pos=(80,80) rec=(80,80) fixed=0
+    ring [7,0,p=0] (81,79,7,0) vis=0
+    ring [7,1,p=0] (81,81,7,1) vis=0
+    ring [7,2,p=0] (79,81,7,2) vis=0
+    ring [7,3,p=0] (79,79,7,3) vis=0
+    lastVert [7,3,p=0] (79,79,7,3) vis=0
+    pin 7:2147483646 x=0 y=0 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=0 users=0 pos=(80,80,0,8) v=[7,9,p=5] (80,80,7,9) vis=15
+    following
+    attached
+  obstacle id=2 kind=shape active=1 poly=[(51,41,0,8) (51,61,0,8) (41,61,0,8) (41,41,0,8)] pos=(46,51)
+    ring [2,0,p=0] (51,41,2,0) vis=0
+    ring [2,1,p=0] (51,61,2,1) vis=0
+    ring [2,2,p=0] (41,61,2,2) vis=0
+    ring [2,3,p=0] (41,41,2,3) vis=0
+    lastVert [2,3,p=0] (41,41,2,3) vis=0
+    following
+    attached
+  obstacle id=1 kind=shape active=1 poly=[(17,8,0,8) (17,18,0,8) (7,18,0,8) (7,8,0,8)] pos=(12,13)
+    ring [1,0,p=0] (17,8,1,0) vis=0
+    ring [1,1,p=0] (17,18,1,1) vis=0
+    ring [1,2,p=0] (7,18,1,2) vis=0
+    ring [1,3,p=0] (7,8,1,3) vis=0
+    lastVert [1,3,p=0] (7,8,1,3) vis=0
+    following
+    attached
+  vertices conns=1 shapes=12
+    [7,9,p=5] (80,80,7,9) vis=15
+    [1,0,p=0] (17,8,1,0) vis=0
+    [1,1,p=0] (17,18,1,1) vis=0
+    [1,2,p=0] (7,18,1,2) vis=0
+    [1,3,p=0] (7,8,1,3) vis=0
+    [2,0,p=0] (51,41,2,0) vis=0
+    [2,1,p=0] (51,61,2,1) vis=0
+    [2,2,p=0] (41,61,2,2) vis=0
+    [2,3,p=0] (41,41,2,3) vis=0
+    [7,0,p=0] (81,79,7,0) vis=0
+    [7,1,p=0] (81,81,7,1) vis=0
+    [7,2,p=0] (79,81,7,2) vis=0
+    [7,3,p=0] (79,79,7,3) vis=0
+  contains [7,9]{7}
+  clusters
+  actions 0
+== move-then-delete
+  largest=7 next=8 settings=0 static=1 consolidate=1
+  obstacle id=7 kind=junction active=1 poly=[(81,79,0,8) (81,81,0,8) (79,81,0,8) (79,79,0,8)] pos=(80,80)
+    junction pos=(80,80) rec=(80,80) fixed=0
+    ring [7,0,p=0] (81,79,7,0) vis=0
+    ring [7,1,p=0] (81,81,7,1) vis=0
+    ring [7,2,p=0] (79,81,7,2) vis=0
+    ring [7,3,p=0] (79,79,7,3) vis=0
+    lastVert [7,3,p=0] (79,79,7,3) vis=0
+    pin 7:2147483646 x=0 y=0 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=0 users=0 pos=(80,80,0,8) v=[7,9,p=5] (80,80,7,9) vis=15
+    following
+    attached
+  obstacle id=2 kind=shape active=1 poly=[(51,41,0,8) (51,61,0,8) (41,61,0,8) (41,41,0,8)] pos=(46,51)
+    ring [2,0,p=0] (51,41,2,0) vis=0
+    ring [2,1,p=0] (51,61,2,1) vis=0
+    ring [2,2,p=0] (41,61,2,2) vis=0
+    ring [2,3,p=0] (41,41,2,3) vis=0
+    lastVert [2,3,p=0] (41,41,2,3) vis=0
+    following
+    attached
+  obstacle id=1 kind=shape active=1 poly=[(17,8,0,8) (17,18,0,8) (7,18,0,8) (7,8,0,8)] pos=(12,13)
+    ring [1,0,p=0] (17,8,1,0) vis=0
+    ring [1,1,p=0] (17,18,1,1) vis=0
+    ring [1,2,p=0] (7,18,1,2) vis=0
+    ring [1,3,p=0] (7,8,1,3) vis=0
+    lastVert [1,3,p=0] (7,8,1,3) vis=0
+    following
+    attached
+  vertices conns=1 shapes=12
+    [7,9,p=5] (80,80,7,9) vis=15
+    [1,0,p=0] (17,8,1,0) vis=0
+    [1,1,p=0] (17,18,1,1) vis=0
+    [1,2,p=0] (7,18,1,2) vis=0
+    [1,3,p=0] (7,8,1,3) vis=0
+    [2,0,p=0] (51,41,2,0) vis=0
+    [2,1,p=0] (51,61,2,1) vis=0
+    [2,2,p=0] (41,61,2,2) vis=0
+    [2,3,p=0] (41,41,2,3) vis=0
+    [7,0,p=0] (81,79,7,0) vis=0
+    [7,1,p=0] (81,81,7,1) vis=0
+    [7,2,p=0] (79,81,7,2) vis=0
+    [7,3,p=0] (79,79,7,3) vis=0
+  contains [7,9]{7}
+  clusters
+  actions 3
+    action type=3 obstacle=7 newpos=(83,84)
+    action type=2 obstacle=1
+    action type=0 obstacle=2 first=0 poly=[(54,44,0,8) (54,64,0,8) (44,64,0,8) (44,44,0,8)]
+== processed-delete
+  largest=7 next=8 settings=0 static=1 consolidate=1
+  obstacle id=7 kind=junction active=1 poly=[(84,83,0,8) (84,85,0,8) (82,85,0,8) (82,83,0,8)] pos=(83,84)
+    junction pos=(83,84) rec=(83,84) fixed=0
+    ring [7,0,p=0] (84,83,7,0) vis=0
+    ring [7,1,p=0] (84,85,7,1) vis=0
+    ring [7,2,p=0] (82,85,7,2) vis=0
+    ring [7,3,p=0] (82,83,7,3) vis=0
+    lastVert [7,3,p=0] (82,83,7,3) vis=0
+    pin 7:2147483646 x=0 y=0 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=0 users=0 pos=(83,84,0,8) v=[7,9,p=5] (83,84,7,9) vis=15
+    following
+    attached
+  obstacle id=2 kind=shape active=1 poly=[(54,44,0,8) (54,64,0,8) (44,64,0,8) (44,44,0,8)] pos=(49,54)
+    ring [2,0,p=0] (54,44,2,0) vis=0
+    ring [2,1,p=0] (54,64,2,1) vis=0
+    ring [2,2,p=0] (44,64,2,2) vis=0
+    ring [2,3,p=0] (44,44,2,3) vis=0
+    lastVert [2,3,p=0] (44,44,2,3) vis=0
+    following
+    attached
+  vertices conns=1 shapes=8
+    [7,9,p=5] (83,84,7,9) vis=15
+    [2,0,p=0] (54,44,2,0) vis=0
+    [2,1,p=0] (54,64,2,1) vis=0
+    [2,2,p=0] (44,64,2,2) vis=0
+    [2,3,p=0] (44,44,2,3) vis=0
+    [7,0,p=0] (84,83,7,0) vis=0
+    [7,1,p=0] (84,85,7,1) vis=0
+    [7,2,p=0] (82,85,7,2) vis=0
+    [7,3,p=0] (82,83,7,3) vis=0
+  contains [7,9]{7}
+  clusters
+  actions 0
+== all-moved
+  largest=7 next=8 settings=0 static=1 consolidate=1
+  obstacle id=7 kind=junction active=1 poly=[(84,83,0,8) (84,85,0,8) (82,85,0,8) (82,83,0,8)] pos=(83,84)
+    junction pos=(83,84) rec=(83,84) fixed=0
+    ring [7,0,p=0] (84,83,7,0) vis=0
+    ring [7,1,p=0] (84,85,7,1) vis=0
+    ring [7,2,p=0] (82,85,7,2) vis=0
+    ring [7,3,p=0] (82,83,7,3) vis=0
+    lastVert [7,3,p=0] (82,83,7,3) vis=0
+    pin 7:2147483646 x=0 y=0 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=0 users=0 pos=(83,84,0,8) v=[7,9,p=5] (83,84,7,9) vis=15
+    following
+    attached
+  obstacle id=2 kind=shape active=1 poly=[(54,44,0,8) (54,64,0,8) (44,64,0,8) (44,44,0,8)] pos=(49,54)
+    ring [2,0,p=0] (54,44,2,0) vis=0
+    ring [2,1,p=0] (54,64,2,1) vis=0
+    ring [2,2,p=0] (44,64,2,2) vis=0
+    ring [2,3,p=0] (44,44,2,3) vis=0
+    lastVert [2,3,p=0] (44,44,2,3) vis=0
+    following
+    attached
+  vertices conns=1 shapes=8
+    [7,9,p=5] (83,84,7,9) vis=15
+    [2,0,p=0] (54,44,2,0) vis=0
+    [2,1,p=0] (54,64,2,1) vis=0
+    [2,2,p=0] (44,64,2,2) vis=0
+    [2,3,p=0] (44,44,2,3) vis=0
+    [7,0,p=0] (84,83,7,0) vis=0
+    [7,1,p=0] (84,85,7,1) vis=0
+    [7,2,p=0] (82,85,7,2) vis=0
+    [7,3,p=0] (82,83,7,3) vis=0
+  contains [7,9]{7}
+  clusters
+  actions 2
+    action type=3 obstacle=7 newpos=(83,84)
+    action type=0 obstacle=2 first=0 poly=[(54,44,0,8) (54,64,0,8) (44,64,0,8) (44,44,0,8)]
+== processed-all-moved
+  largest=7 next=8 settings=0 static=1 consolidate=1
+  obstacle id=7 kind=junction active=1 poly=[(84,83,0,8) (84,85,0,8) (82,85,0,8) (82,83,0,8)] pos=(83,84)
+    junction pos=(83,84) rec=(83,84) fixed=0
+    ring [7,0,p=0] (84,83,7,0) vis=0
+    ring [7,1,p=0] (84,85,7,1) vis=0
+    ring [7,2,p=0] (82,85,7,2) vis=0
+    ring [7,3,p=0] (82,83,7,3) vis=0
+    lastVert [7,3,p=0] (82,83,7,3) vis=0
+    pin 7:2147483646 x=0 y=0 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=0 users=0 pos=(83,84,0,8) v=[7,9,p=5] (83,84,7,9) vis=15
+    following
+    attached
+  obstacle id=2 kind=shape active=1 poly=[(54,44,0,8) (54,64,0,8) (44,64,0,8) (44,44,0,8)] pos=(49,54)
+    ring [2,0,p=0] (54,44,2,0) vis=0
+    ring [2,1,p=0] (54,64,2,1) vis=0
+    ring [2,2,p=0] (44,64,2,2) vis=0
+    ring [2,3,p=0] (44,44,2,3) vis=0
+    lastVert [2,3,p=0] (44,44,2,3) vis=0
+    following
+    attached
+  vertices conns=1 shapes=8
+    [7,9,p=5] (83,84,7,9) vis=15
+    [2,0,p=0] (54,44,2,0) vis=0
+    [2,1,p=0] (54,64,2,1) vis=0
+    [2,2,p=0] (44,64,2,2) vis=0
+    [2,3,p=0] (44,44,2,3) vis=0
+    [7,0,p=0] (84,83,7,0) vis=0
+    [7,1,p=0] (84,85,7,1) vis=0
+    [7,2,p=0] (82,85,7,2) vis=0
+    [7,3,p=0] (82,83,7,3) vis=0
+  contains [7,9]{7}
+  clusters
+  actions 0
+== delete-all
+  largest=7 next=8 settings=0 static=1 consolidate=1
+  obstacle id=7 kind=junction active=1 poly=[(84,83,0,8) (84,85,0,8) (82,85,0,8) (82,83,0,8)] pos=(83,84)
+    junction pos=(83,84) rec=(83,84) fixed=0
+    ring [7,0,p=0] (84,83,7,0) vis=0
+    ring [7,1,p=0] (84,85,7,1) vis=0
+    ring [7,2,p=0] (82,85,7,2) vis=0
+    ring [7,3,p=0] (82,83,7,3) vis=0
+    lastVert [7,3,p=0] (82,83,7,3) vis=0
+    pin 7:2147483646 x=0 y=0 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=0 users=0 pos=(83,84,0,8) v=[7,9,p=5] (83,84,7,9) vis=15
+    following
+    attached
+  obstacle id=2 kind=shape active=1 poly=[(54,44,0,8) (54,64,0,8) (44,64,0,8) (44,44,0,8)] pos=(49,54)
+    ring [2,0,p=0] (54,44,2,0) vis=0
+    ring [2,1,p=0] (54,64,2,1) vis=0
+    ring [2,2,p=0] (44,64,2,2) vis=0
+    ring [2,3,p=0] (44,44,2,3) vis=0
+    lastVert [2,3,p=0] (44,44,2,3) vis=0
+    following
+    attached
+  vertices conns=1 shapes=8
+    [7,9,p=5] (83,84,7,9) vis=15
+    [2,0,p=0] (54,44,2,0) vis=0
+    [2,1,p=0] (54,64,2,1) vis=0
+    [2,2,p=0] (44,64,2,2) vis=0
+    [2,3,p=0] (44,44,2,3) vis=0
+    [7,0,p=0] (84,83,7,0) vis=0
+    [7,1,p=0] (84,85,7,1) vis=0
+    [7,2,p=0] (82,85,7,2) vis=0
+    [7,3,p=0] (82,83,7,3) vis=0
+  contains [7,9]{7}
+  clusters
+  actions 2
+    action type=5 obstacle=7
+    action type=2 obstacle=2
+== processed-delete-all
+  largest=7 next=8 settings=0 static=1 consolidate=1
+  vertices conns=0 shapes=0
+  contains [7,9]{}
+  clusters
+  actions 0
+#### pins
+set size=11
+pin0 excl=1 ids=1,1 dirs=5 pos=(10,20,0,5)
+pin1 excl=1 ids=1,1 dirs=10 pos=(48,78,0,7)
+pin2 excl=0 ids=1,1 dirs=15 pos=(30,50,0,8)
+pin3 excl=0 ids=1,2 dirs=5 pos=(20,65,0,8)
+pin4 excl=1 ids=1,2 dirs=2 pos=(15,30,0,8)
+pin5 excl=1 ids=1,2 dirs=4 pos=(11.5,78.5,0,7)
+pin6 excl=1 ids=1,3 dirs=8 pos=(50,80,0,7)
+pin7 excl=1 ids=1,3 dirs=15 pos=(30,20,0,5)
+pin8 excl=1 ids=1,1 dirs=5 pos=(10,20,0,5)
+pin9 excl=0 ids=1,4 dirs=15 pos=(70,-10,0,8)
+pin10 excl=0 ids=1,4 dirs=15 pos=(110,120,0,8)
+pin11 excl=1 ids=1,2 dirs=1 pos=(20,65,0,8)
+lt011111110111 000111110111 010111110111 000000110110 000100110110 000110110111 000000010110 000000000110 011111110111 000000000010 000000000000 000110110110 
+eq100000001000 010000000000 001000000000 000100000000 000010000000 000001000000 000000100000 000000010000 100000001000 000000000100 000000000010 000000000001 
+== pins-created
+  largest=1 next=2 settings=0 static=1 consolidate=1
+  vertices conns=12 shapes=0
+    [1,9,p=5] (20,65,1,9) vis=1
+    [1,9,p=5] (110,120,1,9) vis=15
+    [1,9,p=5] (70,-10,1,9) vis=15
+    [1,9,p=5] (10,20,1,9) vis=5
+    [1,9,p=5] (30,20,1,9) vis=15
+    [1,9,p=5] (50,80,1,9) vis=8
+    [1,9,p=5] (11.5,78.5,1,9) vis=4
+    [1,9,p=5] (15,30,1,9) vis=2
+    [1,9,p=5] (20,65,1,9) vis=5
+    [1,9,p=5] (30,50,1,9) vis=15
+    [1,9,p=5] (48,78,1,9) vis=10
+    [1,9,p=5] (10,20,1,9) vis=5
+  contains
+  clusters
+  actions 13
+    action type=1 obstacle=1
+    action type=7 pin=1:1
+    action type=7 pin=1:1
+    action type=7 pin=1:1
+    action type=7 pin=1:2
+    action type=7 pin=1:2
+    action type=7 pin=1:2
+    action type=7 pin=1:3
+    action type=7 pin=1:3
+    action type=7 pin=1:1
+    action type=7 pin=1:4
+    action type=7 pin=1:4
+    action type=7 pin=1:2
+== pins-processed
+  largest=1 next=2 settings=0 static=1 consolidate=1
+  obstacle id=1 kind=shape active=1 poly=[(50,20,0,8) (50,80,0,8) (10,80,0,8) (10,20,0,8)] pos=(30,50)
+    ring [1,0,p=0] (50,20,1,0) vis=0
+    ring [1,1,p=0] (50,80,1,1) vis=0
+    ring [1,2,p=0] (10,80,1,2) vis=0
+    ring [1,3,p=0] (10,20,1,3) vis=0
+    lastVert [1,3,p=0] (10,20,1,3) vis=0
+    pin 1:1 x=0 y=0 inside=0 prop=1 visdirs=0 dirs=5 excl=1 cost=0 users=0 pos=(10,20,0,5) v=[1,9,p=5] (10,20,1,9) vis=5
+    pin 1:1 x=0.5 y=0.5 inside=0 prop=1 visdirs=0 dirs=15 excl=0 cost=3.5 users=0 pos=(30,50,0,8) v=[1,9,p=5] (30,50,1,9) vis=15
+    pin 1:1 x=1 y=1 inside=2 prop=1 visdirs=0 dirs=10 excl=1 cost=0 users=0 pos=(48,78,0,7) v=[1,9,p=5] (48,78,1,9) vis=10
+    pin 1:2 x=0 y=-1 inside=1.5 prop=0 visdirs=0 dirs=4 excl=1 cost=0 users=0 pos=(11.5,78.5,0,7) v=[1,9,p=5] (11.5,78.5,1,9) vis=4
+    pin 1:2 x=0.25 y=0.75 inside=1 prop=1 visdirs=1 dirs=1 excl=1 cost=0 users=0 pos=(20,65,0,8) v=[1,9,p=5] (20,65,1,9) vis=1
+    pin 1:2 x=5 y=10 inside=0 prop=0 visdirs=2 dirs=2 excl=1 cost=0 users=0 pos=(15,30,0,8) v=[1,9,p=5] (15,30,1,9) vis=2
+    pin 1:2 x=0.25 y=0.75 inside=1 prop=1 visdirs=5 dirs=5 excl=0 cost=0 users=0 pos=(20,65,0,8) v=[1,9,p=5] (20,65,1,9) vis=5
+    pin 1:3 x=40 y=60 inside=0 prop=0 visdirs=8 dirs=8 excl=1 cost=0 users=0 pos=(50,80,0,7) v=[1,9,p=5] (50,80,1,9) vis=8
+    pin 1:3 x=0.5 y=0 inside=0 prop=1 visdirs=15 dirs=15 excl=1 cost=0 users=0 pos=(30,20,0,5) v=[1,9,p=5] (30,20,1,9) vis=15
+    pin 1:4 x=1.5 y=-0.5 inside=0 prop=1 visdirs=0 dirs=15 excl=0 cost=0 users=0 pos=(70,-10,0,8) v=[1,9,p=5] (70,-10,1,9) vis=15
+    pin 1:4 x=100 y=100 inside=0 prop=0 visdirs=0 dirs=15 excl=0 cost=0 users=0 pos=(110,120,0,8) v=[1,9,p=5] (110,120,1,9) vis=15
+    following
+    attached
+  vertices conns=12 shapes=4
+    [1,9,p=5] (20,65,1,9) vis=1
+    [1,9,p=5] (110,120,1,9) vis=15
+    [1,9,p=5] (70,-10,1,9) vis=15
+    [1,9,p=5] (10,20,1,9) vis=5
+    [1,9,p=5] (30,20,1,9) vis=15
+    [1,9,p=5] (50,80,1,9) vis=8
+    [1,9,p=5] (11.5,78.5,1,9) vis=4
+    [1,9,p=5] (15,30,1,9) vis=2
+    [1,9,p=5] (20,65,1,9) vis=5
+    [1,9,p=5] (30,50,1,9) vis=15
+    [1,9,p=5] (48,78,1,9) vis=10
+    [1,9,p=5] (10,20,1,9) vis=5
+    [1,0,p=0] (50,20,1,0) vis=0
+    [1,1,p=0] (50,80,1,1) vis=0
+    [1,2,p=0] (10,80,1,2) vis=0
+    [1,3,p=0] (10,20,1,3) vis=0
+  contains [1,9]{1}
+  clusters
+  actions 0
+== pins-after-move
+  largest=1 next=2 settings=0 static=1 consolidate=1
+  obstacle id=1 kind=shape active=1 poly=[(55,15,0,8) (55,75,0,8) (15,75,0,8) (15,15,0,8)] pos=(35,45)
+    ring [1,0,p=0] (55,15,1,0) vis=0
+    ring [1,1,p=0] (55,75,1,1) vis=0
+    ring [1,2,p=0] (15,75,1,2) vis=0
+    ring [1,3,p=0] (15,15,1,3) vis=0
+    lastVert [1,3,p=0] (15,15,1,3) vis=0
+    pin 1:1 x=0 y=0 inside=0 prop=1 visdirs=0 dirs=5 excl=1 cost=0 users=0 pos=(15,15,0,5) v=[1,9,p=5] (15,15,1,9) vis=5
+    pin 1:1 x=0.5 y=0.5 inside=0 prop=1 visdirs=0 dirs=15 excl=0 cost=3.5 users=0 pos=(35,45,0,8) v=[1,9,p=5] (35,45,1,9) vis=15
+    pin 1:1 x=1 y=1 inside=2 prop=1 visdirs=0 dirs=10 excl=1 cost=0 users=0 pos=(53,73,0,7) v=[1,9,p=5] (53,73,1,9) vis=10
+    pin 1:2 x=0 y=-1 inside=1.5 prop=0 visdirs=0 dirs=4 excl=1 cost=0 users=0 pos=(16.5,73.5,0,7) v=[1,9,p=5] (16.5,73.5,1,9) vis=4
+    pin 1:2 x=0.25 y=0.75 inside=1 prop=1 visdirs=1 dirs=1 excl=1 cost=0 users=0 pos=(25,60,0,8) v=[1,9,p=5] (25,60,1,9) vis=1
+    pin 1:2 x=5 y=10 inside=0 prop=0 visdirs=2 dirs=2 excl=1 cost=0 users=0 pos=(20,25,0,8) v=[1,9,p=5] (20,25,1,9) vis=2
+    pin 1:2 x=0.25 y=0.75 inside=1 prop=1 visdirs=5 dirs=5 excl=0 cost=0 users=0 pos=(25,60,0,8) v=[1,9,p=5] (25,60,1,9) vis=5
+    pin 1:3 x=40 y=60 inside=0 prop=0 visdirs=8 dirs=8 excl=1 cost=0 users=0 pos=(55,75,0,7) v=[1,9,p=5] (55,75,1,9) vis=8
+    pin 1:3 x=0.5 y=0 inside=0 prop=1 visdirs=15 dirs=15 excl=1 cost=0 users=0 pos=(35,15,0,5) v=[1,9,p=5] (35,15,1,9) vis=15
+    pin 1:4 x=1.5 y=-0.5 inside=0 prop=1 visdirs=0 dirs=15 excl=0 cost=0 users=0 pos=(75,-15,0,8) v=[1,9,p=5] (75,-15,1,9) vis=15
+    pin 1:4 x=100 y=100 inside=0 prop=0 visdirs=0 dirs=15 excl=0 cost=0 users=0 pos=(115,115,0,8) v=[1,9,p=5] (115,115,1,9) vis=15
+    following
+    attached
+  vertices conns=12 shapes=4
+    [1,9,p=5] (25,60,1,9) vis=1
+    [1,9,p=5] (115,115,1,9) vis=15
+    [1,9,p=5] (75,-15,1,9) vis=15
+    [1,9,p=5] (10,20,1,9) vis=5
+    [1,9,p=5] (35,15,1,9) vis=15
+    [1,9,p=5] (55,75,1,9) vis=8
+    [1,9,p=5] (16.5,73.5,1,9) vis=4
+    [1,9,p=5] (20,25,1,9) vis=2
+    [1,9,p=5] (25,60,1,9) vis=5
+    [1,9,p=5] (35,45,1,9) vis=15
+    [1,9,p=5] (53,73,1,9) vis=10
+    [1,9,p=5] (15,15,1,9) vis=5
+    [1,0,p=0] (55,15,1,0) vis=0
+    [1,1,p=0] (55,75,1,1) vis=0
+    [1,2,p=0] (15,75,1,2) vis=0
+    [1,3,p=0] (15,15,1,3) vis=0
+  contains [1,9]{1}
+  clusters
+  actions 0
+transform 0
+  obstacle id=50 kind=shape active=1 poly=[(40,0,0,8) (40,20,0,8) (0,20,0,8) (0,0,0,8)] pos=(20,10)
+    ring [50,0,p=0] (40,0,50,0) vis=0
+    ring [50,1,p=0] (40,20,50,1) vis=0
+    ring [50,2,p=0] (0,20,50,2) vis=0
+    ring [50,3,p=0] (0,0,50,3) vis=0
+    lastVert [50,3,p=0] (0,0,50,3) vis=0
+    pin 50:1 x=1 y=0 inside=0 prop=1 visdirs=0 dirs=9 excl=1 cost=0 users=0 pos=(40,0,0,5) v=[50,9,p=5] (40,0,50,9) vis=9
+    pin 50:2 x=0.40000000000000002 y=0.25 inside=1 prop=1 visdirs=10 dirs=10 excl=1 cost=0 users=0 pos=(16,5,0,8) v=[50,9,p=5] (16,5,50,9) vis=10
+    pin 50:3 x=35 y=10 inside=0 prop=0 visdirs=1 dirs=1 excl=1 cost=0 users=0 pos=(35,10,0,8) v=[50,9,p=5] (35,10,50,9) vis=1
+    pin 50:4 x=0 y=0 inside=0 prop=0 visdirs=5 dirs=5 excl=1 cost=0 users=0 pos=(0,0,0,5) v=[50,9,p=5] (0,0,50,9) vis=5
+    pin 50:5 x=33 y=0 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=0 users=0 pos=(33,0,0,5) v=[50,9,p=5] (33,0,50,9) vis=15
+    pin 50:6 x=0 y=0.5 inside=0 prop=1 visdirs=0 dirs=4 excl=1 cost=0 users=0 pos=(0,10,0,6) v=[50,9,p=5] (0,10,50,9) vis=4
+    following
+    attached
+  actions 6
+    action type=7 pin=50:1
+    action type=7 pin=50:2
+    action type=7 pin=50:3
+    action type=7 pin=50:4
+    action type=7 pin=50:5
+    action type=7 pin=50:6
+transform-again 0
+  obstacle id=50 kind=shape active=1 poly=[(40,0,0,8) (40,20,0,8) (0,20,0,8) (0,0,0,8)] pos=(20,10)
+    ring [50,0,p=0] (40,0,50,0) vis=0
+    ring [50,1,p=0] (40,20,50,1) vis=0
+    ring [50,2,p=0] (0,20,50,2) vis=0
+    ring [50,3,p=0] (0,0,50,3) vis=0
+    lastVert [50,3,p=0] (0,0,50,3) vis=0
+    pin 50:1 x=1 y=1 inside=0 prop=1 visdirs=0 dirs=10 excl=1 cost=0 users=0 pos=(40,20,0,7) v=[50,9,p=5] (40,20,50,9) vis=10
+    pin 50:2 x=0.75 y=0.40000000000000002 inside=1 prop=1 visdirs=6 dirs=6 excl=1 cost=0 users=0 pos=(30,8,0,8) v=[50,9,p=5] (30,8,50,9) vis=6
+    pin 50:3 x=30 y=35 inside=0 prop=0 visdirs=8 dirs=8 excl=1 cost=0 users=0 pos=(30,35,0,8) v=[50,9,p=5] (30,35,50,9) vis=8
+    pin 50:4 x=-1 y=0 inside=0 prop=0 visdirs=9 dirs=9 excl=1 cost=0 users=0 pos=(40,0,0,5) v=[50,9,p=5] (40,0,50,9) vis=9
+    pin 50:5 x=-1 y=33 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=0 users=0 pos=(40,33,0,4) v=[50,9,p=5] (40,33,50,9) vis=15
+    pin 50:6 x=0.5 y=0 inside=0 prop=1 visdirs=0 dirs=1 excl=1 cost=0 users=0 pos=(20,0,0,5) v=[50,9,p=5] (20,0,50,9) vis=1
+    following
+    attached
+transform 1
+  obstacle id=51 kind=shape active=1 poly=[(41,0,0,8) (41,22,0,8) (0,22,0,8) (0,0,0,8)] pos=(20.5,11)
+    ring [51,0,p=0] (41,0,51,0) vis=0
+    ring [51,1,p=0] (41,22,51,1) vis=0
+    ring [51,2,p=0] (0,22,51,2) vis=0
+    ring [51,3,p=0] (0,0,51,3) vis=0
+    lastVert [51,3,p=0] (0,0,51,3) vis=0
+    pin 51:1 x=1 y=1 inside=0 prop=1 visdirs=0 dirs=10 excl=1 cost=0 users=0 pos=(41,22,0,7) v=[51,9,p=5] (41,22,51,9) vis=10
+    pin 51:2 x=0.75 y=0.40000000000000002 inside=1 prop=1 visdirs=6 dirs=6 excl=1 cost=0 users=0 pos=(30.75,8.8000000000000007,0,8) v=[51,9,p=5] (30.75,8.8000000000000007,51,9) vis=6
+    pin 51:3 x=31 y=17 inside=0 prop=0 visdirs=8 dirs=8 excl=1 cost=0 users=0 pos=(31,17,0,8) v=[51,9,p=5] (31,17,51,9) vis=8
+    pin 51:4 x=-1 y=0 inside=0 prop=0 visdirs=9 dirs=9 excl=1 cost=0 users=0 pos=(41,0,0,5) v=[51,9,p=5] (41,0,51,9) vis=9
+    pin 51:5 x=-1 y=15 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=0 users=0 pos=(41,15,0,4) v=[51,9,p=5] (41,15,51,9) vis=15
+    pin 51:6 x=0.5 y=0 inside=0 prop=1 visdirs=0 dirs=1 excl=1 cost=0 users=0 pos=(20.5,0,0,5) v=[51,9,p=5] (20.5,0,51,9) vis=1
+    following
+    attached
+  actions 6
+    action type=7 pin=51:1
+    action type=7 pin=51:2
+    action type=7 pin=51:3
+    action type=7 pin=51:4
+    action type=7 pin=51:5
+    action type=7 pin=51:6
+transform-again 1
+  obstacle id=51 kind=shape active=1 poly=[(41,0,0,8) (41,22,0,8) (0,22,0,8) (0,0,0,8)] pos=(20.5,11)
+    ring [51,0,p=0] (41,0,51,0) vis=0
+    ring [51,1,p=0] (41,22,51,1) vis=0
+    ring [51,2,p=0] (0,22,51,2) vis=0
+    ring [51,3,p=0] (0,0,51,3) vis=0
+    lastVert [51,3,p=0] (0,0,51,3) vis=0
+    pin 51:1 x=0 y=0 inside=0 prop=1 visdirs=0 dirs=5 excl=1 cost=0 users=0 pos=(0,0,0,5) v=[51,9,p=5] (0,0,51,9) vis=5
+    pin 51:2 x=0.25 y=0.59999999999999998 inside=1 prop=1 visdirs=9 dirs=9 excl=1 cost=0 users=0 pos=(10.25,13.199999999999999,0,8) v=[51,9,p=5] (10.25,13.199999999999999,51,9) vis=9
+    pin 51:3 x=10 y=5 inside=0 prop=0 visdirs=4 dirs=4 excl=1 cost=0 users=0 pos=(10,5,0,8) v=[51,9,p=5] (10,5,51,9) vis=4
+    pin 51:4 x=0 y=-1 inside=0 prop=0 visdirs=6 dirs=6 excl=1 cost=0 users=0 pos=(0,22,0,7) v=[51,9,p=5] (0,22,51,9) vis=6
+    pin 51:5 x=0 y=7 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=0 users=0 pos=(0,7,0,6) v=[51,9,p=5] (0,7,51,9) vis=15
+    pin 51:6 x=0.5 y=1 inside=0 prop=1 visdirs=0 dirs=2 excl=1 cost=0 users=0 pos=(20.5,22,0,7) v=[51,9,p=5] (20.5,22,51,9) vis=2
+    following
+    attached
+transform 2
+  obstacle id=52 kind=shape active=1 poly=[(42,0,0,8) (42,24,0,8) (0,24,0,8) (0,0,0,8)] pos=(21,12)
+    ring [52,0,p=0] (42,0,52,0) vis=0
+    ring [52,1,p=0] (42,24,52,1) vis=0
+    ring [52,2,p=0] (0,24,52,2) vis=0
+    ring [52,3,p=0] (0,0,52,3) vis=0
+    lastVert [52,3,p=0] (0,0,52,3) vis=0
+    pin 52:1 x=0 y=1 inside=0 prop=1 visdirs=0 dirs=6 excl=1 cost=0 users=0 pos=(0,24,0,7) v=[52,9,p=5] (0,24,52,9) vis=6
+    pin 52:2 x=0.59999999999999998 y=0.75 inside=1 prop=1 visdirs=5 dirs=5 excl=1 cost=0 users=0 pos=(25.199999999999999,18,0,8) v=[52,9,p=5] (25.199999999999999,18,52,9) vis=5
+    pin 52:3 x=5 y=14 inside=0 prop=0 visdirs=2 dirs=2 excl=1 cost=0 users=0 pos=(5,14,0,8) v=[52,9,p=5] (5,14,52,9) vis=2
+    pin 52:4 x=-1 y=-1 inside=0 prop=0 visdirs=10 dirs=10 excl=1 cost=0 users=0 pos=(42,24,0,7) v=[52,9,p=5] (42,24,52,9) vis=10
+    pin 52:5 x=7 y=-1 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=0 users=0 pos=(7,24,0,7) v=[52,9,p=5] (7,24,52,9) vis=15
+    pin 52:6 x=1 y=0.5 inside=0 prop=1 visdirs=0 dirs=8 excl=1 cost=0 users=0 pos=(42,12,0,4) v=[52,9,p=5] (42,12,52,9) vis=8
+    following
+    attached
+  actions 6
+    action type=7 pin=52:1
+    action type=7 pin=52:2
+    action type=7 pin=52:3
+    action type=7 pin=52:4
+    action type=7 pin=52:5
+    action type=7 pin=52:6
+transform-again 2
+  obstacle id=52 kind=shape active=1 poly=[(42,0,0,8) (42,24,0,8) (0,24,0,8) (0,0,0,8)] pos=(21,12)
+    ring [52,0,p=0] (42,0,52,0) vis=0
+    ring [52,1,p=0] (42,24,52,1) vis=0
+    ring [52,2,p=0] (0,24,52,2) vis=0
+    ring [52,3,p=0] (0,0,52,3) vis=0
+    lastVert [52,3,p=0] (0,0,52,3) vis=0
+    pin 52:1 x=1 y=1 inside=0 prop=1 visdirs=0 dirs=10 excl=1 cost=0 users=0 pos=(42,24,0,7) v=[52,9,p=5] (42,24,52,9) vis=10
+    pin 52:2 x=0.75 y=0.40000000000000002 inside=1 prop=1 visdirs=6 dirs=6 excl=1 cost=0 users=0 pos=(31.5,9.6000000000000014,0,8) v=[52,9,p=5] (31.5,9.6000000000000014,52,9) vis=6
+    pin 52:3 x=14 y=19 inside=0 prop=0 visdirs=8 dirs=8 excl=1 cost=0 users=0 pos=(14,19,0,8) v=[52,9,p=5] (14,19,52,9) vis=8
+    pin 52:4 x=-1 y=0 inside=0 prop=0 visdirs=9 dirs=9 excl=1 cost=0 users=0 pos=(42,0,0,5) v=[52,9,p=5] (42,0,52,9) vis=9
+    pin 52:5 x=-1 y=17 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=0 users=0 pos=(42,17,0,4) v=[52,9,p=5] (42,17,52,9) vis=15
+    pin 52:6 x=0.5 y=0 inside=0 prop=1 visdirs=0 dirs=1 excl=1 cost=0 users=0 pos=(21,0,0,5) v=[52,9,p=5] (21,0,52,9) vis=1
+    following
+    attached
+transform 3
+  obstacle id=53 kind=shape active=1 poly=[(43,0,0,8) (43,26,0,8) (0,26,0,8) (0,0,0,8)] pos=(21.5,13)
+    ring [53,0,p=0] (43,0,53,0) vis=0
+    ring [53,1,p=0] (43,26,53,1) vis=0
+    ring [53,2,p=0] (0,26,53,2) vis=0
+    ring [53,3,p=0] (0,0,53,3) vis=0
+    lastVert [53,3,p=0] (0,0,53,3) vis=0
+    pin 53:1 x=1 y=0 inside=0 prop=1 visdirs=0 dirs=9 excl=1 cost=0 users=0 pos=(43,0,0,5) v=[53,9,p=5] (43,0,53,9) vis=9
+    pin 53:2 x=0.75 y=0.59999999999999998 inside=1 prop=1 visdirs=5 dirs=5 excl=1 cost=0 users=0 pos=(32.25,15.6,0,8) v=[53,9,p=5] (32.25,15.6,53,9) vis=5
+    pin 53:3 x=33 y=5 inside=0 prop=0 visdirs=8 dirs=8 excl=1 cost=0 users=0 pos=(33,5,0,8) v=[53,9,p=5] (33,5,53,9) vis=8
+    pin 53:4 x=-1 y=-1 inside=0 prop=0 visdirs=10 dirs=10 excl=1 cost=0 users=0 pos=(43,26,0,7) v=[53,9,p=5] (43,26,53,9) vis=10
+    pin 53:5 x=-1 y=7 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=0 users=0 pos=(43,7,0,4) v=[53,9,p=5] (43,7,53,9) vis=15
+    pin 53:6 x=0.5 y=1 inside=0 prop=1 visdirs=0 dirs=2 excl=1 cost=0 users=0 pos=(21.5,26,0,7) v=[53,9,p=5] (21.5,26,53,9) vis=2
+    following
+    attached
+  actions 6
+    action type=7 pin=53:1
+    action type=7 pin=53:2
+    action type=7 pin=53:3
+    action type=7 pin=53:4
+    action type=7 pin=53:5
+    action type=7 pin=53:6
+transform-again 3
+  obstacle id=53 kind=shape active=1 poly=[(43,0,0,8) (43,26,0,8) (0,26,0,8) (0,0,0,8)] pos=(21.5,13)
+    ring [53,0,p=0] (43,0,53,0) vis=0
+    ring [53,1,p=0] (43,26,53,1) vis=0
+    ring [53,2,p=0] (0,26,53,2) vis=0
+    ring [53,3,p=0] (0,0,53,3) vis=0
+    lastVert [53,3,p=0] (0,0,53,3) vis=0
+    pin 53:1 x=0 y=0 inside=0 prop=1 visdirs=0 dirs=5 excl=1 cost=0 users=0 pos=(0,0,0,5) v=[53,9,p=5] (0,0,53,9) vis=5
+    pin 53:2 x=0.25 y=0.59999999999999998 inside=1 prop=1 visdirs=9 dirs=9 excl=1 cost=0 users=0 pos=(10.75,15.6,0,8) v=[53,9,p=5] (10.75,15.6,53,9) vis=9
+    pin 53:3 x=10 y=5 inside=0 prop=0 visdirs=4 dirs=4 excl=1 cost=0 users=0 pos=(10,5,0,8) v=[53,9,p=5] (10,5,53,9) vis=4
+    pin 53:4 x=0 y=-1 inside=0 prop=0 visdirs=6 dirs=6 excl=1 cost=0 users=0 pos=(0,26,0,7) v=[53,9,p=5] (0,26,53,9) vis=6
+    pin 53:5 x=0 y=7 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=0 users=0 pos=(0,7,0,6) v=[53,9,p=5] (0,7,53,9) vis=15
+    pin 53:6 x=0.5 y=1 inside=0 prop=1 visdirs=0 dirs=2 excl=1 cost=0 users=0 pos=(21.5,26,0,7) v=[53,9,p=5] (21.5,26,53,9) vis=2
+    following
+    attached
+transform 4
+  obstacle id=54 kind=shape active=1 poly=[(44,0,0,8) (44,28,0,8) (0,28,0,8) (0,0,0,8)] pos=(22,14)
+    ring [54,0,p=0] (44,0,54,0) vis=0
+    ring [54,1,p=0] (44,28,54,1) vis=0
+    ring [54,2,p=0] (0,28,54,2) vis=0
+    ring [54,3,p=0] (0,0,54,3) vis=0
+    lastVert [54,3,p=0] (0,0,54,3) vis=0
+    pin 54:1 x=0 y=1 inside=0 prop=1 visdirs=0 dirs=6 excl=1 cost=0 users=0 pos=(0,28,0,7) v=[54,9,p=5] (0,28,54,9) vis=6
+    pin 54:2 x=0.25 y=0.40000000000000002 inside=1 prop=1 visdirs=10 dirs=10 excl=1 cost=0 users=0 pos=(11,11.200000000000001,0,8) v=[54,9,p=5] (11,11.200000000000001,54,9) vis=10
+    pin 54:3 x=10 y=23 inside=0 prop=0 visdirs=4 dirs=4 excl=1 cost=0 users=0 pos=(10,23,0,8) v=[54,9,p=5] (10,23,54,9) vis=4
+    pin 54:4 x=0 y=0 inside=0 prop=0 visdirs=5 dirs=5 excl=1 cost=0 users=0 pos=(0,0,0,5) v=[54,9,p=5] (0,0,54,9) vis=5
+    pin 54:5 x=0 y=21 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=0 users=0 pos=(0,21,0,6) v=[54,9,p=5] (0,21,54,9) vis=15
+    pin 54:6 x=0.5 y=0 inside=0 prop=1 visdirs=0 dirs=1 excl=1 cost=0 users=0 pos=(22,0,0,5) v=[54,9,p=5] (22,0,54,9) vis=1
+    following
+    attached
+  actions 6
+    action type=7 pin=54:1
+    action type=7 pin=54:2
+    action type=7 pin=54:3
+    action type=7 pin=54:4
+    action type=7 pin=54:5
+    action type=7 pin=54:6
+transform-again 4
+  obstacle id=54 kind=shape active=1 poly=[(44,0,0,8) (44,28,0,8) (0,28,0,8) (0,0,0,8)] pos=(22,14)
+    ring [54,0,p=0] (44,0,54,0) vis=0
+    ring [54,1,p=0] (44,28,54,1) vis=0
+    ring [54,2,p=0] (0,28,54,2) vis=0
+    ring [54,3,p=0] (0,0,54,3) vis=0
+    lastVert [54,3,p=0] (0,0,54,3) vis=0
+    pin 54:1 x=0 y=0 inside=0 prop=1 visdirs=0 dirs=5 excl=1 cost=0 users=0 pos=(0,0,0,5) v=[54,9,p=5] (0,0,54,9) vis=5
+    pin 54:2 x=0.25 y=0.59999999999999998 inside=1 prop=1 visdirs=9 dirs=9 excl=1 cost=0 users=0 pos=(11,16.800000000000001,0,8) v=[54,9,p=5] (11,16.800000000000001,54,9) vis=9
+    pin 54:3 x=10 y=5 inside=0 prop=0 visdirs=4 dirs=4 excl=1 cost=0 users=0 pos=(10,5,0,8) v=[54,9,p=5] (10,5,54,9) vis=4
+    pin 54:4 x=0 y=-1 inside=0 prop=0 visdirs=6 dirs=6 excl=1 cost=0 users=0 pos=(0,28,0,7) v=[54,9,p=5] (0,28,54,9) vis=6
+    pin 54:5 x=0 y=7 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=0 users=0 pos=(0,7,0,6) v=[54,9,p=5] (0,7,54,9) vis=15
+    pin 54:6 x=0.5 y=1 inside=0 prop=1 visdirs=0 dirs=2 excl=1 cost=0 users=0 pos=(22,28,0,7) v=[54,9,p=5] (22,28,54,9) vis=2
+    following
+    attached
+#### junctions
+== junctions-created
+  largest=3 next=4 settings=1 static=1 consolidate=1
+  vertices conns=8 shapes=0
+    [3,9,p=5] (-5,0,3,9) vis=1
+    [3,9,p=5] (-5,0,3,9) vis=8
+    [3,9,p=5] (-5,0,3,9) vis=15
+    [2,9,p=5] (20,30,2,9) vis=0
+    [2,9,p=5] (20,30,2,9) vis=3
+    [2,9,p=5] (20,30,2,9) vis=4
+    [2,9,p=5] (20,30,2,9) vis=15
+    [1,9,p=5] (10,10,1,9) vis=15
+  contains
+  clusters
+  actions 11
+    action type=7 pin=1:2147483646
+    action type=4 obstacle=1
+    action type=7 pin=2:2147483646
+    action type=4 obstacle=2
+    action type=7 pin=2:5
+    action type=7 pin=2:6
+    action type=7 pin=2:7
+    action type=7 pin=3:2147483646
+    action type=4 obstacle=3
+    action type=7 pin=3:5
+    action type=7 pin=3:6
+== junctions-preferred
+  largest=3 next=4 settings=1 static=1 consolidate=1
+  obstacle id=3 kind=junction active=1 poly=[(-4,-1,0,8) (-4,1,0,8) (-6,1,0,8) (-6,-1,0,8)] pos=(-5,0)
+    junction pos=(-5,0) rec=(-5,0) fixed=0
+    ring [3,0,p=0] (-4,-1,3,0) vis=0
+    ring [3,1,p=0] (-4,1,3,1) vis=0
+    ring [3,2,p=0] (-6,1,3,2) vis=0
+    ring [3,3,p=0] (-6,-1,3,3) vis=0
+    lastVert [3,3,p=0] (-6,-1,3,3) vis=0
+    pin 3:5 x=0 y=0 inside=0 prop=0 visdirs=8 dirs=8 excl=1 cost=1 users=0 pos=(-5,0,0,8) v=[3,9,p=5] (-5,0,3,9) vis=8
+    pin 3:6 x=0 y=0 inside=0 prop=0 visdirs=1 dirs=1 excl=1 cost=0 users=0 pos=(-5,0,0,8) v=[3,9,p=5] (-5,0,3,9) vis=1
+    pin 3:2147483646 x=0 y=0 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=1 users=0 pos=(-5,0,0,8) v=[3,9,p=5] (-5,0,3,9) vis=15
+    following
+    attached
+  obstacle id=2 kind=junction active=1 poly=[(21,29,0,8) (21,31,0,8) (19,31,0,8) (19,29,0,8)] pos=(20,30)
+    junction pos=(20,30) rec=(20,30) fixed=0
+    ring [2,0,p=0] (21,29,2,0) vis=0
+    ring [2,1,p=0] (21,31,2,1) vis=0
+    ring [2,2,p=0] (19,31,2,2) vis=0
+    ring [2,3,p=0] (19,29,2,3) vis=0
+    lastVert [2,3,p=0] (19,29,2,3) vis=0
+    pin 2:5 x=0 y=0 inside=0 prop=0 visdirs=4 dirs=4 excl=1 cost=0 users=0 pos=(20,30,0,8) v=[2,9,p=5] (20,30,2,9) vis=4
+    pin 2:6 x=0 y=0 inside=0 prop=0 visdirs=3 dirs=3 excl=1 cost=1 users=0 pos=(20,30,0,8) v=[2,9,p=5] (20,30,2,9) vis=3
+    pin 2:7 x=0 y=0 inside=0 prop=0 visdirs=0 dirs=5 excl=1 cost=1 users=0 pos=(20,30,0,8) v=[2,9,p=5] (20,30,2,9) vis=0
+    pin 2:2147483646 x=0 y=0 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=1 users=0 pos=(20,30,0,8) v=[2,9,p=5] (20,30,2,9) vis=15
+    following
+    attached
+  obstacle id=1 kind=junction active=1 poly=[(10.25,9.75,0,8) (10.25,10.25,0,8) (9.75,10.25,0,8) (9.75,9.75,0,8)] pos=(10,10)
+    junction pos=(10,10) rec=(10,10) fixed=1
+    ring [1,0,p=0] (10.25,9.75,1,0) vis=0
+    ring [1,1,p=0] (10.25,10.25,1,1) vis=0
+    ring [1,2,p=0] (9.75,10.25,1,2) vis=0
+    ring [1,3,p=0] (9.75,9.75,1,3) vis=0
+    lastVert [1,3,p=0] (9.75,9.75,1,3) vis=0
+    pin 1:2147483646 x=0 y=0 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=0 users=0 pos=(10,10,0,8) v=[1,9,p=5] (10,10,1,9) vis=15
+    following
+    attached
+  vertices conns=8 shapes=12
+    [3,9,p=5] (-5,0,3,9) vis=1
+    [3,9,p=5] (-5,0,3,9) vis=8
+    [3,9,p=5] (-5,0,3,9) vis=15
+    [2,9,p=5] (20,30,2,9) vis=0
+    [2,9,p=5] (20,30,2,9) vis=3
+    [2,9,p=5] (20,30,2,9) vis=4
+    [2,9,p=5] (20,30,2,9) vis=15
+    [1,9,p=5] (10,10,1,9) vis=15
+    [1,0,p=0] (10.25,9.75,1,0) vis=0
+    [1,1,p=0] (10.25,10.25,1,1) vis=0
+    [1,2,p=0] (9.75,10.25,1,2) vis=0
+    [1,3,p=0] (9.75,9.75,1,3) vis=0
+    [2,0,p=0] (21,29,2,0) vis=0
+    [2,1,p=0] (21,31,2,1) vis=0
+    [2,2,p=0] (19,31,2,2) vis=0
+    [2,3,p=0] (19,29,2,3) vis=0
+    [3,0,p=0] (-4,-1,3,0) vis=0
+    [3,1,p=0] (-4,1,3,1) vis=0
+    [3,2,p=0] (-6,1,3,2) vis=0
+    [3,3,p=0] (-6,-1,3,3) vis=0
+  contains [1,9]{1} [2,9]{2} [3,9]{3}
+  clusters
+  actions 0
+== junctions-moved
+  largest=3 next=4 settings=1 static=1 consolidate=1
+  obstacle id=2 kind=junction active=1 poly=[(26,34,0,8) (26,36,0,8) (24,36,0,8) (24,34,0,8)] pos=(25,35)
+    junction pos=(25,35) rec=(25,35) fixed=0
+    ring [2,0,p=0] (26,34,2,0) vis=0
+    ring [2,1,p=0] (26,36,2,1) vis=0
+    ring [2,2,p=0] (24,36,2,2) vis=0
+    ring [2,3,p=0] (24,34,2,3) vis=0
+    lastVert [2,3,p=0] (24,34,2,3) vis=0
+    pin 2:5 x=0 y=0 inside=0 prop=0 visdirs=4 dirs=4 excl=1 cost=0 users=0 pos=(25,35,0,8) v=[2,9,p=5] (25,35,2,9) vis=4
+    pin 2:6 x=0 y=0 inside=0 prop=0 visdirs=3 dirs=3 excl=1 cost=1 users=0 pos=(25,35,0,8) v=[2,9,p=5] (25,35,2,9) vis=3
+    pin 2:7 x=0 y=0 inside=0 prop=0 visdirs=0 dirs=5 excl=1 cost=1 users=0 pos=(25,35,0,8) v=[2,9,p=5] (25,35,2,9) vis=0
+    pin 2:2147483646 x=0 y=0 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=1 users=0 pos=(25,35,0,8) v=[2,9,p=5] (25,35,2,9) vis=15
+    following
+    attached
+  obstacle id=3 kind=junction active=1 poly=[(-4,-1,0,8) (-4,1,0,8) (-6,1,0,8) (-6,-1,0,8)] pos=(-5,0)
+    junction pos=(-5,0) rec=(-5,0) fixed=0
+    ring [3,0,p=0] (-4,-1,3,0) vis=0
+    ring [3,1,p=0] (-4,1,3,1) vis=0
+    ring [3,2,p=0] (-6,1,3,2) vis=0
+    ring [3,3,p=0] (-6,-1,3,3) vis=0
+    lastVert [3,3,p=0] (-6,-1,3,3) vis=0
+    pin 3:5 x=0 y=0 inside=0 prop=0 visdirs=8 dirs=8 excl=1 cost=1 users=0 pos=(-5,0,0,8) v=[3,9,p=5] (-5,0,3,9) vis=8
+    pin 3:6 x=0 y=0 inside=0 prop=0 visdirs=1 dirs=1 excl=1 cost=0 users=0 pos=(-5,0,0,8) v=[3,9,p=5] (-5,0,3,9) vis=1
+    pin 3:2147483646 x=0 y=0 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=1 users=0 pos=(-5,0,0,8) v=[3,9,p=5] (-5,0,3,9) vis=15
+    following
+    attached
+  obstacle id=1 kind=junction active=1 poly=[(10.25,9.75,0,8) (10.25,10.25,0,8) (9.75,10.25,0,8) (9.75,9.75,0,8)] pos=(10,10)
+    junction pos=(10,10) rec=(11,12) fixed=1
+    ring [1,0,p=0] (10.25,9.75,1,0) vis=0
+    ring [1,1,p=0] (10.25,10.25,1,1) vis=0
+    ring [1,2,p=0] (9.75,10.25,1,2) vis=0
+    ring [1,3,p=0] (9.75,9.75,1,3) vis=0
+    lastVert [1,3,p=0] (9.75,9.75,1,3) vis=0
+    pin 1:2147483646 x=0 y=0 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=0 users=0 pos=(10,10,0,8) v=[1,9,p=5] (10,10,1,9) vis=15
+    following
+    attached
+  vertices conns=8 shapes=12
+    [3,9,p=5] (-5,0,3,9) vis=1
+    [3,9,p=5] (-5,0,3,9) vis=8
+    [3,9,p=5] (-5,0,3,9) vis=15
+    [2,9,p=5] (25,35,2,9) vis=0
+    [2,9,p=5] (25,35,2,9) vis=3
+    [2,9,p=5] (25,35,2,9) vis=4
+    [2,9,p=5] (25,35,2,9) vis=15
+    [1,9,p=5] (10,10,1,9) vis=15
+    [1,0,p=0] (10.25,9.75,1,0) vis=0
+    [1,1,p=0] (10.25,10.25,1,1) vis=0
+    [1,2,p=0] (9.75,10.25,1,2) vis=0
+    [1,3,p=0] (9.75,9.75,1,3) vis=0
+    [3,0,p=0] (-4,-1,3,0) vis=0
+    [3,1,p=0] (-4,1,3,1) vis=0
+    [3,2,p=0] (-6,1,3,2) vis=0
+    [3,3,p=0] (-6,-1,3,3) vis=0
+    [2,0,p=0] (26,34,2,0) vis=0
+    [2,1,p=0] (26,36,2,1) vis=0
+    [2,2,p=0] (24,36,2,2) vis=0
+    [2,3,p=0] (24,34,2,3) vis=0
+  contains [1,9]{1} [2,9]{2} [3,9]{3}
+  clusters
+  actions 0
+#### connectors
+== conns-queued
+  largest=13 next=14 settings=0 static=1 consolidate=1
+  vertices conns=7 shapes=0
+    [13,3,p=9] (6,7,13,3) vis=15
+    [13,2,p=9] (5,5,13,2) vis=15
+    [3,9,p=5] (60,50,3,9) vis=15
+    [2,9,p=5] (110,10,2,9) vis=15
+    [2,9,p=5] (100,10,2,9) vis=4
+    [1,9,p=5] (10,20,1,9) vis=2
+    [1,9,p=5] (20,10,1,9) vis=8
+  contains
+  clusters
+  actions 12
+    action type=1 obstacle=1
+    action type=1 obstacle=2
+    action type=7 pin=1:1
+    action type=7 pin=1:1
+    action type=7 pin=2:1
+    action type=7 pin=2:2
+    action type=7 pin=3:2147483646
+    action type=4 obstacle=3
+    action type=6 conn=10
+      end 1 type=1 dirs=15/15 class=1 anchor=1 conn=- pin=- pt=(10,10) pos=(10,10)
+      end 2 type=1 dirs=15/15 class=1 anchor=2 conn=- pin=- pt=(110,10) pos=(110,10)
+    action type=6 conn=11
+      end 1 type=0 dirs=1/1 class=2147483647 anchor=- conn=- pin=- pt=(50,100) pos=(50,100)
+      end 2 type=2 dirs=15/15 class=2147483646 anchor=3 conn=- pin=- pt=(60,50) pos=(60,50)
+    action type=6 conn=12
+      end 1 type=2 dirs=15/15 class=2147483646 anchor=3 conn=- pin=- pt=(60,50) pos=(60,50)
+      end 2 type=1 dirs=15/15 class=2 anchor=2 conn=- pin=- pt=(110,10) pos=(110,10)
+    action type=6 conn=13
+      end 1 type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(1,2) pos=(1,2)
+      end 2 type=0 dirs=6/6 class=2147483647 anchor=- conn=- pin=- pt=(3,4) pos=(3,4)
+  actions 12
+    action type=1 obstacle=1
+    action type=1 obstacle=2
+    action type=7 pin=1:1
+    action type=7 pin=1:1
+    action type=7 pin=2:1
+    action type=7 pin=2:2
+    action type=7 pin=3:2147483646
+    action type=4 obstacle=3
+    action type=6 conn=10
+      end 1 type=1 dirs=15/15 class=1 anchor=1 conn=- pin=- pt=(10,10) pos=(10,10)
+      end 2 type=1 dirs=15/15 class=1 anchor=2 conn=- pin=- pt=(110,10) pos=(110,10)
+    action type=6 conn=11
+      end 1 type=0 dirs=1/1 class=2147483647 anchor=- conn=- pin=- pt=(50,100) pos=(50,100)
+      end 2 type=2 dirs=15/15 class=2147483646 anchor=3 conn=- pin=- pt=(60,50) pos=(60,50)
+    action type=6 conn=12
+      end 1 type=2 dirs=15/15 class=2147483646 anchor=3 conn=- pin=- pt=(60,50) pos=(60,50)
+      end 2 type=1 dirs=15/15 class=2 anchor=2 conn=- pin=- pt=(110,10) pos=(110,10)
+    action type=6 conn=13
+      end 1 type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(1,2) pos=(1,2)
+      end 2 type=0 dirs=6/6 class=2147483647 anchor=- conn=- pin=- pt=(3,4) pos=(3,4)
+== conns-processed
+  largest=13 next=14 settings=0 static=1 consolidate=1
+  obstacle id=3 kind=junction active=1 poly=[(61,49,0,8) (61,51,0,8) (59,51,0,8) (59,49,0,8)] pos=(60,50)
+    junction pos=(60,50) rec=(60,50) fixed=0
+    ring [3,0,p=0] (61,49,3,0) vis=0
+    ring [3,1,p=0] (61,51,3,1) vis=0
+    ring [3,2,p=0] (59,51,3,2) vis=0
+    ring [3,3,p=0] (59,49,3,3) vis=0
+    lastVert [3,3,p=0] (59,49,3,3) vis=0
+    pin 3:2147483646 x=0 y=0 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=0 users=0 pos=(60,50,0,8) v=[3,9,p=5] (60,50,3,9) vis=15
+    following 11/2 12/1
+    attached 11 12
+  obstacle id=2 kind=shape active=1 poly=[(120,0,0,8) (120,20,0,8) (100,20,0,8) (100,0,0,8)] pos=(110,10)
+    ring [2,0,p=0] (120,0,2,0) vis=0
+    ring [2,1,p=0] (120,20,2,1) vis=0
+    ring [2,2,p=0] (100,20,2,2) vis=0
+    ring [2,3,p=0] (100,0,2,3) vis=0
+    lastVert [2,3,p=0] (100,0,2,3) vis=0
+    pin 2:1 x=0 y=0.5 inside=0 prop=1 visdirs=4 dirs=4 excl=1 cost=0 users=0 pos=(100,10,0,6) v=[2,9,p=5] (100,10,2,9) vis=4
+    pin 2:2 x=0.5 y=0.5 inside=0 prop=1 visdirs=15 dirs=15 excl=0 cost=0 users=0 pos=(110,10,0,8) v=[2,9,p=5] (110,10,2,9) vis=15
+    following 10/2 12/2
+    attached 10 12
+  obstacle id=1 kind=shape active=1 poly=[(20,0,0,8) (20,20,0,8) (0,20,0,8) (0,0,0,8)] pos=(10,10)
+    ring [1,0,p=0] (20,0,1,0) vis=0
+    ring [1,1,p=0] (20,20,1,1) vis=0
+    ring [1,2,p=0] (0,20,1,2) vis=0
+    ring [1,3,p=0] (0,0,1,3) vis=0
+    lastVert [1,3,p=0] (0,0,1,3) vis=0
+    pin 1:1 x=0.5 y=1 inside=0 prop=1 visdirs=2 dirs=2 excl=1 cost=0 users=0 pos=(10,20,0,7) v=[1,9,p=5] (10,20,1,9) vis=2
+    pin 1:1 x=1 y=0.5 inside=0 prop=1 visdirs=8 dirs=8 excl=1 cost=0 users=0 pos=(20,10,0,4) v=[1,9,p=5] (20,10,1,9) vis=8
+    following 10/1
+    attached 10
+  conn id=13 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=1 flag=0 dist=0
+    src [13,1,p=1] (1,2,13,1) vis=15
+    dst [13,2,p=1] (3,4,13,2) vis=6
+    srcEnd -
+    dstEnd -
+    endpoints type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(1,2) pos=(1,2) | type=0 dirs=6/6 class=2147483647 anchor=- conn=- pin=- pt=(3,4) pos=(3,4)
+    checkpoint [13,2,p=9] (5,5,13,2) vis=15
+    checkpoint [13,3,p=9] (6,7,13,3) vis=15
+    route=[] display=[]
+    dstPinPoints
+  conn id=12 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [12,1,p=17] (60,50,12,1) vis=0
+    dst [12,2,p=17] (110,10,12,2) vis=0
+    srcEnd type=2 dirs=15/15 class=2147483646 anchor=3 conn=12 pin=- pt=(60,50) pos=(60,50)
+    dstEnd type=1 dirs=15/15 class=2 anchor=2 conn=12 pin=- pt=(110,10) pos=(110,10)
+    endpoints type=2 dirs=15/15 class=2147483646 anchor=3 conn=12 pin=- pt=(60,50) pos=(60,50) | type=1 dirs=15/15 class=2 anchor=2 conn=12 pin=- pt=(110,10) pos=(110,10)
+    route=[] display=[]
+    dstPinPoints (110,10)
+  conn id=11 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [11,1,p=1] (50,100,11,1) vis=1
+    dst [11,2,p=17] (60,50,11,2) vis=0
+    srcEnd -
+    dstEnd type=2 dirs=15/15 class=2147483646 anchor=3 conn=11 pin=- pt=(60,50) pos=(60,50)
+    endpoints type=0 dirs=1/1 class=2147483647 anchor=- conn=- pin=- pt=(50,100) pos=(50,100) | type=2 dirs=15/15 class=2147483646 anchor=3 conn=11 pin=- pt=(60,50) pos=(60,50)
+    route=[] display=[]
+    dstPinPoints (60,50)
+  conn id=10 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [10,1,p=17] (10,10,10,1) vis=0
+    dst [10,2,p=17] (110,10,10,2) vis=0
+    srcEnd type=1 dirs=15/15 class=1 anchor=1 conn=10 pin=- pt=(10,10) pos=(10,10)
+    dstEnd type=1 dirs=15/15 class=1 anchor=2 conn=10 pin=- pt=(110,10) pos=(110,10)
+    endpoints type=1 dirs=15/15 class=1 anchor=1 conn=10 pin=- pt=(10,10) pos=(10,10) | type=1 dirs=15/15 class=1 anchor=2 conn=10 pin=- pt=(110,10) pos=(110,10)
+    route=[] display=[]
+    dstPinPoints (100,10)
+  vertices conns=15 shapes=12
+    [13,2,p=1] (3,4,13,2) vis=6
+    [13,1,p=1] (1,2,13,1) vis=15
+    [12,2,p=17] (110,10,12,2) vis=0
+    [12,1,p=17] (60,50,12,1) vis=0
+    [11,2,p=17] (60,50,11,2) vis=0
+    [11,1,p=1] (50,100,11,1) vis=1
+    [10,2,p=17] (110,10,10,2) vis=0
+    [10,1,p=17] (10,10,10,1) vis=0
+    [13,3,p=9] (6,7,13,3) vis=15
+    [13,2,p=9] (5,5,13,2) vis=15
+    [3,9,p=5] (60,50,3,9) vis=15
+    [2,9,p=5] (110,10,2,9) vis=15
+    [2,9,p=5] (100,10,2,9) vis=4
+    [1,9,p=5] (10,20,1,9) vis=2
+    [1,9,p=5] (20,10,1,9) vis=8
+    [1,0,p=0] (20,0,1,0) vis=0
+    [1,1,p=0] (20,20,1,1) vis=0
+    [1,2,p=0] (0,20,1,2) vis=0
+    [1,3,p=0] (0,0,1,3) vis=0
+    [2,0,p=0] (120,0,2,0) vis=0
+    [2,1,p=0] (120,20,2,1) vis=0
+    [2,2,p=0] (100,20,2,2) vis=0
+    [2,3,p=0] (100,0,2,3) vis=0
+    [3,0,p=0] (61,49,3,0) vis=0
+    [3,1,p=0] (61,51,3,1) vis=0
+    [3,2,p=0] (59,51,3,2) vis=0
+    [3,3,p=0] (59,49,3,3) vis=0
+  contains [2,9]{2} [3,9]{3} [13,2]{1} [13,3]{1}
+  clusters
+  actions 0
+attachedConns(1,1)  
+attachedShapes(1,1)  
+attachedConns(1,2)   10
+attachedShapes(1,2)   2
+attachedConns(1,3)   10
+attachedShapes(1,3)   2
+attachedConns(2,1)   12 10
+attachedShapes(2,1)   3 1
+attachedConns(2,2)  
+attachedShapes(2,2)  
+attachedConns(2,3)   12 10
+attachedShapes(2,3)   3 1
+attachedConns(3,1)   11
+attachedShapes(3,1)  
+attachedConns(3,2)   12
+attachedShapes(3,2)   2
+attachedConns(3,3)   12 11
+attachedShapes(3,3)   2
+possible a/1: (10,20) (20,10)
+  actions 2
+    action type=0 obstacle=1 first=0 poly=[(20,5,0,8) (20,25,0,8) (0,25,0,8) (0,5,0,8)]
+    action type=3 obstacle=3 newpos=(65,50)
+== after-attached-move
+  largest=13 next=14 settings=0 static=1 consolidate=1
+  obstacle id=3 kind=junction active=1 poly=[(66,49,0,8) (66,51,0,8) (64,51,0,8) (64,49,0,8)] pos=(65,50)
+    junction pos=(65,50) rec=(65,50) fixed=0
+    ring [3,0,p=0] (66,49,3,0) vis=0
+    ring [3,1,p=0] (66,51,3,1) vis=0
+    ring [3,2,p=0] (64,51,3,2) vis=0
+    ring [3,3,p=0] (64,49,3,3) vis=0
+    lastVert [3,3,p=0] (64,49,3,3) vis=0
+    pin 3:2147483646 x=0 y=0 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=0 users=0 pos=(65,50,0,8) v=[3,9,p=5] (65,50,3,9) vis=15
+    following 11/2 12/1
+    attached 11 12
+  obstacle id=1 kind=shape active=1 poly=[(20,5,0,8) (20,25,0,8) (0,25,0,8) (0,5,0,8)] pos=(10,15)
+    ring [1,0,p=0] (20,5,1,0) vis=0
+    ring [1,1,p=0] (20,25,1,1) vis=0
+    ring [1,2,p=0] (0,25,1,2) vis=0
+    ring [1,3,p=0] (0,5,1,3) vis=0
+    lastVert [1,3,p=0] (0,5,1,3) vis=0
+    pin 1:1 x=0.5 y=1 inside=0 prop=1 visdirs=2 dirs=2 excl=1 cost=0 users=0 pos=(10,25,0,7) v=[1,9,p=5] (10,25,1,9) vis=2
+    pin 1:1 x=1 y=0.5 inside=0 prop=1 visdirs=8 dirs=8 excl=1 cost=0 users=0 pos=(20,15,0,4) v=[1,9,p=5] (20,15,1,9) vis=8
+    following 10/1
+    attached 10
+  obstacle id=2 kind=shape active=1 poly=[(120,0,0,8) (120,20,0,8) (100,20,0,8) (100,0,0,8)] pos=(110,10)
+    ring [2,0,p=0] (120,0,2,0) vis=0
+    ring [2,1,p=0] (120,20,2,1) vis=0
+    ring [2,2,p=0] (100,20,2,2) vis=0
+    ring [2,3,p=0] (100,0,2,3) vis=0
+    lastVert [2,3,p=0] (100,0,2,3) vis=0
+    pin 2:1 x=0 y=0.5 inside=0 prop=1 visdirs=4 dirs=4 excl=1 cost=0 users=0 pos=(100,10,0,6) v=[2,9,p=5] (100,10,2,9) vis=4
+    pin 2:2 x=0.5 y=0.5 inside=0 prop=1 visdirs=15 dirs=15 excl=0 cost=0 users=0 pos=(110,10,0,8) v=[2,9,p=5] (110,10,2,9) vis=15
+    following 10/2 12/2
+    attached 10 12
+  conn id=13 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=1 flag=0 dist=0
+    src [13,1,p=1] (1,2,13,1) vis=15
+    dst [13,2,p=1] (3,4,13,2) vis=6
+    srcEnd -
+    dstEnd -
+    endpoints type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(1,2) pos=(1,2) | type=0 dirs=6/6 class=2147483647 anchor=- conn=- pin=- pt=(3,4) pos=(3,4)
+    checkpoint [13,2,p=9] (5,5,13,2) vis=15
+    checkpoint [13,3,p=9] (6,7,13,3) vis=15
+    route=[] display=[]
+    dstPinPoints
+  conn id=12 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [12,1,p=17] (65,50,12,1) vis=0
+    dst [12,2,p=17] (110,10,12,2) vis=0
+    srcEnd type=2 dirs=15/15 class=2147483646 anchor=3 conn=12 pin=- pt=(60,50) pos=(65,50)
+    dstEnd type=1 dirs=15/15 class=2 anchor=2 conn=12 pin=- pt=(110,10) pos=(110,10)
+    endpoints type=2 dirs=15/15 class=2147483646 anchor=3 conn=12 pin=- pt=(60,50) pos=(65,50) | type=1 dirs=15/15 class=2 anchor=2 conn=12 pin=- pt=(110,10) pos=(110,10)
+    route=[] display=[]
+    dstPinPoints (110,10)
+  conn id=11 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [11,1,p=1] (50,100,11,1) vis=1
+    dst [11,2,p=17] (65,50,11,2) vis=0
+    srcEnd -
+    dstEnd type=2 dirs=15/15 class=2147483646 anchor=3 conn=11 pin=- pt=(60,50) pos=(65,50)
+    endpoints type=0 dirs=1/1 class=2147483647 anchor=- conn=- pin=- pt=(50,100) pos=(50,100) | type=2 dirs=15/15 class=2147483646 anchor=3 conn=11 pin=- pt=(60,50) pos=(65,50)
+    route=[] display=[]
+    dstPinPoints (65,50)
+  conn id=10 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [10,1,p=17] (10,15,10,1) vis=0
+    dst [10,2,p=17] (110,10,10,2) vis=0
+    srcEnd type=1 dirs=15/15 class=1 anchor=1 conn=10 pin=- pt=(10,10) pos=(10,15)
+    dstEnd type=1 dirs=15/15 class=1 anchor=2 conn=10 pin=- pt=(110,10) pos=(110,10)
+    endpoints type=1 dirs=15/15 class=1 anchor=1 conn=10 pin=- pt=(10,10) pos=(10,15) | type=1 dirs=15/15 class=1 anchor=2 conn=10 pin=- pt=(110,10) pos=(110,10)
+    route=[] display=[]
+    dstPinPoints (100,10)
+  vertices conns=15 shapes=12
+    [13,2,p=1] (3,4,13,2) vis=6
+    [13,1,p=1] (1,2,13,1) vis=15
+    [12,2,p=17] (110,10,12,2) vis=0
+    [12,1,p=17] (65,50,12,1) vis=0
+    [11,2,p=17] (65,50,11,2) vis=0
+    [11,1,p=1] (50,100,11,1) vis=1
+    [10,2,p=17] (110,10,10,2) vis=0
+    [10,1,p=17] (10,15,10,1) vis=0
+    [13,3,p=9] (6,7,13,3) vis=15
+    [13,2,p=9] (5,5,13,2) vis=15
+    [3,9,p=5] (65,50,3,9) vis=15
+    [2,9,p=5] (110,10,2,9) vis=15
+    [2,9,p=5] (100,10,2,9) vis=4
+    [1,9,p=5] (10,25,1,9) vis=2
+    [1,9,p=5] (20,15,1,9) vis=8
+    [2,0,p=0] (120,0,2,0) vis=0
+    [2,1,p=0] (120,20,2,1) vis=0
+    [2,2,p=0] (100,20,2,2) vis=0
+    [2,3,p=0] (100,0,2,3) vis=0
+    [1,0,p=0] (20,5,1,0) vis=0
+    [1,1,p=0] (20,25,1,1) vis=0
+    [1,2,p=0] (0,25,1,2) vis=0
+    [1,3,p=0] (0,5,1,3) vis=0
+    [3,0,p=0] (66,49,3,0) vis=0
+    [3,1,p=0] (66,51,3,1) vis=0
+    [3,2,p=0] (64,51,3,2) vis=0
+    [3,3,p=0] (64,49,3,3) vis=0
+  contains [2,9]{2} [3,9]{3} [10,1]{1} [13,2]{} [13,3]{1}
+  clusters
+  actions 0
+== after-shape-delete
+  largest=13 next=14 settings=0 static=1 consolidate=1
+  obstacle id=3 kind=junction active=1 poly=[(66,49,0,8) (66,51,0,8) (64,51,0,8) (64,49,0,8)] pos=(65,50)
+    junction pos=(65,50) rec=(65,50) fixed=0
+    ring [3,0,p=0] (66,49,3,0) vis=0
+    ring [3,1,p=0] (66,51,3,1) vis=0
+    ring [3,2,p=0] (64,51,3,2) vis=0
+    ring [3,3,p=0] (64,49,3,3) vis=0
+    lastVert [3,3,p=0] (64,49,3,3) vis=0
+    pin 3:2147483646 x=0 y=0 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=0 users=0 pos=(65,50,0,8) v=[3,9,p=5] (65,50,3,9) vis=15
+    following 11/2 12/1
+    attached 11 12
+  obstacle id=1 kind=shape active=1 poly=[(20,5,0,8) (20,25,0,8) (0,25,0,8) (0,5,0,8)] pos=(10,15)
+    ring [1,0,p=0] (20,5,1,0) vis=0
+    ring [1,1,p=0] (20,25,1,1) vis=0
+    ring [1,2,p=0] (0,25,1,2) vis=0
+    ring [1,3,p=0] (0,5,1,3) vis=0
+    lastVert [1,3,p=0] (0,5,1,3) vis=0
+    pin 1:1 x=0.5 y=1 inside=0 prop=1 visdirs=2 dirs=2 excl=1 cost=0 users=0 pos=(10,25,0,7) v=[1,9,p=5] (10,25,1,9) vis=2
+    pin 1:1 x=1 y=0.5 inside=0 prop=1 visdirs=8 dirs=8 excl=1 cost=0 users=0 pos=(20,15,0,4) v=[1,9,p=5] (20,15,1,9) vis=8
+    following 10/1
+    attached 10
+  conn id=13 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=1 flag=0 dist=0
+    src [13,1,p=1] (1,2,13,1) vis=15
+    dst [13,2,p=1] (3,4,13,2) vis=6
+    srcEnd -
+    dstEnd -
+    endpoints type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(1,2) pos=(1,2) | type=0 dirs=6/6 class=2147483647 anchor=- conn=- pin=- pt=(3,4) pos=(3,4)
+    checkpoint [13,2,p=9] (5,5,13,2) vis=15
+    checkpoint [13,3,p=9] (6,7,13,3) vis=15
+    route=[] display=[]
+    dstPinPoints
+  conn id=12 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [12,1,p=17] (65,50,12,1) vis=0
+    dst [12,2,p=17] (110,10,12,2) vis=0
+    srcEnd type=2 dirs=15/15 class=2147483646 anchor=3 conn=12 pin=- pt=(60,50) pos=(65,50)
+    dstEnd type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(110,10) pos=(110,10)
+    endpoints type=2 dirs=15/15 class=2147483646 anchor=3 conn=12 pin=- pt=(60,50) pos=(65,50) | type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(110,10) pos=(110,10)
+    route=[] display=[]
+    dstPinPoints
+  conn id=11 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [11,1,p=1] (50,100,11,1) vis=1
+    dst [11,2,p=17] (65,50,11,2) vis=0
+    srcEnd -
+    dstEnd type=2 dirs=15/15 class=2147483646 anchor=3 conn=11 pin=- pt=(60,50) pos=(65,50)
+    endpoints type=0 dirs=1/1 class=2147483647 anchor=- conn=- pin=- pt=(50,100) pos=(50,100) | type=2 dirs=15/15 class=2147483646 anchor=3 conn=11 pin=- pt=(60,50) pos=(65,50)
+    route=[] display=[]
+    dstPinPoints (65,50)
+  conn id=10 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [10,1,p=17] (10,15,10,1) vis=0
+    dst [10,2,p=17] (110,10,10,2) vis=0
+    srcEnd type=1 dirs=15/15 class=1 anchor=1 conn=10 pin=- pt=(10,10) pos=(10,15)
+    dstEnd type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(110,10) pos=(110,10)
+    endpoints type=1 dirs=15/15 class=1 anchor=1 conn=10 pin=- pt=(10,10) pos=(10,15) | type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(110,10) pos=(110,10)
+    route=[] display=[]
+    dstPinPoints
+  vertices conns=13 shapes=8
+    [13,2,p=1] (3,4,13,2) vis=6
+    [13,1,p=1] (1,2,13,1) vis=15
+    [12,2,p=17] (110,10,12,2) vis=0
+    [12,1,p=17] (65,50,12,1) vis=0
+    [11,2,p=17] (65,50,11,2) vis=0
+    [11,1,p=1] (50,100,11,1) vis=1
+    [10,2,p=17] (110,10,10,2) vis=0
+    [10,1,p=17] (10,15,10,1) vis=0
+    [13,3,p=9] (6,7,13,3) vis=15
+    [13,2,p=9] (5,5,13,2) vis=15
+    [3,9,p=5] (65,50,3,9) vis=15
+    [1,9,p=5] (10,25,1,9) vis=2
+    [1,9,p=5] (20,15,1,9) vis=8
+    [1,0,p=0] (20,5,1,0) vis=0
+    [1,1,p=0] (20,25,1,1) vis=0
+    [1,2,p=0] (0,25,1,2) vis=0
+    [1,3,p=0] (0,5,1,3) vis=0
+    [3,0,p=0] (66,49,3,0) vis=0
+    [3,1,p=0] (66,51,3,1) vis=0
+    [3,2,p=0] (64,51,3,2) vis=0
+    [3,3,p=0] (64,49,3,3) vis=0
+  contains [2,9]{} [3,9]{3} [10,1]{1} [13,2]{} [13,3]{1}
+  clusters
+  actions 0
+== fixed-route-queued
+  largest=13 next=14 settings=1 static=1 consolidate=1
+  obstacle id=3 kind=junction active=1 poly=[(66,49,0,8) (66,51,0,8) (64,51,0,8) (64,49,0,8)] pos=(65,50)
+    junction pos=(65,50) rec=(65,50) fixed=0
+    ring [3,0,p=0] (66,49,3,0) vis=0
+    ring [3,1,p=0] (66,51,3,1) vis=0
+    ring [3,2,p=0] (64,51,3,2) vis=0
+    ring [3,3,p=0] (64,49,3,3) vis=0
+    lastVert [3,3,p=0] (64,49,3,3) vis=0
+    pin 3:2147483646 x=0 y=0 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=0 users=0 pos=(65,50,0,8) v=[3,9,p=5] (65,50,3,9) vis=15
+    following 11/2 12/1
+    attached 11 12
+  obstacle id=1 kind=shape active=1 poly=[(20,5,0,8) (20,25,0,8) (0,25,0,8) (0,5,0,8)] pos=(10,15)
+    ring [1,0,p=0] (20,5,1,0) vis=0
+    ring [1,1,p=0] (20,25,1,1) vis=0
+    ring [1,2,p=0] (0,25,1,2) vis=0
+    ring [1,3,p=0] (0,5,1,3) vis=0
+    lastVert [1,3,p=0] (0,5,1,3) vis=0
+    pin 1:1 x=0.5 y=1 inside=0 prop=1 visdirs=2 dirs=2 excl=1 cost=0 users=0 pos=(10,25,0,7) v=[1,9,p=5] (10,25,1,9) vis=2
+    pin 1:1 x=1 y=0.5 inside=0 prop=1 visdirs=8 dirs=8 excl=1 cost=0 users=0 pos=(20,15,0,4) v=[1,9,p=5] (20,15,1,9) vis=8
+    following 10/1
+    attached 10
+  conn id=13 type=2 active=1 reroute=1 false=0 repaint=0 fixed=1 hate=1 flag=0 dist=90
+    src [13,1,p=1] (1,2,13,1) vis=15
+    dst [13,2,p=1] (3,4,13,2) vis=6
+    srcEnd -
+    dstEnd -
+    endpoints type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(1,2) pos=(1,2) | type=0 dirs=6/6 class=2147483647 anchor=- conn=- pin=- pt=(3,4) pos=(3,4)
+    checkpoint [13,2,p=9] (5,5,13,2) vis=15
+    checkpoint [13,3,p=9] (6,7,13,3) vis=15
+    route=[(0,50,0,8) (30,50,0,8) (60,50,0,8) (60,80,0,8)] display=[(0,50,0,8) (60,50,0,8) (60,80,0,8)]
+    dstPinPoints
+  conn id=12 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [12,1,p=17] (65,50,12,1) vis=0
+    dst [12,2,p=17] (110,10,12,2) vis=0
+    srcEnd type=2 dirs=15/15 class=2147483646 anchor=3 conn=12 pin=- pt=(60,50) pos=(65,50)
+    dstEnd type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(110,10) pos=(110,10)
+    endpoints type=2 dirs=15/15 class=2147483646 anchor=3 conn=12 pin=- pt=(60,50) pos=(65,50) | type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(110,10) pos=(110,10)
+    route=[] display=[]
+    dstPinPoints
+  conn id=11 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [11,1,p=1] (50,100,11,1) vis=1
+    dst [11,2,p=17] (65,50,11,2) vis=0
+    srcEnd -
+    dstEnd type=2 dirs=15/15 class=2147483646 anchor=3 conn=11 pin=- pt=(60,50) pos=(65,50)
+    endpoints type=0 dirs=1/1 class=2147483647 anchor=- conn=- pin=- pt=(50,100) pos=(50,100) | type=2 dirs=15/15 class=2147483646 anchor=3 conn=11 pin=- pt=(60,50) pos=(65,50)
+    route=[] display=[]
+    dstPinPoints (65,50)
+  conn id=10 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [10,1,p=17] (10,15,10,1) vis=0
+    dst [10,2,p=17] (110,10,10,2) vis=0
+    srcEnd type=1 dirs=15/15 class=1 anchor=1 conn=10 pin=- pt=(10,10) pos=(10,15)
+    dstEnd type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(110,10) pos=(110,10)
+    endpoints type=1 dirs=15/15 class=1 anchor=1 conn=10 pin=- pt=(10,10) pos=(10,15) | type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(110,10) pos=(110,10)
+    route=[] display=[]
+    dstPinPoints
+  vertices conns=13 shapes=8
+    [13,2,p=1] (3,4,13,2) vis=6
+    [13,1,p=1] (1,2,13,1) vis=15
+    [12,2,p=17] (110,10,12,2) vis=0
+    [12,1,p=17] (65,50,12,1) vis=0
+    [11,2,p=17] (65,50,11,2) vis=0
+    [11,1,p=1] (50,100,11,1) vis=1
+    [10,2,p=17] (110,10,10,2) vis=0
+    [10,1,p=17] (10,15,10,1) vis=0
+    [13,3,p=9] (6,7,13,3) vis=15
+    [13,2,p=9] (5,5,13,2) vis=15
+    [3,9,p=5] (65,50,3,9) vis=15
+    [1,9,p=5] (10,25,1,9) vis=2
+    [1,9,p=5] (20,15,1,9) vis=8
+    [1,0,p=0] (20,5,1,0) vis=0
+    [1,1,p=0] (20,25,1,1) vis=0
+    [1,2,p=0] (0,25,1,2) vis=0
+    [1,3,p=0] (0,5,1,3) vis=0
+    [3,0,p=0] (66,49,3,0) vis=0
+    [3,1,p=0] (66,51,3,1) vis=0
+    [3,2,p=0] (64,51,3,2) vis=0
+    [3,3,p=0] (64,49,3,3) vis=0
+  contains [2,9]{} [3,9]{3} [10,1]{1} [13,2]{} [13,3]{1}
+  clusters
+  actions 1
+    action type=6 conn=13
+      end 1 type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(0,50) pos=(0,50)
+      end 2 type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(60,80) pos=(60,80)
+== fixed-route-processed
+  largest=13 next=14 settings=1 static=1 consolidate=1
+  obstacle id=3 kind=junction active=1 poly=[(66,49,0,8) (66,51,0,8) (64,51,0,8) (64,49,0,8)] pos=(65,50)
+    junction pos=(65,50) rec=(65,50) fixed=0
+    ring [3,0,p=0] (66,49,3,0) vis=0
+    ring [3,1,p=0] (66,51,3,1) vis=0
+    ring [3,2,p=0] (64,51,3,2) vis=0
+    ring [3,3,p=0] (64,49,3,3) vis=0
+    lastVert [3,3,p=0] (64,49,3,3) vis=0
+    pin 3:2147483646 x=0 y=0 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=0 users=0 pos=(65,50,0,8) v=[3,9,p=5] (65,50,3,9) vis=15
+    following 11/2 12/1
+    attached 11 12
+  obstacle id=1 kind=shape active=1 poly=[(20,5,0,8) (20,25,0,8) (0,25,0,8) (0,5,0,8)] pos=(10,15)
+    ring [1,0,p=0] (20,5,1,0) vis=0
+    ring [1,1,p=0] (20,25,1,1) vis=0
+    ring [1,2,p=0] (0,25,1,2) vis=0
+    ring [1,3,p=0] (0,5,1,3) vis=0
+    lastVert [1,3,p=0] (0,5,1,3) vis=0
+    pin 1:1 x=0.5 y=1 inside=0 prop=1 visdirs=2 dirs=2 excl=1 cost=0 users=0 pos=(10,25,0,7) v=[1,9,p=5] (10,25,1,9) vis=2
+    pin 1:1 x=1 y=0.5 inside=0 prop=1 visdirs=8 dirs=8 excl=1 cost=0 users=0 pos=(20,15,0,4) v=[1,9,p=5] (20,15,1,9) vis=8
+    following 10/1
+    attached 10
+  conn id=13 type=2 active=1 reroute=1 false=0 repaint=0 fixed=1 hate=1 flag=0 dist=90
+    src [13,1,p=1] (0,50,13,1) vis=15
+    dst [13,2,p=1] (60,80,13,2) vis=15
+    srcEnd -
+    dstEnd -
+    endpoints type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(0,50) pos=(0,50) | type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(60,80) pos=(60,80)
+    checkpoint [13,2,p=9] (5,5,13,2) vis=15
+    checkpoint [13,3,p=9] (6,7,13,3) vis=15
+    route=[(0,50,0,8) (30,50,0,8) (60,50,0,8) (60,80,0,8)] display=[(0,50,0,8) (60,50,0,8) (60,80,0,8)]
+    dstPinPoints
+  conn id=12 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [12,1,p=17] (65,50,12,1) vis=0
+    dst [12,2,p=17] (110,10,12,2) vis=0
+    srcEnd type=2 dirs=15/15 class=2147483646 anchor=3 conn=12 pin=- pt=(60,50) pos=(65,50)
+    dstEnd type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(110,10) pos=(110,10)
+    endpoints type=2 dirs=15/15 class=2147483646 anchor=3 conn=12 pin=- pt=(60,50) pos=(65,50) | type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(110,10) pos=(110,10)
+    route=[] display=[]
+    dstPinPoints
+  conn id=11 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [11,1,p=1] (50,100,11,1) vis=1
+    dst [11,2,p=17] (65,50,11,2) vis=0
+    srcEnd -
+    dstEnd type=2 dirs=15/15 class=2147483646 anchor=3 conn=11 pin=- pt=(60,50) pos=(65,50)
+    endpoints type=0 dirs=1/1 class=2147483647 anchor=- conn=- pin=- pt=(50,100) pos=(50,100) | type=2 dirs=15/15 class=2147483646 anchor=3 conn=11 pin=- pt=(60,50) pos=(65,50)
+    route=[] display=[]
+    dstPinPoints (65,50)
+  conn id=10 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [10,1,p=17] (10,15,10,1) vis=0
+    dst [10,2,p=17] (110,10,10,2) vis=0
+    srcEnd type=1 dirs=15/15 class=1 anchor=1 conn=10 pin=- pt=(10,10) pos=(10,15)
+    dstEnd type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(110,10) pos=(110,10)
+    endpoints type=1 dirs=15/15 class=1 anchor=1 conn=10 pin=- pt=(10,10) pos=(10,15) | type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(110,10) pos=(110,10)
+    route=[] display=[]
+    dstPinPoints
+  vertices conns=13 shapes=8
+    [13,2,p=1] (60,80,13,2) vis=15
+    [13,1,p=1] (0,50,13,1) vis=15
+    [12,2,p=17] (110,10,12,2) vis=0
+    [12,1,p=17] (65,50,12,1) vis=0
+    [11,2,p=17] (65,50,11,2) vis=0
+    [11,1,p=1] (50,100,11,1) vis=1
+    [10,2,p=17] (110,10,10,2) vis=0
+    [10,1,p=17] (10,15,10,1) vis=0
+    [13,3,p=9] (6,7,13,3) vis=15
+    [13,2,p=9] (5,5,13,2) vis=15
+    [3,9,p=5] (65,50,3,9) vis=15
+    [1,9,p=5] (10,25,1,9) vis=2
+    [1,9,p=5] (20,15,1,9) vis=8
+    [1,0,p=0] (20,5,1,0) vis=0
+    [1,1,p=0] (20,25,1,1) vis=0
+    [1,2,p=0] (0,25,1,2) vis=0
+    [1,3,p=0] (0,5,1,3) vis=0
+    [3,0,p=0] (66,49,3,0) vis=0
+    [3,1,p=0] (66,51,3,1) vis=0
+    [3,2,p=0] (64,51,3,2) vis=0
+    [3,3,p=0] (64,49,3,3) vis=0
+  contains [2,9]{} [3,9]{3} [10,1]{1} [13,2]{} [13,3]{1}
+  clusters
+  actions 0
+split junction=14 conn=15
+== split-queued
+  largest=15 next=16 settings=1 static=1 consolidate=1
+  obstacle id=3 kind=junction active=1 poly=[(66,49,0,8) (66,51,0,8) (64,51,0,8) (64,49,0,8)] pos=(65,50)
+    junction pos=(65,50) rec=(65,50) fixed=0
+    ring [3,0,p=0] (66,49,3,0) vis=0
+    ring [3,1,p=0] (66,51,3,1) vis=0
+    ring [3,2,p=0] (64,51,3,2) vis=0
+    ring [3,3,p=0] (64,49,3,3) vis=0
+    lastVert [3,3,p=0] (64,49,3,3) vis=0
+    pin 3:2147483646 x=0 y=0 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=0 users=0 pos=(65,50,0,8) v=[3,9,p=5] (65,50,3,9) vis=15
+    following 11/2 12/1
+    attached 11 12
+  obstacle id=1 kind=shape active=1 poly=[(20,5,0,8) (20,25,0,8) (0,25,0,8) (0,5,0,8)] pos=(10,15)
+    ring [1,0,p=0] (20,5,1,0) vis=0
+    ring [1,1,p=0] (20,25,1,1) vis=0
+    ring [1,2,p=0] (0,25,1,2) vis=0
+    ring [1,3,p=0] (0,5,1,3) vis=0
+    lastVert [1,3,p=0] (0,5,1,3) vis=0
+    pin 1:1 x=0.5 y=1 inside=0 prop=1 visdirs=2 dirs=2 excl=1 cost=0 users=0 pos=(10,25,0,7) v=[1,9,p=5] (10,25,1,9) vis=2
+    pin 1:1 x=1 y=0.5 inside=0 prop=1 visdirs=8 dirs=8 excl=1 cost=0 users=0 pos=(20,15,0,4) v=[1,9,p=5] (20,15,1,9) vis=8
+    following 10/1
+    attached 10
+  conn id=13 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=1 flag=0 dist=90
+    src [13,1,p=1] (0,50,13,1) vis=15
+    dst [13,2,p=1] (60,80,13,2) vis=15
+    srcEnd -
+    dstEnd -
+    endpoints type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(0,50) pos=(0,50) | type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(60,80) pos=(60,80)
+    checkpoint [13,2,p=9] (5,5,13,2) vis=15
+    checkpoint [13,3,p=9] (6,7,13,3) vis=15
+    route=[(0,50,0,8) (30,50,0,8) (60,50,0,8) (60,80,0,8)] display=[(0,50,0,8) (60,50,0,8) (60,80,0,8)]
+    dstPinPoints
+  conn id=12 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [12,1,p=17] (65,50,12,1) vis=0
+    dst [12,2,p=17] (110,10,12,2) vis=0
+    srcEnd type=2 dirs=15/15 class=2147483646 anchor=3 conn=12 pin=- pt=(60,50) pos=(65,50)
+    dstEnd type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(110,10) pos=(110,10)
+    endpoints type=2 dirs=15/15 class=2147483646 anchor=3 conn=12 pin=- pt=(60,50) pos=(65,50) | type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(110,10) pos=(110,10)
+    route=[] display=[(20,10,0,8) (40,10,0,8) (40,30,0,8) (80,30,0,8)]
+    dstPinPoints
+  conn id=11 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [11,1,p=1] (50,100,11,1) vis=1
+    dst [11,2,p=17] (65,50,11,2) vis=0
+    srcEnd -
+    dstEnd type=2 dirs=15/15 class=2147483646 anchor=3 conn=11 pin=- pt=(60,50) pos=(65,50)
+    endpoints type=0 dirs=1/1 class=2147483647 anchor=- conn=- pin=- pt=(50,100) pos=(50,100) | type=2 dirs=15/15 class=2147483646 anchor=3 conn=11 pin=- pt=(60,50) pos=(65,50)
+    route=[] display=[]
+    dstPinPoints (65,50)
+  conn id=10 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [10,1,p=17] (10,15,10,1) vis=0
+    dst [10,2,p=17] (110,10,10,2) vis=0
+    srcEnd type=1 dirs=15/15 class=1 anchor=1 conn=10 pin=- pt=(10,10) pos=(10,15)
+    dstEnd type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(110,10) pos=(110,10)
+    endpoints type=1 dirs=15/15 class=1 anchor=1 conn=10 pin=- pt=(10,10) pos=(10,15) | type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(110,10) pos=(110,10)
+    route=[] display=[]
+    dstPinPoints
+  vertices conns=14 shapes=8
+    [14,9,p=5] (40,20,14,9) vis=15
+    [13,2,p=1] (60,80,13,2) vis=15
+    [13,1,p=1] (0,50,13,1) vis=15
+    [12,2,p=17] (110,10,12,2) vis=0
+    [12,1,p=17] (65,50,12,1) vis=0
+    [11,2,p=17] (65,50,11,2) vis=0
+    [11,1,p=1] (50,100,11,1) vis=1
+    [10,2,p=17] (110,10,10,2) vis=0
+    [10,1,p=17] (10,15,10,1) vis=0
+    [13,3,p=9] (6,7,13,3) vis=15
+    [13,2,p=9] (5,5,13,2) vis=15
+    [3,9,p=5] (65,50,3,9) vis=15
+    [1,9,p=5] (10,25,1,9) vis=2
+    [1,9,p=5] (20,15,1,9) vis=8
+    [1,0,p=0] (20,5,1,0) vis=0
+    [1,1,p=0] (20,25,1,1) vis=0
+    [1,2,p=0] (0,25,1,2) vis=0
+    [1,3,p=0] (0,5,1,3) vis=0
+    [3,0,p=0] (66,49,3,0) vis=0
+    [3,1,p=0] (66,51,3,1) vis=0
+    [3,2,p=0] (64,51,3,2) vis=0
+    [3,3,p=0] (64,49,3,3) vis=0
+  contains [2,9]{} [3,9]{3} [10,1]{1} [13,2]{} [13,3]{1}
+  clusters
+  actions 4
+    action type=7 pin=14:2147483646
+    action type=4 obstacle=14
+    action type=6 conn=15
+      end 1 type=2 dirs=15/15 class=2147483646 anchor=14 conn=- pin=- pt=(40,20) pos=(40,20)
+      end 2 type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(110,10) pos=(110,10)
+    action type=6 conn=12
+      end 2 type=2 dirs=15/15 class=2147483646 anchor=14 conn=- pin=- pt=(40,20) pos=(40,20)
+== split-processed
+  largest=15 next=16 settings=1 static=1 consolidate=1
+  obstacle id=14 kind=junction active=1 poly=[(41,19,0,8) (41,21,0,8) (39,21,0,8) (39,19,0,8)] pos=(40,20)
+    junction pos=(40,20) rec=(40,20) fixed=0
+    ring [14,0,p=0] (41,19,14,0) vis=0
+    ring [14,1,p=0] (41,21,14,1) vis=0
+    ring [14,2,p=0] (39,21,14,2) vis=0
+    ring [14,3,p=0] (39,19,14,3) vis=0
+    lastVert [14,3,p=0] (39,19,14,3) vis=0
+    pin 14:2147483646 x=0 y=0 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=1 users=0 pos=(40,20,0,8) v=[14,9,p=5] (40,20,14,9) vis=15
+    following 12/2 15/1
+    attached 12 15
+  obstacle id=3 kind=junction active=1 poly=[(66,49,0,8) (66,51,0,8) (64,51,0,8) (64,49,0,8)] pos=(65,50)
+    junction pos=(65,50) rec=(65,50) fixed=0
+    ring [3,0,p=0] (66,49,3,0) vis=0
+    ring [3,1,p=0] (66,51,3,1) vis=0
+    ring [3,2,p=0] (64,51,3,2) vis=0
+    ring [3,3,p=0] (64,49,3,3) vis=0
+    lastVert [3,3,p=0] (64,49,3,3) vis=0
+    pin 3:2147483646 x=0 y=0 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=0 users=0 pos=(65,50,0,8) v=[3,9,p=5] (65,50,3,9) vis=15
+    following 11/2 12/1
+    attached 11 12
+  obstacle id=1 kind=shape active=1 poly=[(20,5,0,8) (20,25,0,8) (0,25,0,8) (0,5,0,8)] pos=(10,15)
+    ring [1,0,p=0] (20,5,1,0) vis=0
+    ring [1,1,p=0] (20,25,1,1) vis=0
+    ring [1,2,p=0] (0,25,1,2) vis=0
+    ring [1,3,p=0] (0,5,1,3) vis=0
+    lastVert [1,3,p=0] (0,5,1,3) vis=0
+    pin 1:1 x=0.5 y=1 inside=0 prop=1 visdirs=2 dirs=2 excl=1 cost=0 users=0 pos=(10,25,0,7) v=[1,9,p=5] (10,25,1,9) vis=2
+    pin 1:1 x=1 y=0.5 inside=0 prop=1 visdirs=8 dirs=8 excl=1 cost=0 users=0 pos=(20,15,0,4) v=[1,9,p=5] (20,15,1,9) vis=8
+    following 10/1
+    attached 10
+  conn id=15 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [15,1,p=17] (40,20,15,1) vis=0
+    dst [15,2,p=1] (110,10,15,2) vis=15
+    srcEnd type=2 dirs=15/15 class=2147483646 anchor=14 conn=15 pin=- pt=(40,20) pos=(40,20)
+    dstEnd -
+    endpoints type=2 dirs=15/15 class=2147483646 anchor=14 conn=15 pin=- pt=(40,20) pos=(40,20) | type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(110,10) pos=(110,10)
+    route=[] display=[]
+    dstPinPoints
+  conn id=13 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=1 flag=0 dist=90
+    src [13,1,p=1] (0,50,13,1) vis=15
+    dst [13,2,p=1] (60,80,13,2) vis=15
+    srcEnd -
+    dstEnd -
+    endpoints type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(0,50) pos=(0,50) | type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(60,80) pos=(60,80)
+    checkpoint [13,2,p=9] (5,5,13,2) vis=15
+    checkpoint [13,3,p=9] (6,7,13,3) vis=15
+    route=[(0,50,0,8) (30,50,0,8) (60,50,0,8) (60,80,0,8)] display=[(0,50,0,8) (60,50,0,8) (60,80,0,8)]
+    dstPinPoints
+  conn id=12 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [12,1,p=17] (65,50,12,1) vis=0
+    dst [12,2,p=17] (40,20,12,2) vis=0
+    srcEnd type=2 dirs=15/15 class=2147483646 anchor=3 conn=12 pin=- pt=(60,50) pos=(65,50)
+    dstEnd type=2 dirs=15/15 class=2147483646 anchor=14 conn=12 pin=- pt=(40,20) pos=(40,20)
+    endpoints type=2 dirs=15/15 class=2147483646 anchor=3 conn=12 pin=- pt=(60,50) pos=(65,50) | type=2 dirs=15/15 class=2147483646 anchor=14 conn=12 pin=- pt=(40,20) pos=(40,20)
+    route=[] display=[(20,10,0,8) (40,10,0,8) (40,30,0,8) (80,30,0,8)]
+    dstPinPoints (40,20)
+  conn id=11 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [11,1,p=1] (50,100,11,1) vis=1
+    dst [11,2,p=17] (65,50,11,2) vis=0
+    srcEnd -
+    dstEnd type=2 dirs=15/15 class=2147483646 anchor=3 conn=11 pin=- pt=(60,50) pos=(65,50)
+    endpoints type=0 dirs=1/1 class=2147483647 anchor=- conn=- pin=- pt=(50,100) pos=(50,100) | type=2 dirs=15/15 class=2147483646 anchor=3 conn=11 pin=- pt=(60,50) pos=(65,50)
+    route=[] display=[]
+    dstPinPoints (65,50)
+  conn id=10 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [10,1,p=17] (10,15,10,1) vis=0
+    dst [10,2,p=17] (110,10,10,2) vis=0
+    srcEnd type=1 dirs=15/15 class=1 anchor=1 conn=10 pin=- pt=(10,10) pos=(10,15)
+    dstEnd type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(110,10) pos=(110,10)
+    endpoints type=1 dirs=15/15 class=1 anchor=1 conn=10 pin=- pt=(10,10) pos=(10,15) | type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(110,10) pos=(110,10)
+    route=[] display=[]
+    dstPinPoints
+  vertices conns=16 shapes=12
+    [15,2,p=1] (110,10,15,2) vis=15
+    [15,1,p=17] (40,20,15,1) vis=0
+    [14,9,p=5] (40,20,14,9) vis=15
+    [13,2,p=1] (60,80,13,2) vis=15
+    [13,1,p=1] (0,50,13,1) vis=15
+    [12,2,p=17] (40,20,12,2) vis=0
+    [12,1,p=17] (65,50,12,1) vis=0
+    [11,2,p=17] (65,50,11,2) vis=0
+    [11,1,p=1] (50,100,11,1) vis=1
+    [10,2,p=17] (110,10,10,2) vis=0
+    [10,1,p=17] (10,15,10,1) vis=0
+    [13,3,p=9] (6,7,13,3) vis=15
+    [13,2,p=9] (5,5,13,2) vis=15
+    [3,9,p=5] (65,50,3,9) vis=15
+    [1,9,p=5] (10,25,1,9) vis=2
+    [1,9,p=5] (20,15,1,9) vis=8
+    [1,0,p=0] (20,5,1,0) vis=0
+    [1,1,p=0] (20,25,1,1) vis=0
+    [1,2,p=0] (0,25,1,2) vis=0
+    [1,3,p=0] (0,5,1,3) vis=0
+    [3,0,p=0] (66,49,3,0) vis=0
+    [3,1,p=0] (66,51,3,1) vis=0
+    [3,2,p=0] (64,51,3,2) vis=0
+    [3,3,p=0] (64,49,3,3) vis=0
+    [14,0,p=0] (41,19,14,0) vis=0
+    [14,1,p=0] (41,21,14,1) vis=0
+    [14,2,p=0] (39,21,14,2) vis=0
+    [14,3,p=0] (39,19,14,3) vis=0
+  contains [2,9]{} [3,9]{3} [10,1]{1} [13,2]{} [13,3]{1} [14,9]{14}
+  clusters
+  actions 0
+== deleted-c2
+  largest=15 next=16 settings=1 static=1 consolidate=1
+  obstacle id=14 kind=junction active=1 poly=[(41,19,0,8) (41,21,0,8) (39,21,0,8) (39,19,0,8)] pos=(40,20)
+    junction pos=(40,20) rec=(40,20) fixed=0
+    ring [14,0,p=0] (41,19,14,0) vis=0
+    ring [14,1,p=0] (41,21,14,1) vis=0
+    ring [14,2,p=0] (39,21,14,2) vis=0
+    ring [14,3,p=0] (39,19,14,3) vis=0
+    lastVert [14,3,p=0] (39,19,14,3) vis=0
+    pin 14:2147483646 x=0 y=0 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=1 users=0 pos=(40,20,0,8) v=[14,9,p=5] (40,20,14,9) vis=15
+    following 12/2 15/1
+    attached 12 15
+  obstacle id=3 kind=junction active=1 poly=[(66,49,0,8) (66,51,0,8) (64,51,0,8) (64,49,0,8)] pos=(65,50)
+    junction pos=(65,50) rec=(65,50) fixed=0
+    ring [3,0,p=0] (66,49,3,0) vis=0
+    ring [3,1,p=0] (66,51,3,1) vis=0
+    ring [3,2,p=0] (64,51,3,2) vis=0
+    ring [3,3,p=0] (64,49,3,3) vis=0
+    lastVert [3,3,p=0] (64,49,3,3) vis=0
+    pin 3:2147483646 x=0 y=0 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=0 users=0 pos=(65,50,0,8) v=[3,9,p=5] (65,50,3,9) vis=15
+    following 12/1
+    attached 12
+  obstacle id=1 kind=shape active=1 poly=[(20,5,0,8) (20,25,0,8) (0,25,0,8) (0,5,0,8)] pos=(10,15)
+    ring [1,0,p=0] (20,5,1,0) vis=0
+    ring [1,1,p=0] (20,25,1,1) vis=0
+    ring [1,2,p=0] (0,25,1,2) vis=0
+    ring [1,3,p=0] (0,5,1,3) vis=0
+    lastVert [1,3,p=0] (0,5,1,3) vis=0
+    pin 1:1 x=0.5 y=1 inside=0 prop=1 visdirs=2 dirs=2 excl=1 cost=0 users=0 pos=(10,25,0,7) v=[1,9,p=5] (10,25,1,9) vis=2
+    pin 1:1 x=1 y=0.5 inside=0 prop=1 visdirs=8 dirs=8 excl=1 cost=0 users=0 pos=(20,15,0,4) v=[1,9,p=5] (20,15,1,9) vis=8
+    following 10/1
+    attached 10
+  conn id=15 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [15,1,p=17] (40,20,15,1) vis=0
+    dst [15,2,p=1] (110,10,15,2) vis=15
+    srcEnd type=2 dirs=15/15 class=2147483646 anchor=14 conn=15 pin=- pt=(40,20) pos=(40,20)
+    dstEnd -
+    endpoints type=2 dirs=15/15 class=2147483646 anchor=14 conn=15 pin=- pt=(40,20) pos=(40,20) | type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(110,10) pos=(110,10)
+    route=[] display=[]
+    dstPinPoints
+  conn id=13 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=1 flag=0 dist=90
+    src [13,1,p=1] (0,50,13,1) vis=15
+    dst [13,2,p=1] (60,80,13,2) vis=15
+    srcEnd -
+    dstEnd -
+    endpoints type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(0,50) pos=(0,50) | type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(60,80) pos=(60,80)
+    checkpoint [13,2,p=9] (5,5,13,2) vis=15
+    checkpoint [13,3,p=9] (6,7,13,3) vis=15
+    route=[(0,50,0,8) (30,50,0,8) (60,50,0,8) (60,80,0,8)] display=[(0,50,0,8) (60,50,0,8) (60,80,0,8)]
+    dstPinPoints
+  conn id=12 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [12,1,p=17] (65,50,12,1) vis=0
+    dst [12,2,p=17] (40,20,12,2) vis=0
+    srcEnd type=2 dirs=15/15 class=2147483646 anchor=3 conn=12 pin=- pt=(60,50) pos=(65,50)
+    dstEnd type=2 dirs=15/15 class=2147483646 anchor=14 conn=12 pin=- pt=(40,20) pos=(40,20)
+    endpoints type=2 dirs=15/15 class=2147483646 anchor=3 conn=12 pin=- pt=(60,50) pos=(65,50) | type=2 dirs=15/15 class=2147483646 anchor=14 conn=12 pin=- pt=(40,20) pos=(40,20)
+    route=[] display=[(20,10,0,8) (40,10,0,8) (40,30,0,8) (80,30,0,8)]
+    dstPinPoints (40,20)
+  conn id=10 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [10,1,p=17] (10,15,10,1) vis=0
+    dst [10,2,p=17] (110,10,10,2) vis=0
+    srcEnd type=1 dirs=15/15 class=1 anchor=1 conn=10 pin=- pt=(10,10) pos=(10,15)
+    dstEnd type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(110,10) pos=(110,10)
+    endpoints type=1 dirs=15/15 class=1 anchor=1 conn=10 pin=- pt=(10,10) pos=(10,15) | type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(110,10) pos=(110,10)
+    route=[] display=[]
+    dstPinPoints
+  vertices conns=14 shapes=12
+    [15,2,p=1] (110,10,15,2) vis=15
+    [15,1,p=17] (40,20,15,1) vis=0
+    [14,9,p=5] (40,20,14,9) vis=15
+    [13,2,p=1] (60,80,13,2) vis=15
+    [13,1,p=1] (0,50,13,1) vis=15
+    [12,2,p=17] (40,20,12,2) vis=0
+    [12,1,p=17] (65,50,12,1) vis=0
+    [10,2,p=17] (110,10,10,2) vis=0
+    [10,1,p=17] (10,15,10,1) vis=0
+    [13,3,p=9] (6,7,13,3) vis=15
+    [13,2,p=9] (5,5,13,2) vis=15
+    [3,9,p=5] (65,50,3,9) vis=15
+    [1,9,p=5] (10,25,1,9) vis=2
+    [1,9,p=5] (20,15,1,9) vis=8
+    [1,0,p=0] (20,5,1,0) vis=0
+    [1,1,p=0] (20,25,1,1) vis=0
+    [1,2,p=0] (0,25,1,2) vis=0
+    [1,3,p=0] (0,5,1,3) vis=0
+    [3,0,p=0] (66,49,3,0) vis=0
+    [3,1,p=0] (66,51,3,1) vis=0
+    [3,2,p=0] (64,51,3,2) vis=0
+    [3,3,p=0] (64,49,3,3) vis=0
+    [14,0,p=0] (41,19,14,0) vis=0
+    [14,1,p=0] (41,21,14,1) vis=0
+    [14,2,p=0] (39,21,14,2) vis=0
+    [14,3,p=0] (39,19,14,3) vis=0
+  contains [2,9]{} [3,9]{3} [10,1]{1} [13,2]{} [13,3]{1} [14,9]{14}
+  clusters
+  actions 0
+merged=-1
+== merge-queued
+  largest=15 next=16 settings=1 static=1 consolidate=1
+  obstacle id=14 kind=junction active=1 poly=[(41,19,0,8) (41,21,0,8) (39,21,0,8) (39,19,0,8)] pos=(40,20)
+    junction pos=(40,20) rec=(40,20) fixed=0
+    ring [14,0,p=0] (41,19,14,0) vis=0
+    ring [14,1,p=0] (41,21,14,1) vis=0
+    ring [14,2,p=0] (39,21,14,2) vis=0
+    ring [14,3,p=0] (39,19,14,3) vis=0
+    lastVert [14,3,p=0] (39,19,14,3) vis=0
+    pin 14:2147483646 x=0 y=0 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=1 users=0 pos=(40,20,0,8) v=[14,9,p=5] (40,20,14,9) vis=15
+    following 12/2 15/1
+    attached 12 15
+  obstacle id=3 kind=junction active=1 poly=[(66,49,0,8) (66,51,0,8) (64,51,0,8) (64,49,0,8)] pos=(65,50)
+    junction pos=(65,50) rec=(65,50) fixed=0
+    ring [3,0,p=0] (66,49,3,0) vis=0
+    ring [3,1,p=0] (66,51,3,1) vis=0
+    ring [3,2,p=0] (64,51,3,2) vis=0
+    ring [3,3,p=0] (64,49,3,3) vis=0
+    lastVert [3,3,p=0] (64,49,3,3) vis=0
+    pin 3:2147483646 x=0 y=0 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=0 users=0 pos=(65,50,0,8) v=[3,9,p=5] (65,50,3,9) vis=15
+    following 12/1
+    attached 12
+  obstacle id=1 kind=shape active=1 poly=[(20,5,0,8) (20,25,0,8) (0,25,0,8) (0,5,0,8)] pos=(10,15)
+    ring [1,0,p=0] (20,5,1,0) vis=0
+    ring [1,1,p=0] (20,25,1,1) vis=0
+    ring [1,2,p=0] (0,25,1,2) vis=0
+    ring [1,3,p=0] (0,5,1,3) vis=0
+    lastVert [1,3,p=0] (0,5,1,3) vis=0
+    pin 1:1 x=0.5 y=1 inside=0 prop=1 visdirs=2 dirs=2 excl=1 cost=0 users=0 pos=(10,25,0,7) v=[1,9,p=5] (10,25,1,9) vis=2
+    pin 1:1 x=1 y=0.5 inside=0 prop=1 visdirs=8 dirs=8 excl=1 cost=0 users=0 pos=(20,15,0,4) v=[1,9,p=5] (20,15,1,9) vis=8
+    following 10/1
+    attached 10
+  conn id=15 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [15,1,p=17] (40,20,15,1) vis=0
+    dst [15,2,p=1] (110,10,15,2) vis=15
+    srcEnd type=2 dirs=15/15 class=2147483646 anchor=14 conn=15 pin=- pt=(40,20) pos=(40,20)
+    dstEnd -
+    endpoints type=2 dirs=15/15 class=2147483646 anchor=14 conn=15 pin=- pt=(40,20) pos=(40,20) | type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(110,10) pos=(110,10)
+    route=[] display=[]
+    dstPinPoints
+  conn id=13 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=1 flag=0 dist=90
+    src [13,1,p=1] (0,50,13,1) vis=15
+    dst [13,2,p=1] (60,80,13,2) vis=15
+    srcEnd -
+    dstEnd -
+    endpoints type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(0,50) pos=(0,50) | type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(60,80) pos=(60,80)
+    checkpoint [13,2,p=9] (5,5,13,2) vis=15
+    checkpoint [13,3,p=9] (6,7,13,3) vis=15
+    route=[(0,50,0,8) (30,50,0,8) (60,50,0,8) (60,80,0,8)] display=[(0,50,0,8) (60,50,0,8) (60,80,0,8)]
+    dstPinPoints
+  conn id=12 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [12,1,p=17] (65,50,12,1) vis=0
+    dst [12,2,p=17] (40,20,12,2) vis=0
+    srcEnd type=2 dirs=15/15 class=2147483646 anchor=3 conn=12 pin=- pt=(60,50) pos=(65,50)
+    dstEnd type=2 dirs=15/15 class=2147483646 anchor=14 conn=12 pin=- pt=(40,20) pos=(40,20)
+    endpoints type=2 dirs=15/15 class=2147483646 anchor=3 conn=12 pin=- pt=(60,50) pos=(65,50) | type=2 dirs=15/15 class=2147483646 anchor=14 conn=12 pin=- pt=(40,20) pos=(40,20)
+    route=[] display=[(20,10,0,8) (40,10,0,8) (40,30,0,8) (80,30,0,8)]
+    dstPinPoints (40,20)
+  conn id=10 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [10,1,p=17] (10,15,10,1) vis=0
+    dst [10,2,p=17] (110,10,10,2) vis=0
+    srcEnd type=1 dirs=15/15 class=1 anchor=1 conn=10 pin=- pt=(10,10) pos=(10,15)
+    dstEnd type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(110,10) pos=(110,10)
+    endpoints type=1 dirs=15/15 class=1 anchor=1 conn=10 pin=- pt=(10,10) pos=(10,15) | type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(110,10) pos=(110,10)
+    route=[] display=[]
+    dstPinPoints
+  vertices conns=14 shapes=12
+    [15,2,p=1] (110,10,15,2) vis=15
+    [15,1,p=17] (40,20,15,1) vis=0
+    [14,9,p=5] (40,20,14,9) vis=15
+    [13,2,p=1] (60,80,13,2) vis=15
+    [13,1,p=1] (0,50,13,1) vis=15
+    [12,2,p=17] (40,20,12,2) vis=0
+    [12,1,p=17] (65,50,12,1) vis=0
+    [10,2,p=17] (110,10,10,2) vis=0
+    [10,1,p=17] (10,15,10,1) vis=0
+    [13,3,p=9] (6,7,13,3) vis=15
+    [13,2,p=9] (5,5,13,2) vis=15
+    [3,9,p=5] (65,50,3,9) vis=15
+    [1,9,p=5] (10,25,1,9) vis=2
+    [1,9,p=5] (20,15,1,9) vis=8
+    [1,0,p=0] (20,5,1,0) vis=0
+    [1,1,p=0] (20,25,1,1) vis=0
+    [1,2,p=0] (0,25,1,2) vis=0
+    [1,3,p=0] (0,5,1,3) vis=0
+    [3,0,p=0] (66,49,3,0) vis=0
+    [3,1,p=0] (66,51,3,1) vis=0
+    [3,2,p=0] (64,51,3,2) vis=0
+    [3,3,p=0] (64,49,3,3) vis=0
+    [14,0,p=0] (41,19,14,0) vis=0
+    [14,1,p=0] (41,21,14,1) vis=0
+    [14,2,p=0] (39,21,14,2) vis=0
+    [14,3,p=0] (39,19,14,3) vis=0
+  contains [2,9]{} [3,9]{3} [10,1]{1} [13,2]{} [13,3]{1} [14,9]{14}
+  clusters
+  actions 0
+== merge-processed
+  largest=15 next=16 settings=1 static=1 consolidate=1
+  obstacle id=14 kind=junction active=1 poly=[(41,19,0,8) (41,21,0,8) (39,21,0,8) (39,19,0,8)] pos=(40,20)
+    junction pos=(40,20) rec=(40,20) fixed=0
+    ring [14,0,p=0] (41,19,14,0) vis=0
+    ring [14,1,p=0] (41,21,14,1) vis=0
+    ring [14,2,p=0] (39,21,14,2) vis=0
+    ring [14,3,p=0] (39,19,14,3) vis=0
+    lastVert [14,3,p=0] (39,19,14,3) vis=0
+    pin 14:2147483646 x=0 y=0 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=1 users=0 pos=(40,20,0,8) v=[14,9,p=5] (40,20,14,9) vis=15
+    following 12/2 15/1
+    attached 12 15
+  obstacle id=3 kind=junction active=1 poly=[(66,49,0,8) (66,51,0,8) (64,51,0,8) (64,49,0,8)] pos=(65,50)
+    junction pos=(65,50) rec=(65,50) fixed=0
+    ring [3,0,p=0] (66,49,3,0) vis=0
+    ring [3,1,p=0] (66,51,3,1) vis=0
+    ring [3,2,p=0] (64,51,3,2) vis=0
+    ring [3,3,p=0] (64,49,3,3) vis=0
+    lastVert [3,3,p=0] (64,49,3,3) vis=0
+    pin 3:2147483646 x=0 y=0 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=0 users=0 pos=(65,50,0,8) v=[3,9,p=5] (65,50,3,9) vis=15
+    following 12/1
+    attached 12
+  obstacle id=1 kind=shape active=1 poly=[(20,5,0,8) (20,25,0,8) (0,25,0,8) (0,5,0,8)] pos=(10,15)
+    ring [1,0,p=0] (20,5,1,0) vis=0
+    ring [1,1,p=0] (20,25,1,1) vis=0
+    ring [1,2,p=0] (0,25,1,2) vis=0
+    ring [1,3,p=0] (0,5,1,3) vis=0
+    lastVert [1,3,p=0] (0,5,1,3) vis=0
+    pin 1:1 x=0.5 y=1 inside=0 prop=1 visdirs=2 dirs=2 excl=1 cost=0 users=0 pos=(10,25,0,7) v=[1,9,p=5] (10,25,1,9) vis=2
+    pin 1:1 x=1 y=0.5 inside=0 prop=1 visdirs=8 dirs=8 excl=1 cost=0 users=0 pos=(20,15,0,4) v=[1,9,p=5] (20,15,1,9) vis=8
+    following 10/1
+    attached 10
+  conn id=15 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [15,1,p=17] (40,20,15,1) vis=0
+    dst [15,2,p=1] (110,10,15,2) vis=15
+    srcEnd type=2 dirs=15/15 class=2147483646 anchor=14 conn=15 pin=- pt=(40,20) pos=(40,20)
+    dstEnd -
+    endpoints type=2 dirs=15/15 class=2147483646 anchor=14 conn=15 pin=- pt=(40,20) pos=(40,20) | type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(110,10) pos=(110,10)
+    route=[] display=[]
+    dstPinPoints
+  conn id=13 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=1 flag=0 dist=90
+    src [13,1,p=1] (0,50,13,1) vis=15
+    dst [13,2,p=1] (60,80,13,2) vis=15
+    srcEnd -
+    dstEnd -
+    endpoints type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(0,50) pos=(0,50) | type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(60,80) pos=(60,80)
+    checkpoint [13,2,p=9] (5,5,13,2) vis=15
+    checkpoint [13,3,p=9] (6,7,13,3) vis=15
+    route=[(0,50,0,8) (30,50,0,8) (60,50,0,8) (60,80,0,8)] display=[(0,50,0,8) (60,50,0,8) (60,80,0,8)]
+    dstPinPoints
+  conn id=12 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [12,1,p=17] (65,50,12,1) vis=0
+    dst [12,2,p=17] (40,20,12,2) vis=0
+    srcEnd type=2 dirs=15/15 class=2147483646 anchor=3 conn=12 pin=- pt=(60,50) pos=(65,50)
+    dstEnd type=2 dirs=15/15 class=2147483646 anchor=14 conn=12 pin=- pt=(40,20) pos=(40,20)
+    endpoints type=2 dirs=15/15 class=2147483646 anchor=3 conn=12 pin=- pt=(60,50) pos=(65,50) | type=2 dirs=15/15 class=2147483646 anchor=14 conn=12 pin=- pt=(40,20) pos=(40,20)
+    route=[] display=[(20,10,0,8) (40,10,0,8) (40,30,0,8) (80,30,0,8)]
+    dstPinPoints (40,20)
+  conn id=10 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [10,1,p=17] (10,15,10,1) vis=0
+    dst [10,2,p=17] (110,10,10,2) vis=0
+    srcEnd type=1 dirs=15/15 class=1 anchor=1 conn=10 pin=- pt=(10,10) pos=(10,15)
+    dstEnd type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(110,10) pos=(110,10)
+    endpoints type=1 dirs=15/15 class=1 anchor=1 conn=10 pin=- pt=(10,10) pos=(10,15) | type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(110,10) pos=(110,10)
+    route=[] display=[]
+    dstPinPoints
+  vertices conns=14 shapes=12
+    [15,2,p=1] (110,10,15,2) vis=15
+    [15,1,p=17] (40,20,15,1) vis=0
+    [14,9,p=5] (40,20,14,9) vis=15
+    [13,2,p=1] (60,80,13,2) vis=15
+    [13,1,p=1] (0,50,13,1) vis=15
+    [12,2,p=17] (40,20,12,2) vis=0
+    [12,1,p=17] (65,50,12,1) vis=0
+    [10,2,p=17] (110,10,10,2) vis=0
+    [10,1,p=17] (10,15,10,1) vis=0
+    [13,3,p=9] (6,7,13,3) vis=15
+    [13,2,p=9] (5,5,13,2) vis=15
+    [3,9,p=5] (65,50,3,9) vis=15
+    [1,9,p=5] (10,25,1,9) vis=2
+    [1,9,p=5] (20,15,1,9) vis=8
+    [1,0,p=0] (20,5,1,0) vis=0
+    [1,1,p=0] (20,25,1,1) vis=0
+    [1,2,p=0] (0,25,1,2) vis=0
+    [1,3,p=0] (0,5,1,3) vis=0
+    [3,0,p=0] (66,49,3,0) vis=0
+    [3,1,p=0] (66,51,3,1) vis=0
+    [3,2,p=0] (64,51,3,2) vis=0
+    [3,3,p=0] (64,49,3,3) vis=0
+    [14,0,p=0] (41,19,14,0) vis=0
+    [14,1,p=0] (41,21,14,1) vis=0
+    [14,2,p=0] (39,21,14,2) vis=0
+    [14,3,p=0] (39,19,14,3) vis=0
+  contains [2,9]{} [3,9]{3} [10,1]{1} [13,2]{} [13,3]{1} [14,9]{14}
+  clusters
+  actions 0
+#### merge
+== merge-setup
+  largest=6 next=7 settings=0 static=1 consolidate=1
+  obstacle id=1 kind=junction active=1 poly=[(51,49,0,8) (51,51,0,8) (49,51,0,8) (49,49,0,8)] pos=(50,50)
+    junction pos=(50,50) rec=(50,50) fixed=0
+    ring [1,0,p=0] (51,49,1,0) vis=0
+    ring [1,1,p=0] (51,51,1,1) vis=0
+    ring [1,2,p=0] (49,51,1,2) vis=0
+    ring [1,3,p=0] (49,49,1,3) vis=0
+    lastVert [1,3,p=0] (49,49,1,3) vis=0
+    pin 1:2147483646 x=0 y=0 inside=0 prop=0 visdirs=15 dirs=15 excl=0 cost=0 users=0 pos=(50,50,0,8) v=[1,9,p=5] (50,50,1,9) vis=15
+    following 2/2 3/1 5/1
+    attached 2 3 5
+  obstacle id=6 kind=shape active=1 poly=[(10,40,0,8) (10,60,0,8) (-10,60,0,8) (-10,40,0,8)] pos=(0,50)
+    ring [6,0,p=0] (10,40,6,0) vis=0
+    ring [6,1,p=0] (10,60,6,1) vis=0
+    ring [6,2,p=0] (-10,60,6,2) vis=0
+    ring [6,3,p=0] (-10,40,6,3) vis=0
+    lastVert [6,3,p=0] (-10,40,6,3) vis=0
+    pin 6:1 x=1 y=0.5 inside=0 prop=1 visdirs=8 dirs=8 excl=1 cost=0 users=0 pos=(10,50,0,4) v=[6,9,p=5] (10,50,6,9) vis=8
+    following 2/1
+    attached 2
+  obstacle id=4 kind=shape active=1 poly=[(110,40,0,8) (110,60,0,8) (90,60,0,8) (90,40,0,8)] pos=(100,50)
+    ring [4,0,p=0] (110,40,4,0) vis=0
+    ring [4,1,p=0] (110,60,4,1) vis=0
+    ring [4,2,p=0] (90,60,4,2) vis=0
+    ring [4,3,p=0] (90,40,4,3) vis=0
+    lastVert [4,3,p=0] (90,40,4,3) vis=0
+    pin 4:1 x=0 y=0.5 inside=0 prop=1 visdirs=4 dirs=4 excl=1 cost=0 users=0 pos=(90,50,0,6) v=[4,9,p=5] (90,50,4,9) vis=4
+    following 3/2
+    attached 3
+  conn id=5 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [5,1,p=17] (50,50,5,1) vis=0
+    dst [5,2,p=1] (50,0,5,2) vis=15
+    srcEnd type=2 dirs=15/15 class=2147483646 anchor=1 conn=5 pin=- pt=(50,50) pos=(50,50)
+    dstEnd -
+    endpoints type=2 dirs=15/15 class=2147483646 anchor=1 conn=5 pin=- pt=(50,50) pos=(50,50) | type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(50,0) pos=(50,0)
+    route=[] display=[]
+    dstPinPoints
+  conn id=3 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [3,1,p=17] (50,50,3,1) vis=0
+    dst [3,2,p=17] (100,50,3,2) vis=0
+    srcEnd type=2 dirs=15/15 class=2147483646 anchor=1 conn=3 pin=- pt=(50,50) pos=(50,50)
+    dstEnd type=1 dirs=15/15 class=1 anchor=4 conn=3 pin=- pt=(100,50) pos=(100,50)
+    endpoints type=2 dirs=15/15 class=2147483646 anchor=1 conn=3 pin=- pt=(50,50) pos=(50,50) | type=1 dirs=15/15 class=1 anchor=4 conn=3 pin=- pt=(100,50) pos=(100,50)
+    route=[] display=[]
+    dstPinPoints (90,50)
+  conn id=2 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [2,1,p=17] (0,50,2,1) vis=0
+    dst [2,2,p=17] (50,50,2,2) vis=0
+    srcEnd type=1 dirs=15/15 class=1 anchor=6 conn=2 pin=- pt=(0,50) pos=(0,50)
+    dstEnd type=2 dirs=15/15 class=2147483646 anchor=1 conn=2 pin=- pt=(50,50) pos=(50,50)
+    endpoints type=1 dirs=15/15 class=1 anchor=6 conn=2 pin=- pt=(0,50) pos=(0,50) | type=2 dirs=15/15 class=2147483646 anchor=1 conn=2 pin=- pt=(50,50) pos=(50,50)
+    route=[] display=[]
+    dstPinPoints (50,50)
+  vertices conns=9 shapes=12
+    [5,2,p=1] (50,0,5,2) vis=15
+    [5,1,p=17] (50,50,5,1) vis=0
+    [3,2,p=17] (100,50,3,2) vis=0
+    [3,1,p=17] (50,50,3,1) vis=0
+    [2,2,p=17] (50,50,2,2) vis=0
+    [2,1,p=17] (0,50,2,1) vis=0
+    [6,9,p=5] (10,50,6,9) vis=8
+    [4,9,p=5] (90,50,4,9) vis=4
+    [1,9,p=5] (50,50,1,9) vis=15
+    [4,0,p=0] (110,40,4,0) vis=0
+    [4,1,p=0] (110,60,4,1) vis=0
+    [4,2,p=0] (90,60,4,2) vis=0
+    [4,3,p=0] (90,40,4,3) vis=0
+    [6,0,p=0] (10,40,6,0) vis=0
+    [6,1,p=0] (10,60,6,1) vis=0
+    [6,2,p=0] (-10,60,6,2) vis=0
+    [6,3,p=0] (-10,40,6,3) vis=0
+    [1,0,p=0] (51,49,1,0) vis=0
+    [1,1,p=0] (51,51,1,1) vis=0
+    [1,2,p=0] (49,51,1,2) vis=0
+    [1,3,p=0] (49,49,1,3) vis=0
+  contains [1,9]{1}
+  clusters
+  actions 0
+merged3=0
+merged=1
+after merge: conns=1 obstacles=2 verts=4+8
+  merged ends 6:1 -> 4:1
+#### clusters
+== clusters-added
+  largest=11 next=12 settings=0 static=1 consolidate=1
+  obstacle id=1 kind=shape active=1 poly=[(20,0,0,8) (20,20,0,8) (0,20,0,8) (0,0,0,8)] pos=(10,10)
+    ring [1,0,p=0] (20,0,1,0) vis=0
+    ring [1,1,p=0] (20,20,1,1) vis=0
+    ring [1,2,p=0] (0,20,1,2) vis=0
+    ring [1,3,p=0] (0,0,1,3) vis=0
+    lastVert [1,3,p=0] (0,0,1,3) vis=0
+    following
+    attached
+  conn id=3 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [3,1,p=1] (30,30,3,1) vis=15
+    dst [3,2,p=1] (-50,5,3,2) vis=15
+    srcEnd -
+    dstEnd -
+    endpoints type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(30,30) pos=(30,30) | type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(-50,5) pos=(-50,5)
+    route=[] display=[]
+    dstPinPoints
+  conn id=2 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [2,1,p=1] (5,5,2,1) vis=15
+    dst [2,2,p=1] (50,50,2,2) vis=15
+    srcEnd -
+    dstEnd -
+    endpoints type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(5,5) pos=(5,5) | type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(50,50) pos=(50,50)
+    route=[] display=[]
+    dstPinPoints
+  cluster id=11 active=1 rect=[(10,-10,0,8) (10,10,0,8) (-60,10,0,8) (-60,-10,0,8)] n=4 (10,-10) (10,10) (-60,10) (-60,-10)
+  cluster id=10 active=1 rect=[(60,0,0,8) (60,60,0,8) (0,60,0,8) (0,0,0,8)] n=4 (20,0) (60,0) (60,60) (0,60)
+  vertices conns=4 shapes=4
+    [3,2,p=1] (-50,5,3,2) vis=15
+    [3,1,p=1] (30,30,3,1) vis=15
+    [2,2,p=1] (50,50,2,2) vis=15
+    [2,1,p=1] (5,5,2,1) vis=15
+    [1,0,p=0] (20,0,1,0) vis=0
+    [1,1,p=0] (20,20,1,1) vis=0
+    [1,2,p=0] (0,20,1,2) vis=0
+    [1,3,p=0] (0,0,1,3) vis=0
+  contains
+  clusters [2,1]{11} [2,2]{10} [3,1]{10} [3,2]{11}
+  actions 0
+== contains-generated
+  largest=11 next=12 settings=0 static=1 consolidate=1
+  obstacle id=1 kind=shape active=1 poly=[(20,0,0,8) (20,20,0,8) (0,20,0,8) (0,0,0,8)] pos=(10,10)
+    ring [1,0,p=0] (20,0,1,0) vis=0
+    ring [1,1,p=0] (20,20,1,1) vis=0
+    ring [1,2,p=0] (0,20,1,2) vis=0
+    ring [1,3,p=0] (0,0,1,3) vis=0
+    lastVert [1,3,p=0] (0,0,1,3) vis=0
+    following
+    attached
+  conn id=3 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [3,1,p=1] (30,30,3,1) vis=15
+    dst [3,2,p=1] (-50,5,3,2) vis=15
+    srcEnd -
+    dstEnd -
+    endpoints type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(30,30) pos=(30,30) | type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(-50,5) pos=(-50,5)
+    route=[] display=[]
+    dstPinPoints
+  conn id=2 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [2,1,p=1] (5,5,2,1) vis=15
+    dst [2,2,p=1] (50,50,2,2) vis=15
+    srcEnd -
+    dstEnd -
+    endpoints type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(5,5) pos=(5,5) | type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(50,50) pos=(50,50)
+    route=[] display=[]
+    dstPinPoints
+  cluster id=11 active=1 rect=[(10,-10,0,8) (10,10,0,8) (-60,10,0,8) (-60,-10,0,8)] n=4 (10,-10) (10,10) (-60,10) (-60,-10)
+  cluster id=10 active=1 rect=[(60,0,0,8) (60,60,0,8) (0,60,0,8) (0,0,0,8)] n=4 (20,0) (60,0) (60,60) (0,60)
+  vertices conns=4 shapes=4
+    [3,2,p=1] (-50,5,3,2) vis=15
+    [3,1,p=1] (30,30,3,1) vis=15
+    [2,2,p=1] (50,50,2,2) vis=15
+    [2,1,p=1] (5,5,2,1) vis=15
+    [1,0,p=0] (20,0,1,0) vis=0
+    [1,1,p=0] (20,20,1,1) vis=0
+    [1,2,p=0] (0,20,1,2) vis=0
+    [1,3,p=0] (0,0,1,3) vis=0
+  contains [2,1]{1} [3,2]{}
+  clusters [2,1]{11} [2,2]{10} [3,1]{10} [3,2]{11}
+  actions 0
+setNewPoly rect=[(100,-100,0,8) (100,100,0,8) (-100,100,0,8) (-100,-100,0,8)]
+== cluster-deleted
+  largest=11 next=12 settings=0 static=1 consolidate=1
+  obstacle id=1 kind=shape active=1 poly=[(20,0,0,8) (20,20,0,8) (0,20,0,8) (0,0,0,8)] pos=(10,10)
+    ring [1,0,p=0] (20,0,1,0) vis=0
+    ring [1,1,p=0] (20,20,1,1) vis=0
+    ring [1,2,p=0] (0,20,1,2) vis=0
+    ring [1,3,p=0] (0,0,1,3) vis=0
+    lastVert [1,3,p=0] (0,0,1,3) vis=0
+    following
+    attached
+  conn id=3 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [3,1,p=1] (30,30,3,1) vis=15
+    dst [3,2,p=1] (-50,5,3,2) vis=15
+    srcEnd -
+    dstEnd -
+    endpoints type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(30,30) pos=(30,30) | type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(-50,5) pos=(-50,5)
+    route=[] display=[]
+    dstPinPoints
+  conn id=2 type=2 active=1 reroute=1 false=0 repaint=0 fixed=0 hate=0 flag=0 dist=0
+    src [2,1,p=1] (5,5,2,1) vis=15
+    dst [2,2,p=1] (50,50,2,2) vis=15
+    srcEnd -
+    dstEnd -
+    endpoints type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(5,5) pos=(5,5) | type=0 dirs=15/15 class=2147483647 anchor=- conn=- pin=- pt=(50,50) pos=(50,50)
+    route=[] display=[]
+    dstPinPoints
+  cluster id=10 active=1 rect=[(100,-100,0,8) (100,100,0,8) (-100,100,0,8) (-100,-100,0,8)] n=4 (100,-100) (100,100) (-100,100) (-100,-100)
+  vertices conns=4 shapes=4
+    [3,2,p=1] (-50,5,3,2) vis=15
+    [3,1,p=1] (30,30,3,1) vis=15
+    [2,2,p=1] (50,50,2,2) vis=15
+    [2,1,p=1] (5,5,2,1) vis=15
+    [1,0,p=0] (20,0,1,0) vis=0
+    [1,1,p=0] (20,20,1,1) vis=0
+    [1,2,p=0] (0,20,1,2) vis=0
+    [1,3,p=0] (0,0,1,3) vis=0
+  contains [2,1]{1} [3,2]{}
+  clusters [2,1]{} [2,2]{10} [3,1]{10} [3,2]{}
+  actions 0
+containing 1 -1 1
+#### polyline-queue
+type=1
+== polyline-queued
+  largest=6 next=7 settings=0 static=1 consolidate=1
+  vertices conns=0 shapes=0
+  contains
+  clusters
+  actions 2
+    action type=1 obstacle=4
+    action type=1 obstacle=5
+== polyline-cleared
+  largest=6 next=7 settings=0 static=1 consolidate=1
+  vertices conns=0 shapes=0
+  contains
+  clusters
+  actions 0
+#### diagram
+rect
+id=2
+x=100
+y=1e-07
+width=1.23457e+08
+height=20
+
+rect
+id=1
+x=0.5
+y=0
+width=19.75
+height=20
+
+path
+id=4
+p0: 1 1 
+p1: 0.333333 1 
+p2: 0.333333 2 
+p3: 2 2 
+
+
+#### end diagram
