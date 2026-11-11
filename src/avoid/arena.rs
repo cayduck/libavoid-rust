@@ -80,6 +80,51 @@ avoid_define_handle!(
     RerouteFlagIdx
 );
 
+avoid_define_handle!(
+    /// Handle of a `ShapeConnectionPin` (upstream `ShapeConnectionPin *`).
+    PinIdx
+);
+avoid_define_handle!(
+    /// Handle of a `ClusterRef` (upstream `ClusterRef *`).
+    ClusterIdx
+);
+
+/// An object handle paired with the creation serial of the object it names.
+///
+/// Used as the element of upstream pointer-ordered containers
+/// (`std::set<T *>`, `std::map<T *, ..>`): ordering and equality use the
+/// `serial` only, which is unique per heap object, so iteration order is
+/// creation order (see `// PTR-ORDER:` sites).
+#[derive(Clone, Copy, Debug)]
+pub struct PtrKey<I> {
+    pub serial: u64,
+    pub idx: I,
+}
+
+impl<I> PtrKey<I> {
+    #[inline]
+    pub fn new(serial: u64, idx: I) -> Self {
+        PtrKey { serial, idx }
+    }
+}
+
+impl<I> PartialEq for PtrKey<I> {
+    fn eq(&self, other: &Self) -> bool {
+        self.serial == other.serial
+    }
+}
+impl<I> Eq for PtrKey<I> {}
+impl<I> PartialOrd for PtrKey<I> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl<I> Ord for PtrKey<I> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.serial.cmp(&other.serial)
+    }
+}
+
 /// Slot arena with free-list reuse.
 #[derive(Clone, Debug)]
 pub struct Arena<I: ArenaIndex, T> {
