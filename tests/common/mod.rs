@@ -200,3 +200,59 @@ pub fn golden_exit_code(name: &str) -> i32 {
 pub fn printf_f(v: f64) -> String {
     format!("{:.6}", v)
 }
+
+/// Which oracle golden directory to compare against.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GoldenDir {
+    /// `tests/golden/`: C++ run with glibc malloc (heap-layout dependent
+    /// where upstream orders/ties by pointer value).
+    Malloc,
+    /// `tests/golden-bump/`: C++ run with `tools/oracle/bump_alloc.cpp`
+    /// (`ORACLE_ALLOC=bump`), i.e. pointer order == allocation order, the
+    /// model the Rust port implements.
+    Bump,
+}
+
+impl GoldenDir {
+    pub fn dir(self) -> &'static str {
+        match self {
+            GoldenDir::Malloc => "golden",
+            GoldenDir::Bump => "golden-bump",
+        }
+    }
+}
+
+/// Reads `tests/<dir>/<name>.<ext>`.
+pub fn read_golden_file_in(dir: GoldenDir, name: &str, ext: &str) -> String {
+    let path = format!("{}/tests/{}/{}.{}", env!("CARGO_MANIFEST_DIR"), dir.dir(), name, ext);
+    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read golden file {}: {}", path, e))
+}
+
+/// Compares `text` with `tests/<dir>/<name>.txt`.
+pub fn compare_with_golden_in(text: &str, dir: GoldenDir, name: &str) -> Result<GoldenComparison, String> {
+    let golden = read_golden_file_in(dir, name, "txt");
+    compare_diagram_text(text, &golden)
+}
+
+/// Asserts the router's diagram matches `tests/golden-bump/<name>.txt`
+/// (panics otherwise) and additionally reports on stderr whether it also
+/// matches the glibc-malloc golden `tests/golden/<name>.txt`
+/// (`golden-malloc <name>: match|MISMATCH`).
+pub fn assert_matches_golden_bump(router: &mut Router, name: &str) -> GoldenComparison {
+    let text = router.output_diagram_text();
+    let c = match compare_with_golden_in(&text, GoldenDir::Bump, name) {
+        Ok(c) => c,
+        Err(msg) => panic!("golden-bump {}: {}", name, msg),
+    };
+    eprintln!(
+        "golden-bump {}: {} (max |diff| = {:e})",
+        name,
+        if c.bit_identical { "bit-identical" } else { "within tolerance" },
+        c.max_abs_diff
+    );
+    match compare_with_golden_in(&text, GoldenDir::Malloc, name) {
+        Ok(m) => eprintln!("golden-malloc {}: match (bit-identical: {})", name, m.bit_identical),
+        Err(_) => eprintln!("golden-malloc {}: MISMATCH", name),
+    }
+    c
+}

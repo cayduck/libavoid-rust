@@ -981,7 +981,7 @@ fn scenario_routed(o: &mut Out) {
 }
 
 #[test]
-#[ignore = "needs routing: visibility.rs, makepath.rs, orthogonal.rs, hyperedge*.rs and ConnectorCrossings are todo! stubs"]
+#[ignore = "needs the HyperedgeImprover port: the scene attaches connectors to junctions with improveHyperedgeRoutesMovingJunctions on (todo! in hyperedgeimprover.rs)"]
 fn objects_oracle_routed_matches_golden() {
     let golden =
         std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/golden/objects_oracle_routed.txt"))

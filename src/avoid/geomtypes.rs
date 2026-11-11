@@ -645,14 +645,16 @@ impl Polygon {
         index_modifier: i32,
     ) -> Vec<Point> {
         let mut checkpoints = Vec::new();
-        let mut checkpoint_lower_value = 2 * segment_lower_index;
-        let mut checkpoint_upper_value = checkpoint_lower_value + 2;
+        // size_t arithmetic: orthogonal.cpp passes `i - 2` with i == 1
+        // (i.e. SIZE_MAX), so this must wrap exactly like upstream.
+        let mut checkpoint_lower_value = segment_lower_index.wrapping_mul(2);
+        let mut checkpoint_upper_value = checkpoint_lower_value.wrapping_add(2);
         let mut index = 0;
 
         if index_modifier > 0 {
-            checkpoint_lower_value += 1;
+            checkpoint_lower_value = checkpoint_lower_value.wrapping_add(1);
         } else if index_modifier < 0 {
-            checkpoint_upper_value -= 1;
+            checkpoint_upper_value = checkpoint_upper_value.wrapping_sub(1);
         }
 
         while index < self.checkpoints_on_route.len() {
@@ -985,5 +987,20 @@ mod tests {
         assert_eq!(rp.at(0, &lookup), Point::new(1.0, 11.0));
         let bb = rp.view(&lookup).bounding_rect_polygon();
         assert_eq!(bb.ps[3], Point::new(1.0, 11.0));
+    }
+
+    /// Regression: orthogonal.cpp calls `checkpointsOnSegment(i - 2, -1)`
+    /// with `i == 1`, i.e. `size_t` `SIZE_MAX`; the bounds wrap to
+    /// `[SIZE_MAX - 1, SIZE_MAX]` (and so match only wrapped checkpoint
+    /// indices).  This used to overflow-panic in debug builds.
+    #[test]
+    fn checkpoints_on_segment_wraps_like_size_t() {
+        let mut p = Polygon::new();
+        p.ps = vec![Point::new(0.0, 0.0), Point::new(10.0, 0.0)];
+        p.checkpoints_on_route = vec![(1, Point::new(5.0, 0.0)), (usize::MAX, Point::new(0.0, 0.0))];
+        let prev = p.checkpoints_on_segment(1usize.wrapping_sub(2), -1);
+        assert_eq!(prev, vec![Point::new(0.0, 0.0)]);
+        assert_eq!(p.checkpoints_on_segment(0, 0), vec![Point::new(5.0, 0.0)]);
+        assert!(p.checkpoints_on_segment(1, 1).is_empty());
     }
 }
