@@ -1,0 +1,447 @@
+#!/usr/bin/env python3
+"""Driver for the end-to-end differential fuzzer (see tools/oracle/e2e_fuzz.sh).
+
+Subcommands (run from anywhere; paths are relative to the repository root):
+
+  build                       build the C++ variants and the Rust replay test
+  gen --seed S --first F --count N --out FILE
+                              generate + run scenes on all three C++ builds
+                              and write a classified golden file
+  compare --golden FILE [--soft]
+                              replay a golden file through the Rust port
+  campaign --seed S --scenes N [--batch B] [--first F]
+                              gen + compare in batches; divergent scenes are
+                              saved under target/e2e_fuzz/campaign-S/
+  reduce --golden FILE --scene NAME [--crash SIG] [--out FILE]
+                              shrink a divergent scene (or, with --crash, a
+                              scene on which a C++ build crashes with SIG in
+                              the message) by delta debugging
+  show --golden FILE --scene NAME
+                              full dumps of C++ (NDEBUG) and Rust + diff
+
+Classification of a scene (first output line of the golden):
+  (none)              all three C++ builds agree; compared everywhere
+  #assert <msg>       only the asserting build fails; NDEBUG output compared
+                      in release builds
+  #exclude crash ...  the NDEBUG build crashes or times out
+  #exclude ub ...     the ASan/UBSan build reports an error (message and
+                      first libavoid frame follow)
+  #exclude heapdep    the sanitized build (same allocation order, different
+                      addresses/padding) produced different output
+  #exclude assertdiff the asserting build finished with different output
+For #exclude ub / heapdep / assertdiff the NDEBUG output follows the marker
+(E2E_SOFT=1 replays those too, without failing).
+"""
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+import tempfile
+from concurrent.futures import ThreadPoolExecutor
+
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+BUILD = os.environ.get("E2E_BUILD", os.path.join(ROOT, "target", "e2e_fuzz"))
+JOBS = int(os.environ.get("E2E_JOBS", str(os.cpu_count() or 4)))
+VARIANTS = ("assert", "ndebug", "asan")
+TIMEOUTS = {"assert": 30, "ndebug": 20, "asan": 90}
+
+
+def exe(variant):
+    return os.path.join(BUILD, variant, "e2e_fuzz")
+
+
+def parse_scenes(text):
+    """[(name, dsl_lines, out_lines)] of a golden-format text."""
+    res = []
+    name, dsl, out, in_out = None, [], [], False
+    for line in text.split("\n"):
+        if line.startswith("#scene "):
+            name, dsl, out, in_out = line[7:], [], [], False
+        elif line == "#out":
+            in_out = True
+        elif line == "#end":
+            if name is not None:
+                res.append((name, dsl, out))
+            name = None
+        elif name is not None:
+            (out if in_out else dsl).append(line)
+    return res
+
+
+def format_scenes(scenes):
+    parts = []
+    for name, dsl, out in scenes:
+        parts.append("#scene " + name)
+        parts.extend(dsl)
+        parts.append("#out")
+        parts.extend(out)
+        parts.append("#end")
+    return "\n".join(parts) + "\n"
+
+
+def run_cpp(variant, args, env_extra=None):
+    env = dict(os.environ)
+    env["E2E_TIMEOUT"] = str(TIMEOUTS[variant])
+    env["ASAN_OPTIONS"] = "detect_leaks=0:abort_on_error=0:allocator_may_return_null=1"
+    env["UBSAN_OPTIONS"] = "print_stacktrace=1:halt_on_error=1"
+    if env_extra:
+        env.update(env_extra)
+    r = subprocess.run([exe(variant)] + args, capture_output=True, text=True, env=env)
+    if r.returncode != 0:
+        raise RuntimeError("%s %s failed: %s" % (variant, args, r.stderr[-2000:]))
+    return r.stdout
+
+
+def run_cpp_file(variant, scenes, env_extra=None):
+    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
+        f.write(format_scenes([(n, d, []) for n, d, _ in scenes]))
+        path = f.name
+    try:
+        return parse_scenes(run_cpp(variant, ["run", path], env_extra))
+    finally:
+        os.unlink(path)
+
+
+def gen_variant(variant, seed, first, count):
+    chunk = max(1, (count + JOBS - 1) // JOBS)
+    chunk = min(chunk, 25)
+    tasks = [(f, min(chunk, first + count - f)) for f in range(first, first + count, chunk)]
+    with ThreadPoolExecutor(JOBS) as ex:
+        outs = list(ex.map(lambda t: run_cpp(variant, ["gen", str(seed), str(t[0]), str(t[1])]), tasks))
+    res = []
+    for o in outs:
+        res.extend(parse_scenes(o))
+    return res
+
+
+def is_crash(out):
+    return bool(out) and out[0].startswith("#crash")
+
+
+def classify(a, n, z):
+    """Golden output lines of one scene from assert / ndebug / asan outputs."""
+    if is_crash(n):
+        reason = z[0][len("#crash "):] if is_crash(z) else n[0][len("#crash "):]
+        return ["#exclude crash " + reason]
+    if is_crash(z):
+        return ["#exclude ub " + z[0][len("#crash "):]] + n
+    if z != n:
+        return ["#exclude heapdep"] + n
+    if is_crash(a):
+        return ["#assert " + a[0][len("#crash "):]] + n
+    if a != n:
+        return ["#exclude assertdiff"] + n
+    return n
+
+
+def gen(seed, first, count):
+    results = {}
+    with ThreadPoolExecutor(3) as ex:
+        futs = {v: ex.submit(gen_variant, v, seed, first, count) for v in VARIANTS}
+        for v in VARIANTS:
+            results[v] = futs[v].result()
+    scenes = []
+    for (na, da, a), (nn, dn, n), (nz, dz, z) in zip(results["assert"], results["ndebug"], results["asan"]):
+        assert na == nn == nz and da == dn == dz
+        scenes.append((nn, dn, classify(a, n, z)))
+    return scenes
+
+
+def classify_scenes(scenes):
+    """Runs DSL-only scenes on all builds and classifies them."""
+    res = {}
+    with ThreadPoolExecutor(3) as ex:
+        futs = {v: ex.submit(run_cpp_file, v, scenes) for v in VARIANTS}
+        for v in VARIANTS:
+            res[v] = futs[v].result()
+    return [(n, d, classify(a, nn, z)) for (n, d, a), (_, _, nn), (_, _, z) in
+            zip(res["assert"], res["ndebug"], res["asan"])]
+
+
+_rust_bin = None
+
+
+def rust_bin():
+    global _rust_bin
+    if _rust_bin:
+        return _rust_bin
+    r = subprocess.run(["cargo", "test", "--release", "--test", "e2e_fuzz", "--no-run",
+                        "--message-format=json"], cwd=ROOT, capture_output=True, text=True)
+    if r.returncode != 0:
+        sys.stderr.write(r.stderr)
+        raise RuntimeError("cargo build failed")
+    for line in r.stdout.splitlines():
+        try:
+            m = json.loads(line)
+        except ValueError:
+            continue
+        if m.get("reason") == "compiler-artifact" and m.get("target", {}).get("name") == "e2e_fuzz" \
+                and m.get("executable"):
+            _rust_bin = m["executable"]
+    if not _rust_bin:
+        raise RuntimeError("no e2e_fuzz test binary")
+    return _rust_bin
+
+
+def compare(golden_path, soft=False, scene=None, full=False, quiet=False):
+    """Returns {name: status} from the Rust replay of a golden file."""
+    with tempfile.NamedTemporaryFile("r", suffix=".tsv", delete=False) as rep:
+        rep_path = rep.name
+    env = dict(os.environ)
+    env["E2E_GOLDEN"] = golden_path
+    env["E2E_REPORT"] = rep_path
+    env["RUST_MIN_STACK"] = str(64 * 1024 * 1024)
+    if soft:
+        env["E2E_SOFT"] = "1"
+    if scene:
+        env["E2E_SCENE"] = scene
+    if full:
+        env["E2E_FULL"] = "1"
+    r = subprocess.run([rust_bin(), "--nocapture", "--test-threads", "1"], capture_output=True,
+                       text=True, env=env)
+    status = {}
+    try:
+        for line in open(rep_path):
+            name, st = line.rstrip("\n").split("\t", 1)
+            status[name] = st
+    except FileNotFoundError:
+        pass
+    os.unlink(rep_path) if os.path.exists(rep_path) else None
+    if not status:
+        status["<process>"] = "died: " + r.stderr[-500:].replace("\n", " | ")
+    if not quiet:
+        sys.stdout.write(r.stdout if full else "\n".join(l for l in r.stdout.splitlines()
+                                                          if "scenes in golden" in l) + "\n")
+    return status, r.stdout
+
+
+def summarize(scenes, status):
+    counts = {}
+    for name, _, out in scenes:
+        first = out[0] if out else ""
+        if first.startswith("#exclude"):
+            key = "excluded: " + " ".join(first.split()[1:2])
+        elif first.startswith("#assert"):
+            key = "compared (assert-only, NDEBUG output)"
+        else:
+            key = "compared (clean)"
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def cmd_gen(args):
+    scenes = gen(args.seed, args.first, args.count)
+    with open(args.out, "w") as f:
+        f.write("# e2e fuzz golden: seed %d, scenes %d..%d (tools/oracle/e2e_fuzz.sh)\n"
+                % (args.seed, args.first, args.first + args.count - 1))
+        f.write(format_scenes(scenes))
+    for k, v in sorted(summarize(scenes, {}).items()):
+        print("%6d %s" % (v, k))
+
+
+def cmd_compare(args):
+    status, _ = compare(args.golden, soft=args.soft)
+    bad = {n: s for n, s in status.items() if s not in ("match", "skip-assert", "excluded",
+                                                        "excluded-match")}
+    for n, s in sorted(bad.items()):
+        print("%s\t%s" % (n, s))
+    return 1 if bad else 0
+
+
+def exclusion_reasons(scenes):
+    reasons = {}
+    for name, _, out in scenes:
+        if out and out[0].startswith("#exclude"):
+            r = out[0][len("#exclude "):]
+            # Normalise: strip line numbers in "file:line:col".
+            reasons.setdefault(r, []).append(name)
+    return reasons
+
+
+def cmd_campaign(args):
+    outdir = os.path.join(BUILD, "campaign-%d" % args.seed)
+    os.makedirs(outdir, exist_ok=True)
+    total = {}
+    soft = {}
+    reasons = {}
+    divergent = []
+    for first in range(args.first, args.first + args.scenes, args.batch):
+        count = min(args.batch, args.first + args.scenes - first)
+        scenes = gen(args.seed, first, count)
+        path = os.path.join(outdir, "batch-%06d.txt" % first)
+        with open(path, "w") as f:
+            f.write(format_scenes(scenes))
+        status, _ = compare(path, soft=True, quiet=True)
+        for k, v in summarize(scenes, status).items():
+            total[k] = total.get(k, 0) + v
+        for r, names in exclusion_reasons(scenes).items():
+            reasons.setdefault(r, []).extend(names)
+        for n, s in status.items():
+            soft[s.split()[0]] = soft.get(s.split()[0], 0) + 1
+            if s.startswith("differ") or s.startswith("panic") or s.startswith("died"):
+                divergent.append((n, s))
+        keep = [sc for sc in scenes if status.get(sc[0], "").startswith(("differ", "panic"))]
+        if keep:
+            with open(os.path.join(outdir, "divergent-%06d.txt" % first), "a") as f:
+                f.write(format_scenes(keep))
+        os.unlink(path)
+        print("batch %d..%d: %s | rust: %s | divergent so far: %d" % (
+            first, first + count - 1, sorted(total.items()), sorted(soft.items()), len(divergent)),
+            flush=True)
+    print("\n== campaign seed %d, %d scenes ==" % (args.seed, args.scenes))
+    for k, v in sorted(total.items()):
+        print("%6d %s" % (v, k))
+    print("rust replay statuses: %s" % sorted(soft.items()))
+    print("exclusion reasons:")
+    for r, names in sorted(reasons.items(), key=lambda x: -len(x[1])):
+        print("%6d %s   (e.g. %s)" % (len(names), r, names[0]))
+    print("divergent scenes: %d" % len(divergent))
+    for n, s in divergent:
+        print("  %s\t%s" % (n, s))
+    with open(os.path.join(outdir, "summary.json"), "w") as f:
+        json.dump({"total": total, "rust": soft, "reasons": {r: len(n) for r, n in reasons.items()},
+                   "divergent": divergent}, f, indent=1)
+
+
+def find_scene(golden, name):
+    for sc in parse_scenes(open(golden).read()):
+        if sc[0] == name:
+            return sc
+    raise SystemExit("scene %s not found" % name)
+
+
+def ddmin(lines, pred):
+    """Delta debugging over lines[1:] (the 'router' line is kept)."""
+    head, body = lines[:1], lines[1:]
+    n = 2
+    while len(body) >= 1:
+        chunk = max(1, len(body) // n)
+        reduced = False
+        for start in range(0, len(body), chunk):
+            cand = body[:start] + body[start + chunk:]
+            if pred(head + cand):
+                body = cand
+                n = max(n - 1, 2)
+                reduced = True
+                print("  reduced to %d lines" % (len(body) + 1), flush=True)
+                break
+        if not reduced:
+            if chunk == 1:
+                break
+            n = min(len(body), n * 2)
+    return head + body
+
+
+def divergence_pred(name):
+    tmp = tempfile.mkdtemp()
+
+    def pred(dsl):
+        scenes = classify_scenes([(name, dsl, [])])
+        out = scenes[0][2]
+        if out and out[0].startswith(("#exclude", "#assert")) and not out[0].startswith("#assert"):
+            return False
+        path = os.path.join(tmp, "g.txt")
+        with open(path, "w") as f:
+            f.write(format_scenes(scenes))
+        status, _ = compare(path, quiet=True)
+        st = status.get(name, "")
+        return st.startswith("differ") or st.startswith("panic") or st.startswith("died") or \
+            "<process>" in status
+    return pred
+
+
+def crash_pred(name, sig, variant):
+    def pred(dsl):
+        out = run_cpp_file(variant, [(name, dsl, [])])[0][2]
+        return is_crash(out) and sig in out[0]
+    return pred
+
+
+def cmd_reduce(args):
+    name, dsl, _ = find_scene(args.golden, args.scene)
+    if args.crash:
+        pred = crash_pred(name, args.crash, args.variant)
+    else:
+        pred = divergence_pred(name)
+    if not pred(dsl):
+        raise SystemExit("predicate does not hold for the original scene")
+    red = ddmin(dsl, pred)
+    scenes = classify_scenes([(name + "-min", red, [])]) if not args.crash else [(name + "-min", red, [])]
+    text = format_scenes(scenes)
+    if args.out:
+        open(args.out, "w").write(text)
+    print(text)
+
+
+def cmd_show(args):
+    name, dsl, _ = find_scene(args.golden, args.scene)
+    cpp = {}
+    for v in VARIANTS:
+        cpp[v] = run_cpp_file(v, [(name, dsl, [])], {"E2E_FULL": "1"})[0][2]
+    tmp = tempfile.mkdtemp()
+    path = os.path.join(tmp, "g.txt")
+    with open(path, "w") as f:
+        f.write(format_scenes([(name, dsl, cpp["ndebug"])]))
+    _, rust_out = compare(path, scene=name, full=True, quiet=True)
+    rust_lines = []
+    on = False
+    for l in rust_out.splitlines():
+        if l.startswith("#scene "):
+            on = True
+            continue
+        if on and (l.startswith("test ") or "scenes in golden" in l):
+            break
+        if on:
+            rust_lines.append(l)
+    for v in VARIANTS:
+        open(os.path.join(tmp, "cpp-%s.txt" % v), "w").write("\n".join(cpp[v]) + "\n")
+    open(os.path.join(tmp, "rust.txt"), "w").write("\n".join(rust_lines) + "\n")
+    print("full dumps in %s (cpp-ndebug.txt, cpp-assert.txt, cpp-asan.txt, rust.txt)" % tmp)
+    subprocess.run(["diff", os.path.join(tmp, "cpp-ndebug.txt"), os.path.join(tmp, "rust.txt")])
+
+
+def cmd_build(args):
+    subprocess.run([os.path.join(ROOT, "tools", "oracle", "e2e_fuzz_build.sh")], check=True)
+    print(rust_bin())
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = p.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("build")
+    s.set_defaults(fn=cmd_build)
+    s = sub.add_parser("gen")
+    s.add_argument("--seed", type=int, required=True)
+    s.add_argument("--first", type=int, default=0)
+    s.add_argument("--count", type=int, required=True)
+    s.add_argument("--out", required=True)
+    s.set_defaults(fn=cmd_gen)
+    s = sub.add_parser("compare")
+    s.add_argument("--golden", required=True)
+    s.add_argument("--soft", action="store_true")
+    s.set_defaults(fn=cmd_compare)
+    s = sub.add_parser("campaign")
+    s.add_argument("--seed", type=int, required=True)
+    s.add_argument("--scenes", type=int, required=True)
+    s.add_argument("--first", type=int, default=0)
+    s.add_argument("--batch", type=int, default=500)
+    s.set_defaults(fn=cmd_campaign)
+    s = sub.add_parser("reduce")
+    s.add_argument("--golden", required=True)
+    s.add_argument("--scene", required=True)
+    s.add_argument("--crash")
+    s.add_argument("--variant", default="asan")
+    s.add_argument("--out")
+    s.set_defaults(fn=cmd_reduce)
+    s = sub.add_parser("show")
+    s.add_argument("--golden", required=True)
+    s.add_argument("--scene", required=True)
+    s.set_defaults(fn=cmd_show)
+    a = p.parse_args()
+    sys.exit(a.fn(a) or 0)
+
+
+if __name__ == "__main__":
+    main()

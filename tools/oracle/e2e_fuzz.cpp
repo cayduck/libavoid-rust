@@ -289,13 +289,52 @@ static void appendSig(std::vector<const void *>& sig, const L& l)
     sig.push_back(nullptr);
 }
 
-// After every command: record changed hyperedge object lists, drop dead
-// objects from the live lists and append objects the router created.
+// After every command: drop dead objects from the live lists, append
+// objects the router created, then record changed hyperedge object lists
+// (objects in "new" lists are named by their live id, objects in "deleted"
+// lists by the id they had at the previous sync).
 static void sync(Scene& sc)
 {
     Router *r = sc.r;
     if (!r) return;
 
+    // Connectors: live iff in connRefs.
+    {
+        std::vector<ConnRef *> keep;
+        for (size_t i = 0; i < sc.conns.size(); ++i)
+        {
+            if (inConnRefs(r, sc.conns[i])) keep.push_back(sc.conns[i]);
+        }
+        sc.conns = keep;
+        for (ConnRefList::const_iterator it = r->connRefs.begin();
+                it != r->connRefs.end(); ++it)
+        {
+            if (std::find(sc.conns.begin(), sc.conns.end(), *it) == sc.conns.end())
+            {
+                sc.conns.push_back(*it);
+                (*it)->setCallback(connCallback, (void *) (uintptr_t) (*it)->id());
+            }
+        }
+    }
+    // Junctions.
+    {
+        std::vector<JunctionRef *> keep;
+        for (size_t i = 0; i < sc.juncs.size(); ++i)
+        {
+            if (junctionLive(r, sc.juncs[i])) keep.push_back(sc.juncs[i]);
+        }
+        sc.juncs = keep;
+        for (ObstacleList::const_iterator it = r->m_obstacles.begin();
+                it != r->m_obstacles.end(); ++it)
+        {
+            JunctionRef *j = dynamic_cast<JunctionRef *> (*it);
+            if (j && std::find(sc.juncs.begin(), sc.juncs.end(), j) == sc.juncs.end() &&
+                    !isPendingAction(r, JunctionRemove, j))
+            {
+                sc.juncs.push_back(j);
+            }
+        }
+    }
     // Hyperedge improver lists.
     {
         const HyperedgeImprover& h = r->m_hyperedge_improver;
@@ -340,43 +379,6 @@ static void sync(Scene& sc)
         }
     }
 
-    // Connectors: live iff in connRefs.
-    {
-        std::vector<ConnRef *> keep;
-        for (size_t i = 0; i < sc.conns.size(); ++i)
-        {
-            if (inConnRefs(r, sc.conns[i])) keep.push_back(sc.conns[i]);
-        }
-        sc.conns = keep;
-        for (ConnRefList::const_iterator it = r->connRefs.begin();
-                it != r->connRefs.end(); ++it)
-        {
-            if (std::find(sc.conns.begin(), sc.conns.end(), *it) == sc.conns.end())
-            {
-                sc.conns.push_back(*it);
-                (*it)->setCallback(connCallback, (void *) (uintptr_t) (*it)->id());
-            }
-        }
-    }
-    // Junctions.
-    {
-        std::vector<JunctionRef *> keep;
-        for (size_t i = 0; i < sc.juncs.size(); ++i)
-        {
-            if (junctionLive(r, sc.juncs[i])) keep.push_back(sc.juncs[i]);
-        }
-        sc.juncs = keep;
-        for (ObstacleList::const_iterator it = r->m_obstacles.begin();
-                it != r->m_obstacles.end(); ++it)
-        {
-            JunctionRef *j = dynamic_cast<JunctionRef *> (*it);
-            if (j && std::find(sc.juncs.begin(), sc.juncs.end(), j) == sc.juncs.end() &&
-                    !isPendingAction(r, JunctionRemove, j))
-            {
-                sc.juncs.push_back(j);
-            }
-        }
-    }
     sc.knownIds.clear();
     for (size_t i = 0; i < sc.conns.size(); ++i)
     {
@@ -880,7 +882,11 @@ static void runCommand(Scene& sc, const std::string& line)
     {
         if (!ref(in, sc.conns.size(), i)) return;
         unsigned seg = unum(in);
-        sc.conns[i]->splitAtSegment(seg);
+        ConnRef *c = sc.conns[i];
+        // Upstream dereferences m_dst_connend, which is null when the
+        // destination is a free point: skip those.
+        if (c->m_display_route.size() > seg && !c->m_dst_connend) return;
+        c->splitAtSegment(seg);
     }
     else if (cmd == "cluster")
     {
@@ -1060,6 +1066,7 @@ static std::string runSceneChild(const std::vector<std::string>& dsl)
     std::string lastErr;
     rewind(errFile);
     char line[4096];
+    std::string frame;
     while (fgets(line, sizeof(line), errFile))
     {
         if (lastErr.empty() && (strstr(line, "Assertion") || strstr(line, "terminate") ||
@@ -1067,6 +1074,21 @@ static std::string runSceneChild(const std::vector<std::string>& dsl)
                 strstr(line, "runtime error") || strstr(line, "ERROR: ")))
         {
             lastErr = line;
+        }
+        else if (!lastErr.empty() && frame.empty() && strstr(line, " in ") &&
+                strstr(line, "libavoid/") && !strstr(line, "e2e_fuzz.cpp"))
+        {
+            // First sanitizer stack frame inside libavoid: "fn file:line".
+            const char *in = strstr(line, " in ") + 4;
+            const char *lib = strstr(line, "libavoid/");
+            std::string fn(in);
+            size_t sp = fn.find(" /");
+            if (sp != std::string::npos) fn = fn.substr(0, sp);
+            size_t paren = fn.find('(');
+            if (paren != std::string::npos) fn = fn.substr(0, paren);
+            std::string loc(lib);
+            while (!loc.empty() && (loc.back() == '\n' || loc.back() == '\r')) loc.pop_back();
+            frame = " @ " + fn + " " + loc;
         }
     }
     fclose(errFile);
@@ -1103,6 +1125,7 @@ static std::string runSceneChild(const std::vector<std::string>& dsl)
             if (eq2 != std::string::npos) lastErr.erase(eq, eq2 + 2 - eq);
         }
     }
+    lastErr += frame;
     if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
     {
         char b[128];
@@ -1546,6 +1569,17 @@ static void genJunction(Gen& g)
 static std::string genClusterPoly(Gen& g)
 {
     std::vector<double> xs, ys;
+    if (!g.shapes.empty() && chance(40))
+    {
+        // Boundary through shape corners (upstream expects polyline
+        // cluster boundary points to be shape vertices).
+        const GShape& s = g.shapes[rnd((unsigned) g.shapes.size())];
+        xs.push_back(s.x2); ys.push_back(s.y1);
+        xs.push_back(s.x2); ys.push_back(s.y2);
+        xs.push_back(s.x1); ys.push_back(s.y2);
+        xs.push_back(s.x1); ys.push_back(s.y1);
+        return polyText(xs, ys);
+    }
     double x1 = coord(g, -10, g.W);
     double y1 = coord(g, -10, g.H);
     double w = coord(g, 40, 250);
@@ -1767,17 +1801,34 @@ static void genOp(Gen& g)
     {
         g.L.push_back("settings");
     }
-    else if (w < 91 && g.nJ > 0)
+    else if (w < 91 && g.nJ > 0 && (g.flags & 2))
     {
         g.L.push_back("regj " + ref1000());
     }
-    else if (w < 93)
+    else if (w < 93 && (g.flags & 2))
     {
-        unsigned n = 2 + rnd(4);
-        std::string s = "regends " + std::to_string(n);
+        // Hyperedge rerouting is orthogonal only (MTST over the orthogonal
+        // visibility graph).
+        // Distinct terminals (upstream dereferences a null tree root when
+        // terminals coincide): free points, or pins of distinct shapes.
+        unsigned n = 3 + rnd(3);
+        std::vector<std::string> ends;
+        std::set<unsigned> usedShapes;
         for (unsigned k = 0; k < n; ++k)
         {
-            s += " " + genEnd(g, false);
+            std::string e = genEnd(g, false);
+            if (e[0] == 'S')
+            {
+                unsigned si = (unsigned) atoi(e.c_str() + 2);
+                if (usedShapes.count(si)) e = genPointEnd(g);
+                else usedShapes.insert(si);
+            }
+            if (std::find(ends.begin(), ends.end(), e) == ends.end()) ends.push_back(e);
+        }
+        std::string s = "regends " + std::to_string(ends.size());
+        for (size_t k = 0; k < ends.size(); ++k)
+        {
+            s += " " + ends[k];
         }
         g.L.push_back(s);
     }
@@ -1843,6 +1894,13 @@ static std::vector<std::string> genScene(uint64_t seed, uint64_t index)
     unsigned nJuncs = chance(40) ? 1 + rnd(size < 6 ? 2 : 3) : 0;
     unsigned nClusters = (g.flags & 1) && chance(30) ? 1 + rnd(2) : 0;
     for (unsigned k = 0; k < nShapes; ++k) genShape(g);
+    if (!g.txn)
+    {
+        // (connectors are never created in immediate mode, see below)
+        L.push_back("txn 1");
+        g.txn = true;
+        g.inBatch = true;
+    }
     for (unsigned k = 0; k < nJuncs; ++k) genJunction(g);
     for (unsigned k = 0; k < nConns; ++k) genConn(g);
     for (unsigned k = 0; k < nClusters; ++k)
@@ -1851,7 +1909,7 @@ static std::vector<std::string> genScene(uint64_t seed, uint64_t index)
         g.nK++;
     }
     if (g.nC > 0 && chance(30)) L.push_back(genCheckpoints(g));
-    if (g.nJ > 0 && chance(30)) L.push_back("regj " + ref1000());
+    if (g.nJ > 0 && (g.flags & 2) && chance(30)) L.push_back("regj " + ref1000());
     L.push_back("process");
     for (size_t k = 0; k < g.shapes.size(); ++k) g.shapes[k].addedInBatch = false;
     g.inBatch = false;
@@ -1882,12 +1940,44 @@ static std::vector<std::string> genScene(uint64_t seed, uint64_t index)
         }
         else
         {
-            if (g.txn)
+            // Immediate mode (setTransactionUse(false)) is only used for
+            // commands that do not make upstream misbehave there:
+            //  * a ConnRef created with ends in immediate mode routes before
+            //    m_reroute_flag_ptr is set, so a later EdgeInf::alertConns()
+            //    writes through a null pointer (conn, split, junction+conns);
+            //  * moving/deleting an obstacle with attached connectors calls
+            //    modifyConnector() from inside processActions(), which
+            //    re-enters processTransaction() with the same action list
+            //    and recurses until the stack overflows (moveby, moveto,
+            //    movej*, delshape, deljunc, mergej, markmoved).
+            // Everything else runs in transactions.
+            static const char *immediateOk[] = { "param ", "option ", "settings",
+                "pin", "transform ", "rect ", "poly ", "src ", "dst ", "type ",
+                "hate ", "invalid ", "cps ", "fixroute ", "fixexist ", "clearfix ",
+                "delconn ", "cluster ", "movecluster ", "delcluster ", "regj ",
+                "regends ", "fixj ", nullptr };
+            size_t mark = L.size();
+            genOp(g);
+            bool createsConn = false;
+            for (size_t k = mark; k < L.size(); ++k)
             {
-                L.push_back("txn 0");
+                bool ok = false;
+                for (const char **w = immediateOk; *w; ++w)
+                {
+                    if (L[k].compare(0, strlen(*w), *w) == 0) ok = true;
+                }
+                if (!ok) createsConn = true;
+            }
+            if (createsConn && !g.txn)
+            {
+                L.insert(L.begin() + mark, "txn 1");
+                g.txn = true;
+            }
+            else if (!createsConn && g.txn)
+            {
+                L.insert(L.begin() + mark, "txn 0");
                 g.txn = false;
             }
-            genOp(g);
             L.push_back("process");
         }
     }

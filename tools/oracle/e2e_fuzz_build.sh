@@ -40,7 +40,9 @@ build_variant() {
 
 build_variant assert & p1=$!
 build_variant ndebug -DNDEBUG & p2=$!
+# -fno-sanitize=bool: upstream copies ActionInfo::firstMove, which is
+# uninitialised for non-move actions (and never read for them).
 build_variant asan -DNDEBUG -DE2E_SANITIZE -fsanitize=address,undefined \
-    -fno-sanitize-recover=all -fno-omit-frame-pointer & p3=$!
+    -fno-sanitize=bool -fno-sanitize-recover=all -fno-omit-frame-pointer & p3=$!
 wait $p1; wait $p2; wait $p3
 echo "built: $BUILD/{assert,ndebug,asan}/e2e_fuzz"
