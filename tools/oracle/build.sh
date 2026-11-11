@@ -3,6 +3,7 @@
 # upstream test fixture, capturing full-precision route output as golden files.
 #
 #   tools/oracle/build.sh [fixture-name ...]
+#   ORACLE_LIB_ONLY=1 tools/oracle/build.sh   # only build target/oracle/libavoid.a
 #
 # Output: tests/golden/<fixture>.txt   (full precision outputDiagramText dump)
 #         tests/golden/<fixture>-final.txt (same dump taken in Router::~Router)
@@ -13,7 +14,11 @@
 # junction positions).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-SRC="$ROOT/vendor/adaptagrams/cola/libavoid"
+SRC="${LIBAVOID_UPSTREAM:-$ROOT/vendor/adaptagrams/cola/libavoid}"
+if [ ! -d "$SRC" ]; then
+  # In a git worktree the (gitignored) vendor tree lives in the main checkout.
+  SRC="$(dirname "$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir)")/vendor/adaptagrams/cola/libavoid"
+fi
 BUILD="${ORACLE_BUILD_DIR:-$ROOT/target/oracle}"
 GOLDEN="$ROOT/tests/golden"
 TIMEOUT="${ORACLE_TIMEOUT:-600}"
@@ -83,6 +88,9 @@ for f in "$BUILD"/libavoid/*.cpp; do
 done
 wait
 ar rcs "$BUILD/libavoid.a" "${objs[@]}"
+# ORACLE_LIB_ONLY=1: only build the oracle library (used by
+# tools/fixtures/verify_roundtrip.sh); do not run fixtures or touch goldens.
+if [ -n "${ORACLE_LIB_ONLY:-}" ]; then exit 0; fi
 
 if [ $# -gt 0 ]; then names=("$@"); else
   names=(); for t in "$SRC"/tests/*.cpp; do names+=("$(basename "$t" .cpp)"); done
