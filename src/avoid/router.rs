@@ -314,6 +314,11 @@ pub struct Router {
     pub edge_infs: EdgeArena,
     /// Cells allocated by `VertInf::makeTreeRootPointer()`.
     pub tree_root_cells: Arena<TreeRootPtr, Option<VertIdx>>,
+    /// Dummy vertices deleted by `MinimumTerminalSpanningTree` whose arena
+    /// slots are kept until the next MTST construction, because upstream
+    /// keeps reading them through dangling `pathNext` pointers (see
+    /// `mtst.rs`, "Deleted dummy vertices").
+    pub m_mtst_zombie_vertices: Vec<VertIdx>,
     pub obstacles: ObstacleArena,
     pub conns: ConnArena,
     pub pins: PinArena,
@@ -753,6 +758,7 @@ impl Router {
             vert_infs: Arena::new(),
             edge_infs: Arena::new(),
             tree_root_cells: Arena::new(),
+            m_mtst_zombie_vertices: Vec::new(),
             obstacles: Arena::new(),
             conns: Arena::new(),
             pins: Arena::new(),

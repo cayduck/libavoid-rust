@@ -17,6 +17,19 @@
 //! * `commitToBridgingEdge` picks the new and old tree roots with
 //!   `std::min`/`std::max` of two `VertInf *`: compared by serial.
 //!
+//! # Deleted dummy vertices
+//! Both constructions leave `pathNext` (and `m_orthogonalPartner`) of router
+//! vertices pointing at the dummy vertices they create and then delete.
+//! Upstream later dereferences such dangling pointers: the next A* search
+//! of a connector whose source vertex was explored by the MTST reads
+//! `start->pathNext` (makepath.cpp, "If we are doing checkpoint routing
+//! ...") and creates a search node on the deleted vertex.  That is
+//! undefined behaviour upstream; under the oracle's bump allocator (the
+//! model this port follows) the deleted vertex keeps its last contents.
+//! To reproduce that, a deleted dummy vertex is removed from the graph but
+//! its arena slot is only freed by the next MTST construction, after its
+//! initialisation loop has reset every router vertex.
+//!
 //! (`drawForest`, `setDebuggingOutput` and the `DEBUGHANDLER` hooks are
 //! debug output and are not ported; timers are not ported.)
 
@@ -67,10 +80,22 @@ pub fn cmp_edge_inf(router: &Router, a: EdgeIdx, b: EdgeIdx) -> bool {
     router.edge_infs[a].mtst_dist() > router.edge_infs[b].mtst_dist()
 }
 
+/// Upstream `delete_vertex`: removes the dummy vertex from the graph and
+/// frees it.  The free is deferred (see the module docs, "Deleted dummy
+/// vertices"): the slot is parked in `Router::m_mtst_zombie_vertices`.
 // upstream: mtst.cpp struct delete_vertex
 fn delete_vertex(router: &mut Router, ptr: VertIdx) {
     VertInf::remove_from_graph(router, ptr, false);
-    VertInf::delete(router, ptr);
+    router.m_mtst_zombie_vertices.push(ptr);
+}
+
+/// Frees the dummy vertices deleted by earlier MTST constructions.  Called
+/// right after a construction has reset `pathNext` / `m_orthogonalPartner`
+/// of every router vertex, i.e. once nothing can refer to them any more.
+fn free_zombie_vertices(router: &mut Router) {
+    for v in std::mem::take(&mut router.m_mtst_zombie_vertices) {
+        VertInf::delete(router, v);
+    }
 }
 
 fn v_make_heap(router: &Router, heap: &mut [VertIdx]) {
@@ -259,7 +284,10 @@ impl MinimumTerminalSpanningTree {
             return;
         }
 
-        debug_assert!(curr_vert.is_some());
+        // (upstream: COLA_ASSERT(currVert != nullptr).  Not ported: it fails
+        // whenever a bridging edge ends at an original terminal, whose
+        // pathNext is null; the loop below then does nothing, which is the
+        // upstream release-build behaviour.  The oracle build removes it too.)
 
         // This method follows branches in a shortest path tree back to the
         // root, generating hyperedge tree nodes and branches as it goes.
@@ -364,6 +392,7 @@ impl MinimumTerminalSpanningTree {
             v.set_sptf_root(Some(kv));
             k = v.lst_next;
         }
+        free_zombie_vertices(router);
         // PTR-ORDER: iterates std::set<VertInf *> terminals.
         let terminals: Vec<VertIdx> = self.terminals.iter().map(|k| k.idx).collect();
         for t in terminals {
@@ -680,6 +709,7 @@ impl MinimumTerminalSpanningTree {
             v.m_orthogonal_partner = None;
             k = v.lst_next;
         }
+        free_zombie_vertices(router);
 
         debug_assert!(self.root_vertex_pointers.is_empty());
         // PTR-ORDER: iterates std::set<VertInf *> terminals.
