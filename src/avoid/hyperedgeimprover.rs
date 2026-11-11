@@ -67,7 +67,23 @@ impl HyperedgeImprover {
     /// Operates on `router.m_hyperedge_improver`.
     // upstream: hyperedgeimprover.cpp HyperedgeImprover::execute()
     pub fn execute(router: &mut Router, can_make_major_changes: bool) {
-        let _ = (router, can_make_major_changes);
-        todo!("upstream: hyperedgeimprover.cpp HyperedgeImprover::execute — not yet ported")
+        router.m_hyperedge_improver.m_can_make_major_changes = can_make_major_changes;
+
+        // PARTIAL (added by the visibility/makepath port): only the case
+        // where no connector is attached to a junction is ported.  Then no
+        // hyperedge tree is built and every later step of upstream
+        // execute() iterates empty containers (buildOrthogonalChannelInfo
+        // returns immediately for an empty segment list), so nothing else
+        // happens.
+        // Build Hyperedge trees.
+        for &conn_ref in router.conn_refs.iter() {
+            let conn = &router.conns[conn_ref];
+            let j_front = conn.m_src_connend.as_ref().and_then(|e| e.junction(router));
+            let j_back = conn.m_dst_connend.as_ref().and_then(|e| e.junction(router));
+            if j_front.is_none() && j_back.is_none() {
+                continue;
+            }
+            todo!("upstream: hyperedgeimprover.cpp HyperedgeImprover::execute — hyperedge trees not yet ported")
+        }
     }
 }
