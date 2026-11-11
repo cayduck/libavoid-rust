@@ -1,0 +1,15 @@
+Warning: In ConnEnd::assignPinVisibilityTo():
+         ConnEnd for connector 15 can't connect to shape 8
+         since it has no pins with class id of 14.
+Warning: In ConnEnd::assignPinVisibilityTo():
+         ConnEnd for connector 14 can't connect to shape 5
+         since it has no pins with class id of 7.
+Warning: In ConnEnd::assignPinVisibilityTo():
+         ConnEnd for connector 4 can't connect to shape 6
+         since it has no pins with class id of 8.
+Warning: In ConnEnd::assignPinVisibilityTo():
+         ConnEnd for connector 3 can't connect to shape 6
+         since it has no pins with class id of 8.
+Warning: In ConnEnd::assignPinVisibilityTo():
+         ConnEnd for connector 2 can't connect to shape 6
+         since it has no pins with class id of 8.

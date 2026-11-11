@@ -1,0 +1,20 @@
+rect
+id=8
+x=438
+y=237.5
+width=64
+height=25
+
+rect
+id=1
+x=450
+y=330
+width=40
+height=120
+
+path
+id=9
+p0: 470 340 
+p1: 470 261.5 
+
+

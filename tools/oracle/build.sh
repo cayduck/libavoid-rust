@@ -15,9 +15,14 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SRC="$ROOT/vendor/adaptagrams/cola/libavoid"
 BUILD="${ORACLE_BUILD_DIR:-$ROOT/target/oracle}"
-GOLDEN="$ROOT/tests/golden"
+# ORACLE_ALLOC=bump links tools/oracle/bump_alloc.cpp (pointer order ==
+# allocation order, the model the Rust port uses) and writes to
+# tests/golden-bump/ instead; the default uses glibc malloc.
+ALLOC="${ORACLE_ALLOC:-malloc}"
+if [ "$ALLOC" = bump ]; then GOLDEN="$ROOT/tests/golden-bump"; RUN="$BUILD/run-bump"; BIN="$BUILD/bin-bump"
+else GOLDEN="$ROOT/tests/golden"; RUN="$RUN"; BIN="$BUILD/bin"; fi
 TIMEOUT="${ORACLE_TIMEOUT:-600}"
-mkdir -p "$BUILD/libavoid" "$BUILD/bin" "$BUILD/run/output" "$GOLDEN"
+mkdir -p "$BUILD/libavoid" "$BIN" "$RUN/output" "$GOLDEN"
 
 cp -u "$SRC"/*.cpp "$SRC"/*.h "$BUILD/libavoid/"
 python3 - "$SRC/router.cpp" "$BUILD/libavoid/router.cpp" <<'PY'
@@ -83,6 +88,11 @@ for f in "$BUILD"/libavoid/*.cpp; do
 done
 wait
 ar rcs "$BUILD/libavoid.a" "${objs[@]}"
+EXTRA=""
+if [ "$ALLOC" = bump ]; then
+  g++ $CXXFLAGS -c "$ROOT/tools/oracle/bump_alloc.cpp" -o "$BUILD/bump_alloc.o"
+  EXTRA="$BUILD/bump_alloc.o"
+fi
 
 if [ $# -gt 0 ]; then names=("$@"); else
   names=(); for t in "$SRC"/tests/*.cpp; do names+=("$(basename "$t" .cpp)"); done
@@ -92,15 +102,15 @@ run_one() {
   local n="$1"
   # A few stale upstream fixtures call now-private Router methods; retry those
   # with access control disabled rather than editing the vendored tests.
-  g++ $CXXFLAGS "$SRC/tests/$n.cpp" "$BUILD/libavoid.a" -o "$BUILD/bin/$n" 2>/dev/null \
-    || g++ $CXXFLAGS -fno-access-control "$SRC/tests/$n.cpp" "$BUILD/libavoid.a" -o "$BUILD/bin/$n" \
+  g++ $CXXFLAGS "$SRC/tests/$n.cpp" $EXTRA "$BUILD/libavoid.a" -o "$BIN/$n" 2>/dev/null \
+    || g++ $CXXFLAGS -fno-access-control "$SRC/tests/$n.cpp" $EXTRA "$BUILD/libavoid.a" -o "$BIN/$n" \
     || { echo "BUILD-FAIL $n"; return; }
   local code=0
-  (cd "$BUILD/run" && rm -f "output/$n.txt" && ORACLE_FINAL="output/$n" timeout "$TIMEOUT" "$BUILD/bin/$n" > "$BUILD/run/$n.stdout" 2>&1) || code=$?
+  (cd "$RUN" && rm -f "output/$n.txt" && ORACLE_FINAL="output/$n" timeout "$TIMEOUT" "$BIN/$n" > "$RUN/$n.stdout" 2>&1) || code=$?
   echo "$code" > "$GOLDEN/$n.exit"
-  cp "$BUILD/run/$n.stdout" "$GOLDEN/$n.stdout"
+  cp "$RUN/$n.stdout" "$GOLDEN/$n.stdout"
   # endlessLoop01 writes "1.txt" into the working directory.
-  if [ "$n" = endlessLoop01 ] && [ -f "$BUILD/run/1.txt" ]; then cp "$BUILD/run/1.txt" "$GOLDEN/endlessLoop01-1.txt"; fi
+  if [ "$n" = endlessLoop01 ] && [ -f "$RUN/1.txt" ]; then cp "$RUN/1.txt" "$GOLDEN/endlessLoop01-1.txt"; fi
   # Fixtures name their output file freely; collect whatever new .txt appeared.
   echo "$n exit=$code"
 }
@@ -108,4 +118,4 @@ for n in "${names[@]}"; do run_one "$n" &
   while [ "$(jobs -r | wc -l)" -ge 10 ]; do sleep 0.2; done
 done
 wait
-cp "$BUILD"/run/output/*.txt "$GOLDEN/" 2>/dev/null || true
+cp "$RUN"/output/*.txt "$GOLDEN/" 2>/dev/null || true
