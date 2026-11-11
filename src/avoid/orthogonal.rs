@@ -1,12 +1,10 @@
 //! Faithful port of upstream `libavoid/orthogonal.{h,cpp}`.
 //!
-//! PORTED: the first half of orthogonal.cpp (static orthogonal visibility
-//! graph construction, up to and including
-//! `generateStaticOrthogonalVisGraph`).  NOT YET PORTED: the second half
-//! (path adjustment / nudging: `CmpIndexes`, `NudgingShiftSegment`,
-//! `ImproveOrthogonalRoutes`, `CmpLineOrder`, `PtOrder` users, ...);
-//! `improve_orthogonal_routes` is still a `todo!` stub.  Append that code in
-//! the "Path Adjustment code" section at the end of this file.
+//! Both halves of orthogonal.cpp are ported: the static orthogonal
+//! visibility graph (`generateStaticOrthogonalVisGraph`) and the path
+//! adjustment / nudging code (`NudgingShiftSegment`, `CmpLineOrder`,
+//! `linesort`, `ImproveOrthogonalRoutes`, `improveOrthogonalRoutes`) in the
+//! "Path Adjustment code" section at the end of this file.
 //!
 //! # Container mapping (iteration order is behaviour)
 //! * `VertSet` (`std::set<VertInf*, CmpVertInf>`) is a `BTreeSet<VertKey>`;
@@ -52,17 +50,25 @@
 )]
 
 use std::cmp::Ordering;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, VecDeque};
 
-use crate::avoid::arena::VertIdx;
-use crate::avoid::geomtypes::{Point, XDIM, YDIM};
+use crate::avoid::arena::{ConnIdx, VertIdx};
+use crate::avoid::connector::{
+    split_branching_segments, ConnType, ConnectorCrossings, PtOrder, PtOrderMap, CROSSING_SHARES_PATH_AT_END,
+};
+use crate::avoid::geomtypes::{cpp_max, cpp_min, Point, PointOrd, Polygon, PolygonInterface, XDIM, YDIM};
 use crate::avoid::graph::EdgeInf;
 use crate::avoid::obstacle::Obstacle;
 use crate::avoid::router::{
-    Router, TRANSACTION_PHASE_ORTHOGONAL_VISIBILITY_GRAPH_SCAN_X,
+    Router, RoutingOption, RoutingParameter, TRANSACTION_PHASE_ORTHOGONAL_NUDGING_X,
+    TRANSACTION_PHASE_ORTHOGONAL_NUDGING_Y, TRANSACTION_PHASE_ORTHOGONAL_VISIBILITY_GRAPH_SCAN_X,
     TRANSACTION_PHASE_ORTHOGONAL_VISIBILITY_GRAPH_SCAN_Y,
 };
-use crate::avoid::scanline::{sort_events, Event, EventType, NodeArena, NodeSet};
+use crate::avoid::scanline::{
+    build_connector_route_checkpoint_cache, build_orthogonal_channel_info, clear_connector_route_checkpoint_cache,
+    sort_events, Event, EventType, NodeArena, NodeSet, ShiftSegment, ShiftSegmentBase, CHANNEL_MAX,
+};
+use crate::avoid::vpsc::{ConIdx, Constraint, IncSolver, VarIdx, Variable};
 use crate::avoid::vertices::{
     ConnDirFlags, VertArena, VertID, VertInf, CONN_DIR_DOWN, CONN_DIR_LEFT, CONN_DIR_NONE, CONN_DIR_RIGHT,
     CONN_DIR_UP, DUMMY_ORTHOG_ID, DUMMY_ORTHOG_SHAPE_ID, XH_CONN, XH_EDGE, XL_CONN, XL_EDGE, YH_CONN, YH_EDGE,
@@ -1513,13 +1519,1555 @@ pub fn generate_static_orthogonal_vis_graph(router: &mut Router) {
 //                           Path Adjustment code
 //============================================================================
 //
-// (Second half of upstream orthogonal.cpp, from `typedef std::pair<Point,
-// Point> RectBounds` on: not yet ported.  Append it here.)
+// Second half of upstream orthogonal.cpp: `CmpIndexes` and
+// `NudgingShiftSegment` (defined near the top of the file upstream, but only
+// used here), `RectBounds`, `buildOrthogonalNudgingSegments`,
+// `CmpLineOrder`, `linesort`, `PotentialSegmentConstraint`,
+// `ImproveOrthogonalRoutes` and `improveOrthogonalRoutes`.
+//
+// Data model:
+// * Upstream `ShiftSegmentList` (`std::list<ShiftSegment *>`) of
+//   `NudgingShiftSegment`s is a `Vec<NudgingShiftSegment>` in list order;
+//   segments are owned by the list they are in (upstream deletes them when
+//   they leave the last list), and `ShiftSegmentPtrList prevVars` holds
+//   indices into the current region.
+// * `NudgingShiftSegment::connRef->displayRoute().ps[i]` is
+//   `router.conns[conn_ref].m_display_route.ps[i]` (the display routes are
+//   always populated by `simplifyOrthogonalRoutes()` before any segment
+//   exists).
+// * `Variable *` / `Constraint *` are indices into the caller-owned `vs` /
+//   `cs` vectors handed to `IncSolver` (see vpsc.rs).  Pointer comparisons
+//   `constraint->left == vs[range.first]` become index comparisons (each
+//   variable occurs exactly once in `vs`).
+
+/// libstdc++ `std::__insertion_sort`, which is exactly what `std::sort`
+/// does for ranges of at most 16 elements (`__introsort_loop` returns
+/// immediately and `__final_insertion_sort` insertion-sorts the range).
+/// Only used for `NudgingShiftSegment::mergeWith`, where ties cannot change
+/// the result (see the note there), so it is also used for longer ranges.
+fn libstdcxx_insertion_sort<T: Copy, F: FnMut(&T, &T) -> bool>(v: &mut [T], comp: &mut F) {
+    if v.is_empty() {
+        return;
+    }
+    for i in 1..v.len() {
+        let val = v[i];
+        if comp(&val, &v[0]) {
+            // std::move_backward(first, i, i + 1); *first = val;
+            let mut k = i;
+            while k > 0 {
+                v[k] = v[k - 1];
+                k -= 1;
+            }
+            v[0] = val;
+        } else {
+            // std::__unguarded_linear_insert(i)
+            let mut last = i;
+            let mut next = i - 1;
+            while comp(&val, &v[next]) {
+                v[last] = v[next];
+                last = next;
+                next -= 1;
+            }
+            v[last] = val;
+        }
+    }
+}
+
+// Used to sort points when merging NudgingShiftSegments.
+// Sorts the indexes, by point position in one dimension.
+// upstream: orthogonal.cpp CmpIndexes::operator()()
+fn cmp_indexes(route: &Polygon, dimension: usize, lhs: usize, rhs: usize) -> bool {
+    route.ps[lhs][dimension] < route.ps[rhs][dimension]
+}
+
+/// Upstream `class NudgingShiftSegment : public ShiftSegment`.
+// upstream: orthogonal.cpp class NudgingShiftSegment
+#[derive(Clone, Debug)]
+pub struct NudgingShiftSegment {
+    base: ShiftSegmentBase,
+    pub conn_ref: ConnIdx,
+    /// Index of the segment's solver variable in the `vs` vector of the
+    /// current `nudgeOrthogonalRoutes` region.
+    pub variable: Option<VarIdx>,
+    pub indexes: Vec<usize>,
+    pub fixed: bool,
+    pub final_segment: bool,
+    pub ends_in_shape: bool,
+    pub single_connected_segment: bool,
+    pub checkpoints: Vec<Point>,
+    s_bend: bool,
+    z_bend: bool,
+}
+
+impl NudgingShiftSegment {
+    /// For shiftable segments.
+    // upstream: orthogonal.cpp NudgingShiftSegment::NudgingShiftSegment(conn, low, high, isSBend, isZBend, dim, minLim, maxLim)
+    pub fn new_shiftable(
+        router: &mut Router,
+        conn: ConnIdx,
+        low: usize,
+        high: usize,
+        is_s_bend: bool,
+        is_z_bend: bool,
+        dim: usize,
+        min_lim: f64,
+        max_lim: f64,
+    ) -> NudgingShiftSegment {
+        let mut seg = NudgingShiftSegment {
+            base: ShiftSegmentBase::new(router, dim),
+            conn_ref: conn,
+            variable: None,
+            indexes: Vec::new(),
+            fixed: false,
+            final_segment: false,
+            ends_in_shape: false,
+            single_connected_segment: false,
+            checkpoints: Vec::new(),
+            s_bend: is_s_bend,
+            z_bend: is_z_bend,
+        };
+        seg.indexes.push(low);
+        seg.indexes.push(high);
+        seg.base.min_space_limit = min_lim;
+        seg.base.max_space_limit = max_lim;
+        seg
+    }
+
+    /// For fixed segments.
+    // upstream: orthogonal.cpp NudgingShiftSegment::NudgingShiftSegment(conn, low, high, dim)
+    pub fn new_fixed(router: &mut Router, conn: ConnIdx, low: usize, high: usize, dim: usize) -> NudgingShiftSegment {
+        let mut seg = NudgingShiftSegment {
+            base: ShiftSegmentBase::new(router, dim),
+            conn_ref: conn,
+            variable: None,
+            indexes: Vec::new(),
+            fixed: true,
+            final_segment: false,
+            ends_in_shape: false,
+            single_connected_segment: false,
+            checkpoints: Vec::new(),
+            s_bend: false,
+            z_bend: false,
+        };
+        seg.indexes.push(low);
+        seg.indexes.push(high);
+        // This has no space to shift.
+        seg.base.min_space_limit = seg.low_point_of(router)[dim];
+        seg.base.max_space_limit = seg.low_point_of(router)[dim];
+        seg
+    }
+
+    #[inline]
+    fn route<'r>(&self, router: &'r Router) -> &'r Polygon {
+        &router.conns[self.conn_ref].m_display_route
+    }
+
+    // upstream: orthogonal.cpp NudgingShiftSegment::lowPoint()
+    #[inline]
+    pub fn low_point_of(&self, router: &Router) -> Point {
+        self.route(router).ps[self.indexes[0]]
+    }
+
+    // upstream: orthogonal.cpp NudgingShiftSegment::highPoint()
+    #[inline]
+    pub fn high_point_of(&self, router: &Router) -> Point {
+        self.route(router).ps[self.indexes[self.indexes.len() - 1]]
+    }
+
+    #[inline]
+    pub fn min_space_limit(&self) -> f64 {
+        self.base.min_space_limit
+    }
+
+    #[inline]
+    pub fn max_space_limit(&self) -> f64 {
+        self.base.max_space_limit
+    }
+
+    #[inline]
+    pub fn dimension(&self) -> usize {
+        self.base.dimension
+    }
+
+    #[inline]
+    pub fn is_s_bend(&self) -> bool {
+        self.s_bend
+    }
+
+    #[inline]
+    pub fn is_z_bend(&self) -> bool {
+        self.z_bend
+    }
+
+    // upstream: orthogonal.cpp NudgingShiftSegment::nudgeDistance()
+    pub fn nudge_distance(&self, router: &Router) -> f64 {
+        router.routing_parameter(RoutingParameter::IdealNudgingDistance)
+    }
+
+    /// Creates the solver variable, appends it to `vs` and records its
+    /// index (upstream `variable = new Variable(..)`; the caller then does
+    /// `vs.push_back(currSegment->variable)`).
+    // upstream: orthogonal.cpp NudgingShiftSegment::createSolverVariable()
+    pub fn create_solver_variable(&mut self, router: &Router, just_unifying: bool, vs: &mut Vec<Variable>) {
+        let nudge_final_segments = router.routing_option(RoutingOption::NudgeOrthogonalSegmentsConnectedToShapes);
+        let mut var_id = FREE_SEGMENT_ID;
+        let mut var_pos = self.low_point_of(router)[self.base.dimension];
+        let mut weight = FREE_WEIGHT;
+        if nudge_final_segments && self.final_segment {
+            weight = STRONG_WEIGHT;
+
+            if self.single_connected_segment && !just_unifying {
+                // This is a single segment connector bridging
+                // two shapes.  So, we want to try to keep it
+                // centred rather than shift it.
+                // Don't do this during Unifying stage, or else
+                // these connectors could end up at slightly
+                // different positions and get the wrong ordering
+                // for nudging.
+                weight = STRONGER_WEIGHT;
+            }
+        } else if !self.checkpoints.is_empty() {
+            weight = STRONG_WEIGHT;
+        } else if self.zigzag() {
+            debug_assert!(self.base.min_space_limit > -CHANNEL_MAX);
+            debug_assert!(self.base.max_space_limit < CHANNEL_MAX);
+
+            // For zigzag bends, take the middle as ideal.
+            var_pos = self.base.min_space_limit + ((self.base.max_space_limit - self.base.min_space_limit) / 2.0);
+        } else if self.fixed {
+            // Fixed segments shouldn't get moved.
+            weight = FIXED_WEIGHT;
+            var_id = FIXED_SEGMENT_ID;
+        } else if !self.final_segment {
+            // Set a higher weight for c-bends to stop them sometimes
+            // getting pushed out into channels by more-free connectors
+            // to the "inner" side of them.
+            weight = STRONG_WEIGHT;
+        }
+
+        vs.push(Variable::with_weight(var_id, var_pos, weight));
+        self.variable = Some(vs.len() - 1);
+    }
+
+    // upstream: orthogonal.cpp NudgingShiftSegment::updatePositionsFromSolver()
+    pub fn update_positions_from_solver(&self, router: &mut Router, vs: &[Variable], just_unifying: bool) {
+        let _ = just_unifying; // (only used by the DEBUGHANDLER build)
+        if self.fixed {
+            return;
+        }
+        let mut new_pos = vs[self.variable.expect("solver variable")].final_position;
+
+        // The solver can sometimes cause variables to be outside their
+        // limits by a tiny amount, since all variables are held by
+        // weights.  Thus, just make sure they stay in their limits.
+        new_pos = cpp_max(new_pos, self.base.min_space_limit);
+        new_pos = cpp_min(new_pos, self.base.max_space_limit);
+
+        let dimension = self.base.dimension;
+        let route = &mut router.conns[self.conn_ref].m_display_route;
+        for it in 0..self.indexes.len() {
+            let index = self.indexes[it];
+            route.ps[index][dimension] = new_pos;
+        }
+    }
+
+    // upstream: orthogonal.cpp NudgingShiftSegment::fixedOrder()
+    pub fn fixed_order(&self, router: &Router, is_fixed: &mut bool) -> i32 {
+        let nudge_dist = self.nudge_distance(router);
+        let pos = self.low_point_of(router)[self.base.dimension];
+        let min_limited = (pos - self.base.min_space_limit) < nudge_dist;
+        let max_limited = (self.base.max_space_limit - pos) < nudge_dist;
+
+        if self.fixed || (min_limited && max_limited) {
+            *is_fixed = true;
+            return 0;
+        } else if min_limited {
+            return 1;
+        } else if max_limited {
+            return -1;
+        }
+        0
+    }
+
+    // upstream: orthogonal.cpp NudgingShiftSegment::order()
+    pub fn order(&self, router: &Router) -> i32 {
+        if self.low_c(router) {
+            return -1;
+        } else if self.high_c(router) {
+            return 1;
+        }
+        0
+    }
+
+    // upstream: orthogonal.cpp NudgingShiftSegment::zigzag()
+    #[inline]
+    pub fn zigzag(&self) -> bool {
+        self.s_bend || self.z_bend
+    }
+
+    /// This counts segments that are collinear and share an endpoint as
+    /// overlapping.  This allows them to be nudged apart where possible.
+    // upstream: orthogonal.cpp NudgingShiftSegment::overlapsWith()
+    pub fn nudging_overlaps_with(&self, rhs: &NudgingShiftSegment, dim: usize, router: &Router) -> bool {
+        let alt_dim = (dim + 1) % 2;
+        let low_pt = self.low_point_of(router);
+        let high_pt = self.high_point_of(router);
+        let rhs_low_pt = rhs.low_point_of(router);
+        let rhs_high_pt = rhs.high_point_of(router);
+        if (low_pt[alt_dim] < rhs_high_pt[alt_dim]) && (rhs_low_pt[alt_dim] < high_pt[alt_dim]) {
+            // The segments overlap.
+            if (self.base.min_space_limit <= rhs.base.max_space_limit)
+                && (rhs.base.min_space_limit <= self.base.max_space_limit)
+            {
+                return true;
+            }
+        } else if (low_pt[alt_dim] == rhs_high_pt[alt_dim]) || (rhs_low_pt[alt_dim] == high_pt[alt_dim]) {
+            let nudge_colinear_segments =
+                router.routing_option(RoutingOption::NudgeOrthogonalTouchingColinearSegments);
+
+            if (self.base.min_space_limit <= rhs.base.max_space_limit)
+                && (rhs.base.min_space_limit <= self.base.max_space_limit)
+            {
+                // The segments could touch at one end.
+                if router.routing_parameter(RoutingParameter::FixedSharedPathPenalty) > 0.0 {
+                    // If we are routing with a fixedSharedPathPenalty
+                    // then we don't want these segments to ever touch
+                    // or slide past each other, so they are always
+                    // considered to be overlapping.
+                    return true;
+                } else if (rhs.s_bend && self.s_bend) || (rhs.z_bend && self.z_bend) {
+                    // Count them as overlapping for nudging if they
+                    // are both s-bends or both z-bends, i.e., when
+                    // the ordering would matter.
+                    return nudge_colinear_segments;
+                } else if (rhs.final_segment && self.final_segment) && (rhs.conn_ref == self.conn_ref) {
+                    return nudge_colinear_segments;
+                }
+            }
+        }
+        false
+    }
+
+    /// These segments are allowed to drift into alignment but don't have to.
+    // upstream: orthogonal.cpp NudgingShiftSegment::canAlignWith()
+    pub fn can_align_with(&self, rhs: &NudgingShiftSegment, dim: usize) -> bool {
+        let _ = dim;
+
+        if self.conn_ref != rhs.conn_ref {
+            return false;
+        }
+
+        // Don't allow segments of the same connector to drift together
+        // where one of them goes via a checkpoint.  We want the path
+        // through the checkpoint to be maintained.
+        let has_checkpoints = !self.checkpoints.is_empty();
+        let rhs_has_checkpoints = !rhs.checkpoints.is_empty();
+        if has_checkpoints || rhs_has_checkpoints {
+            return false;
+        }
+        true
+    }
+
+    /// These segments should align with each other.
+    // upstream: orthogonal.cpp NudgingShiftSegment::shouldAlignWith()
+    pub fn should_align_with(&self, rhs: &NudgingShiftSegment, dim: usize, router: &Router) -> bool {
+        if (self.conn_ref == rhs.conn_ref)
+            && self.final_segment
+            && rhs.final_segment
+            && self.nudging_overlaps_with(rhs, dim, router)
+        {
+            // If both the segments are in shapes then we know limits
+            // and can align.  Otherwise we do this just for segments
+            // that are very close together, since these will often
+            // prevent nudging, or force it to have a tiny separation
+            // value.
+            if (self.ends_in_shape && rhs.ends_in_shape)
+                || ((self.low_point_of(router)[dim] - rhs.low_point_of(router)[dim]).abs() < 10.0)
+            {
+                return true;
+            }
+        } else if (self.conn_ref == rhs.conn_ref) &&
+            // Not both final
+            ((self.final_segment & rhs.final_segment) != true)
+        {
+            let has_checkpoints = !self.checkpoints.is_empty();
+            let rhs_has_checkpoints = !rhs.checkpoints.is_empty();
+
+            if has_checkpoints != rhs_has_checkpoints {
+                // At least one segment has checkpoints, but not both.
+
+                let alt_dim = (dim + 1) % 2;
+                let space = (self.low_point_of(router)[dim] - rhs.low_point_of(router)[dim]).abs();
+                // (Uninitialised upstream; only read when couldTouch.)
+                let mut touch_pos = 0.0;
+                let mut could_touch = false;
+                if self.low_point_of(router)[alt_dim] == rhs.high_point_of(router)[alt_dim] {
+                    could_touch = true;
+                    touch_pos = self.low_point_of(router)[alt_dim];
+                } else if self.high_point_of(router)[alt_dim] == rhs.low_point_of(router)[alt_dim] {
+                    could_touch = true;
+                    touch_pos = self.high_point_of(router)[alt_dim];
+                }
+
+                // We should align these so long as they are close
+                // together (<= 10) and there isn't a checkpoint at the
+                // touch point, i.e., we'd be altering the edges leading
+                // into the checkpoint.  We want to keep these in place
+                // and opportunistically move other edges to align with
+                // them.
+                return could_touch
+                    && (space <= 10.0)
+                    && !self.has_checkpoint_at_position(touch_pos, alt_dim)
+                    && !rhs.has_checkpoint_at_position(touch_pos, alt_dim);
+            }
+        }
+        false
+    }
+
+    /// Used for merging segments with end segments that should appear as
+    /// a single segment.
+    // upstream: orthogonal.cpp NudgingShiftSegment::mergeWith()
+    pub fn merge_with(&mut self, rhs: &NudgingShiftSegment, dim: usize, router: &mut Router) {
+        // Adjust limits.
+        self.base.min_space_limit = cpp_max(self.base.min_space_limit, rhs.base.min_space_limit);
+        self.base.max_space_limit = cpp_min(self.base.max_space_limit, rhs.base.max_space_limit);
+
+        // Find a new position for the segment, taking into account
+        // the two original positions and the combined limits.
+        let dimension = self.base.dimension;
+        let mut segment_pos = self.low_point_of(router)[dimension];
+        let segment2_pos = rhs.low_point_of(router)[dimension];
+        if segment2_pos < segment_pos {
+            segment_pos -= (segment_pos - segment2_pos) / 2.0;
+        } else if segment2_pos > segment_pos {
+            segment_pos += (segment2_pos - segment_pos) / 2.0;
+        }
+        segment_pos = cpp_max(self.base.min_space_limit, segment_pos);
+        segment_pos = cpp_min(self.base.max_space_limit, segment_pos);
+
+        // Merge the index lists and sort the new list.
+        self.indexes.extend_from_slice(&rhs.indexes);
+        let alt_dim = (dim + 1) % 2;
+        // std::sort(indexes, CmpIndexes(connRef, altDim)).  Ties (equal
+        // altDim coordinates) cannot influence anything: every index gets
+        // the same `dimension` coordinate just below, so tied indexes name
+        // equal points, and only the point values (lowPoint()/highPoint())
+        // and the full index set are ever used.  Without ties every correct
+        // sort gives the same order; libstdc++ uses exactly this insertion
+        // sort for up to 16 elements.
+        {
+            let route = &router.conns[self.conn_ref].m_display_route;
+            libstdcxx_insertion_sort(&mut self.indexes, &mut |&l: &usize, &r: &usize| {
+                cmp_indexes(route, alt_dim, l, r)
+            });
+        }
+
+        // Apply the new positon to all points to keep them constant.
+        let route = &mut router.conns[self.conn_ref].m_display_route;
+        for it in 0..self.indexes.len() {
+            let index = self.indexes[it];
+            route.ps[index][dimension] = segment_pos;
+        }
+    }
+
+    // upstream: orthogonal.cpp NudgingShiftSegment::hasCheckpointAtPosition()
+    pub fn has_checkpoint_at_position(&self, position: f64, dim: usize) -> bool {
+        for cp in 0..self.checkpoints.len() {
+            if self.checkpoints[cp][dim] == position {
+                return true;
+            }
+        }
+        false
+    }
+
+    // This is true if this is a cBend and its adjoining points
+    // are at lower positions.
+    // upstream: orthogonal.cpp NudgingShiftSegment::lowC()
+    fn low_c(&self, router: &Router) -> bool {
+        if !self.final_segment
+            && !self.zigzag()
+            && !self.fixed
+            && (self.base.min_space_limit == self.low_point_of(router)[self.base.dimension])
+        {
+            return true;
+        }
+        false
+    }
+
+    // This is true if this is a cBend and its adjoining points
+    // are at higher positions.
+    // upstream: orthogonal.cpp NudgingShiftSegment::highC()
+    fn high_c(&self, router: &Router) -> bool {
+        if !self.final_segment
+            && !self.zigzag()
+            && !self.fixed
+            && (self.base.max_space_limit == self.low_point_of(router)[self.base.dimension])
+        {
+            return true;
+        }
+        false
+    }
+}
+
+impl ShiftSegment<Router> for NudgingShiftSegment {
+    fn base(&self) -> &ShiftSegmentBase {
+        &self.base
+    }
+    fn base_mut(&mut self) -> &mut ShiftSegmentBase {
+        &mut self.base
+    }
+    // upstream: orthogonal.cpp NudgingShiftSegment::lowPoint()
+    fn low_point(&self, ctx: &Router) -> Point {
+        self.low_point_of(ctx)
+    }
+    // upstream: orthogonal.cpp NudgingShiftSegment::highPoint()
+    fn high_point(&self, ctx: &Router) -> Point {
+        self.high_point_of(ctx)
+    }
+    // upstream: orthogonal.cpp NudgingShiftSegment::overlapsWith()
+    fn overlaps_with(&self, rhs: &Self, dim: usize, ctx: &Router) -> bool {
+        self.nudging_overlaps_with(rhs, dim, ctx)
+    }
+    // upstream: orthogonal.cpp NudgingShiftSegment::immovable()
+    fn immovable(&self, _ctx: &Router) -> bool {
+        !self.zigzag()
+    }
+}
+
+// upstream: orthogonal.cpp typedef std::pair<Point, Point> RectBounds
+type RectBounds = (Point, Point);
+
+// upstream: orthogonal.cpp insideRectBounds()
+fn inside_rect_bounds(point: &Point, rect_bounds: &RectBounds) -> bool {
+    let zero = Point::new(0.0, 0.0);
+    if (rect_bounds.0 == zero) && (rect_bounds.1 == zero) {
+        // We can't be inside the invalid rectangle.
+        return false;
+    }
+
+    for i in 0..2 {
+        if point[i] < rect_bounds.0[i] {
+            return false;
+        }
+        if point[i] > rect_bounds.1[i] {
+            return false;
+        }
+    }
+    true
+}
+
+// upstream: orthogonal.cpp buildOrthogonalNudgingSegments()
+fn build_orthogonal_nudging_segments(router: &mut Router, dim: usize, segment_list: &mut Vec<NudgingShiftSegment>) {
+    if router.routing_parameter(RoutingParameter::SegmentPenalty) == 0.0 {
+        // The nudging code assumes the routes are pretty optimal.  This will
+        // only be true if a segment penalty is set, so just return if this
+        // is not the case.
+        return;
+    }
+    let nudge_final_segments = router.routing_option(RoutingOption::NudgeOrthogonalSegmentsConnectedToShapes);
+    let mut shape_limits: Vec<RectBounds> = Vec::new();
+    if nudge_final_segments {
+        // If we're going to nudge final segments, then cache the shape
+        // rectangles to save us rebuilding them multiple times.
+        let n = router.m_obstacles.len();
+        // (Upstream value-initialises `Point`s, whose default constructor
+        // leaves x/y uninitialised; every obstacle is a shape or a
+        // junction, so every entry is overwritten below.)
+        shape_limits = vec![(Point::default(), Point::default()); n];
+
+        let zero_buffer_dist = 0.0;
+
+        for i in 0..n {
+            let obstacle = router.m_obstacles[i];
+            let shape = Obstacle::as_shape(router, obstacle);
+            let junction = Obstacle::as_junction(router, obstacle);
+            if shape.is_some() {
+                // Take the real bounds of the shape
+                let b_box = router.obstacles[obstacle].polygon().offset_bounding_box(zero_buffer_dist);
+                shape_limits[i] = (b_box.min, b_box.max);
+            } else if let Some(junction) = junction {
+                // Don't nudge segments attached to junctions,
+                // so just use the junction position here.
+                let pos = junction.position(router);
+                shape_limits[i] = (pos, pos);
+            }
+        }
+    }
+
+    let alt_dim = (dim + 1) % 2;
+    // For each connector.
+    let conn_refs = router.conn_refs.clone();
+    for &curr in conn_refs.iter() {
+        if router.conns[curr].routing_type() != ConnType::ConnTypeOrthogonal {
+            continue;
+        }
+        // (A read-only copy: nothing below modifies the display route.)
+        let display_route: Polygon = router.conns[curr].display_route().clone();
+        // Determine all line segments that we are interested in shifting.
+        // We don't consider the first or last segment of a path.
+        for i in 1..display_route.size() {
+            if display_route.ps[i - 1][dim] == display_route.ps[i][dim] {
+                // It's a segment in the dimension we are processing,
+                let mut index_low = i - 1;
+                let mut index_high = i;
+                if display_route.ps[i - 1][alt_dim] == display_route.ps[i][alt_dim] {
+                    // This is a zero length segment, so ignore it.
+                    continue;
+                } else if display_route.ps[i - 1][alt_dim] > display_route.ps[i][alt_dim] {
+                    index_low = i;
+                    index_high = i - 1;
+                }
+
+                // Find the checkpoints on the current segment and the
+                // checkpoints on the adjoining segments that aren't on
+                // the corner (hence the +1 and -1 modifiers).
+                let checkpoints = display_route.checkpoints_on_segment(i - 1, 0);
+                // (size_t arithmetic: `i - 2` wraps for i == 1, as upstream.)
+                let prev_checkpoints = display_route.checkpoints_on_segment(i.wrapping_sub(2), -1);
+                let next_checkpoints = display_route.checkpoints_on_segment(i, 1);
+                let has_checkpoints = !checkpoints.is_empty();
+                if has_checkpoints && !nudge_final_segments {
+                    // This segment includes one of the routing
+                    // checkpoints so we shouldn't shift it.
+                    let seg = NudgingShiftSegment::new_fixed(router, curr, index_low, index_high, dim);
+                    segment_list.push(seg);
+                    continue;
+                }
+
+                let this_pos = display_route.ps[i][dim];
+
+                if (i == 1) || ((i + 1) == display_route.size()) {
+                    // Is first or last segment of route.
+
+                    if nudge_final_segments {
+                        // Determine available space for nudging these
+                        // final segments.
+                        let mut min_lim = -CHANNEL_MAX;
+                        let mut max_lim = CHANNEL_MAX;
+
+                        // If the position of the opposite end of the
+                        // attached segment is within the shape boundaries
+                        // then we want to use this as an ideal position
+                        // for the segment.
+
+                        // Bitflags indicating whether this segment starts
+                        // and/or ends in a shape.
+                        let mut ends_in_shapes: u32 = 0;
+                        // Also limit their movement to the edges of the
+                        // shapes they begin or end within.
+                        for k in 0..shape_limits.len() {
+                            let shape_min = shape_limits[k].0[dim];
+                            let shape_max = shape_limits[k].1[dim];
+                            if inside_rect_bounds(&display_route.ps[i - 1], &shape_limits[k]) {
+                                min_lim = cpp_max(min_lim, shape_min);
+                                max_lim = cpp_min(max_lim, shape_max);
+                                ends_in_shapes |= 0x01;
+                            }
+                            if inside_rect_bounds(&display_route.ps[i], &shape_limits[k]) {
+                                min_lim = cpp_max(min_lim, shape_min);
+                                max_lim = cpp_min(max_lim, shape_max);
+                                ends_in_shapes |= 0x10;
+                            }
+                        }
+
+                        if ends_in_shapes == 0 {
+                            // If the segment is not within a shape, then we
+                            // should limit it's nudging buffer so we don't
+                            // combine many unnecessary regions.
+                            let pos = display_route.ps[i - 1][dim];
+                            let free_conn_buffer = 15.0;
+                            min_lim = cpp_max(min_lim, pos - free_conn_buffer);
+                            max_lim = cpp_min(max_lim, pos + free_conn_buffer);
+                        }
+
+                        if (min_lim == max_lim) || router.conns[curr].has_fixed_route() {
+                            // Fixed.
+                            let seg = NudgingShiftSegment::new_fixed(router, curr, index_low, index_high, dim);
+                            segment_list.push(seg);
+                        } else {
+                            // Shiftable.
+                            let mut segment = NudgingShiftSegment::new_shiftable(
+                                router, curr, index_low, index_high, false, false, dim, min_lim, max_lim,
+                            );
+                            segment.final_segment = true;
+                            segment.ends_in_shape = ends_in_shapes > 0;
+                            if (display_route.size() == 2) && (ends_in_shapes == 0x11) {
+                                // This is a single segment connector bridging
+                                // two shapes.  So, we want to try to keep the
+                                // segment centred rather than shift it.
+                                segment.single_connected_segment = true;
+                            }
+                            segment_list.push(segment);
+                        }
+                    } else {
+                        // The first and last segment of a connector can't be
+                        // shifted.  We call them fixed segments.
+                        let seg = NudgingShiftSegment::new_fixed(router, curr, index_low, index_high, dim);
+                        segment_list.push(seg);
+                    }
+                    continue;
+                }
+
+                // The segment probably has space to be shifted.
+                let mut min_lim = -CHANNEL_MAX;
+                let mut max_lim = CHANNEL_MAX;
+
+                // Constrain these segments by checkpoints along the
+                // adjoining segments.  Ignore checkpoints at ends of
+                // those segments.  XXX Perhaps this should not
+                // affect the ideal centre position in the channel.
+                for cp in 0..next_checkpoints.len() {
+                    if next_checkpoints[cp][dim] < this_pos {
+                        // Not at thisPoint, so constrain.
+                        min_lim = cpp_max(min_lim, next_checkpoints[cp][dim]);
+                    } else if next_checkpoints[cp][dim] > this_pos {
+                        // Not at thisPoint, so constrain.
+                        max_lim = cpp_min(max_lim, next_checkpoints[cp][dim]);
+                    }
+                }
+                for cp in 0..prev_checkpoints.len() {
+                    if prev_checkpoints[cp][dim] < this_pos {
+                        // Not at thisPoint, so constrain.
+                        min_lim = cpp_max(min_lim, prev_checkpoints[cp][dim]);
+                    } else if prev_checkpoints[cp][dim] > this_pos {
+                        // Not at thisPoint, so constrain.
+                        max_lim = cpp_min(max_lim, prev_checkpoints[cp][dim]);
+                    }
+                }
+
+                let mut is_s_bend = false;
+                let mut is_z_bend = false;
+
+                if checkpoints.is_empty() {
+                    // Segments with checkpoints are held in place, but for
+                    // other segments, we should limit their movement based
+                    // on the limits of the segments at either end.
+
+                    let prev_pos = display_route.ps[i - 2][dim];
+                    let next_pos = display_route.ps[i + 1][dim];
+                    if ((prev_pos < this_pos) && (next_pos > this_pos))
+                        || ((prev_pos > this_pos) && (next_pos < this_pos))
+                    {
+                        // Determine limits if the s-bend is not due to an
+                        // obstacle.  In this case we need to limit the channel
+                        // to the span of the adjoining segments to this one.
+                        if (prev_pos < this_pos) && (next_pos > this_pos) {
+                            min_lim = cpp_max(min_lim, prev_pos);
+                            max_lim = cpp_min(max_lim, next_pos);
+                            is_z_bend = true;
+                        } else {
+                            // if ((prevPos > thisPos) && (nextPos < thisPos))
+                            min_lim = cpp_max(min_lim, next_pos);
+                            max_lim = cpp_min(max_lim, prev_pos);
+                            is_s_bend = true;
+                        }
+                    }
+                }
+
+                let mut nss = NudgingShiftSegment::new_shiftable(
+                    router, curr, index_low, index_high, is_s_bend, is_z_bend, dim, min_lim, max_lim,
+                );
+                nss.checkpoints = checkpoints;
+                segment_list.push(nss);
+            }
+        }
+    }
+}
+
+// upstream: orthogonal.cpp class CmpLineOrder
+struct CmpLineOrder<'a> {
+    orders: &'a mut PtOrderMap,
+    dimension: usize,
+}
+
+impl CmpLineOrder<'_> {
+    /// `operator()(lhs, rhs, &comparable)`.  (`PtOrder::positionFor` sorts
+    /// lazily, hence `&mut self`; `orders[unchanged]` may insert.)
+    // upstream: orthogonal.cpp CmpLineOrder::operator()()
+    fn call(
+        &mut self,
+        router: &Router,
+        lhs: &NudgingShiftSegment,
+        rhs: &NudgingShiftSegment,
+        comparable: &mut bool,
+    ) -> bool {
+        let dimension = self.dimension;
+        *comparable = true;
+        let lhs_low = lhs.low_point_of(router);
+        let rhs_low = rhs.low_point_of(router);
+        let alt_dim = (dimension + 1) % 2;
+        debug_assert!(lhs_low[dimension] == lhs.high_point_of(router)[dimension]);
+        debug_assert!(rhs_low[dimension] == rhs.high_point_of(router)[dimension]);
+
+        // We consider things at effectively the same position to
+        // be ordered based on their order and fixedOrder, so only
+        // compare segments further apart than the nudgeDistance.
+        if lhs_low[dimension] != rhs_low[dimension] {
+            return lhs_low[dimension] < rhs_low[dimension];
+        }
+
+        // If one of these is fixed, then determine order based on
+        // fixed segment, that is, order so the fixed segment doesn't
+        // block movement.
+        let mut one_is_fixed = false;
+        let lhs_fixed_order = lhs.fixed_order(router, &mut one_is_fixed);
+        let rhs_fixed_order = rhs.fixed_order(router, &mut one_is_fixed);
+        if one_is_fixed && (lhs_fixed_order != rhs_fixed_order) {
+            return lhs_fixed_order < rhs_fixed_order;
+        }
+
+        // C-bends that did not have a clear order with s-bends might
+        // not have a good ordering here, so compare their order in
+        // terms of C-bend direction and S-bends and use that if it
+        // differs for the two segments.
+        let lhs_order = lhs.order(router);
+        let rhs_order = rhs.order(router);
+        if lhs_order != rhs_order {
+            return lhs_order < rhs_order;
+        }
+
+        // Need to index using the original point into the map, so find it.
+        let unchanged = if lhs_low[alt_dim] > rhs_low[alt_dim] { lhs_low } else { rhs_low };
+
+        let low_order = self.orders.entry(PointOrd(unchanged)).or_insert_with(PtOrder::new);
+        let lhs_pos = low_order.position_for(dimension, Some(lhs.conn_ref));
+        let rhs_pos = low_order.position_for(dimension, Some(rhs.conn_ref));
+        if (lhs_pos == -1) || (rhs_pos == -1) {
+            // A value for rhsPos or lhsPos mean the points are not directly
+            // comparable, meaning they are at the same position but cannot
+            // overlap (they are just collinear.  The relative order for
+            // these segments is not important since we do not constrain
+            // them against each other.
+            //COLA_ASSERT(lhs->overlapsWith(rhs, dimension) == false);
+            // We do need to be consistent though.
+            *comparable = false;
+            return lhs_low[alt_dim] < rhs_low[alt_dim];
+        }
+        lhs_pos < rhs_pos
+    }
+}
+
+// We can't use the normal sort algorithm for lists since it is not possible
+// to compare all elements, but there will be an ordering defined between
+// most of the elements.  Hence we order these, using insertion sort, and
+// the case of them not being able to be compared is handled by not setting
+// up any constraints between such segments when doing the nudging.
+//
+// upstream: orthogonal.cpp linesort()
+fn linesort(
+    router: &mut Router,
+    nudge_final_segments: bool,
+    mut orig_list: Vec<NudgingShiftSegment>,
+    comparison: &mut CmpLineOrder,
+) -> Vec<NudgingShiftSegment> {
+    // Cope with end segments that are getting moved and will line up with
+    // other segments of the same connector.  We do this by merging them into
+    // a single NudgingShiftSegment.
+    if nudge_final_segments {
+        let mut curr_seg_it = 0;
+        while curr_seg_it < orig_list.len() {
+            let mut other_seg_it = curr_seg_it;
+            while other_seg_it < orig_list.len() {
+                if (curr_seg_it != other_seg_it)
+                    && orig_list[curr_seg_it].should_align_with(&orig_list[other_seg_it], comparison.dimension, router)
+                {
+                    // (curr_seg_it < other_seg_it, so removing first keeps
+                    // curr_seg_it valid.)
+                    let other_seg = orig_list.remove(other_seg_it);
+                    orig_list[curr_seg_it].merge_with(&other_seg, comparison.dimension, router);
+                    // delete otherSeg;
+                } else {
+                    other_seg_it += 1;
+                }
+            }
+            curr_seg_it += 1;
+        }
+    }
+
+    let mut orig_list: VecDeque<NudgingShiftSegment> = orig_list.into();
+    let mut result_list: Vec<NudgingShiftSegment> = Vec::new();
+
+    let mut orig_list_size = orig_list.len();
+    let mut deferred_n: usize = 0;
+    while let Some(segment) = orig_list.pop_front() {
+        // Get and remove the first element from the origList.
+
+        // Find the insertion point in the resultList.
+        let mut all_comparable = true;
+        let mut curr = 0;
+        while curr < result_list.len() {
+            let mut comparable = false;
+            let less_than = comparison.call(router, &segment, &result_list[curr], &mut comparable);
+            all_comparable &= comparable;
+
+            if comparable && less_than {
+                // If it is comparable and lessThan, then we have found the
+                // insertion point.
+                break;
+            }
+            curr += 1;
+        }
+
+        if result_list.is_empty() || all_comparable || (deferred_n >= orig_list_size) {
+            // Insert the element into the resultList at the required point.
+            result_list.insert(curr, segment);
+            // Reset the origListSize and deferred counter.
+            deferred_n = 0;
+            orig_list_size = orig_list.len();
+        } else {
+            // This wasn't comparable to anything in the sorted list,
+            // so defer addition of the segment till later.
+            orig_list.push_back(segment);
+            deferred_n += 1;
+        }
+    }
+
+    result_list
+}
+
+// upstream: orthogonal.cpp class PotentialSegmentConstraint
+#[derive(Clone, Copy, Debug)]
+struct PotentialSegmentConstraint {
+    index1: usize,
+    index2: usize,
+}
+
+impl PotentialSegmentConstraint {
+    // upstream: orthogonal.cpp PotentialSegmentConstraint::PotentialSegmentConstraint()
+    fn new(index1: usize, index2: usize) -> PotentialSegmentConstraint {
+        PotentialSegmentConstraint { index1, index2 }
+    }
+
+    // upstream: orthogonal.cpp PotentialSegmentConstraint::operator<()
+    fn less_than(&self, rhs: &PotentialSegmentConstraint, vs: &[Variable]) -> bool {
+        self.sep_distance(vs) < rhs.sep_distance(vs)
+    }
+
+    // upstream: orthogonal.cpp PotentialSegmentConstraint::sepDistance()
+    fn sep_distance(&self, vs: &[Variable]) -> f64 {
+        if !self.still_valid() {
+            return 0.0;
+        }
+        (vs[self.index1].final_position - vs[self.index2].final_position).abs()
+    }
+
+    // upstream: orthogonal.cpp PotentialSegmentConstraint::stillValid()
+    fn still_valid(&self) -> bool {
+        self.index1 != self.index2
+    }
+
+    // upstream: orthogonal.cpp PotentialSegmentConstraint::rewriteIndex()
+    fn rewrite_index(&mut self, old_index: usize, new_index: usize) {
+        if self.index1 == old_index {
+            self.index1 = new_index;
+        }
+
+        if self.index2 == old_index {
+            self.index2 = new_index;
+        }
+    }
+}
+
+// upstream: orthogonal.cpp class ImproveOrthogonalRoutes
+struct ImproveOrthogonalRoutes {
+    m_point_orders: PtOrderMap,
+    m_shared_path_connectors_with_common_endpoints: UnsignedPairSet,
+    m_segment_list: Vec<NudgingShiftSegment>,
+}
+
+impl ImproveOrthogonalRoutes {
+    // upstream: orthogonal.cpp ImproveOrthogonalRoutes::ImproveOrthogonalRoutes()
+    fn new() -> ImproveOrthogonalRoutes {
+        ImproveOrthogonalRoutes {
+            m_point_orders: PtOrderMap::new(),
+            m_shared_path_connectors_with_common_endpoints: UnsignedPairSet::new(),
+            m_segment_list: Vec::new(),
+        }
+    }
+
+    // upstream: orthogonal.cpp ImproveOrthogonalRoutes::execute()
+    fn execute(&mut self, router: &mut Router) {
+        self.m_shared_path_connectors_with_common_endpoints.clear();
+
+        // Simplify routes.
+        self.simplify_orthogonal_routes(router);
+
+        // Build a cache that denotes whether a certain segment of a connector
+        // contains a checkpoint.  We can't just compare positions, since routes
+        // can be moved away from their original positions during nudging.
+        build_connector_route_checkpoint_cache(router);
+
+        // Do Unifying first, by itself.  This greedily tries to position free
+        // segments in overlapping channels at the same position.  This way they
+        // have correct nudging orders determined for them since they will form
+        // shared paths, rather than segments just positioned as an results of
+        // the routing process.  Of course, don't do this when rerouting with
+        // a fixedSharedPathPenalty since these routes include extra segments
+        // we want to keep apart which prevent some shared paths.
+        if router.routing_option(RoutingOption::PerformUnifyingNudgingPreprocessingStep)
+            && (router.routing_parameter(RoutingParameter::FixedSharedPathPenalty) == 0.0)
+        {
+            for dimension in 0..2 {
+                // Just perform Unifying operation.
+                let just_unifying = true;
+                self.m_segment_list.clear();
+                build_orthogonal_nudging_segments(router, dimension, &mut self.m_segment_list);
+                build_orthogonal_channel_info(router, router, dimension, &mut self.m_segment_list);
+                self.nudge_orthogonal_routes(router, dimension, just_unifying);
+            }
+        }
+
+        // Do the Nudging and centring.
+        for dimension in 0..2 {
+            self.m_point_orders.clear();
+            // Build nudging info.
+            // XXX Needs to be rebuilt for each dimension, cause of shifting
+            //     points.  Maybe we could modify the point orders.
+            self.build_orthogonal_nudging_order_info(router);
+
+            // Do the centring and nudging.
+            self.m_segment_list.clear();
+            build_orthogonal_nudging_segments(router, dimension, &mut self.m_segment_list);
+            build_orthogonal_channel_info(router, router, dimension, &mut self.m_segment_list);
+            self.nudge_orthogonal_routes(router, dimension, false);
+        }
+
+        // Resimplify all the display routes that may have been split.
+        self.simplify_orthogonal_routes(router);
+
+        router.improve_orthogonal_topology();
+
+        // Clear the segment-checkpoint cache for connectors.
+        clear_connector_route_checkpoint_cache(router);
+    }
+
+    // upstream: orthogonal.cpp ImproveOrthogonalRoutes::nudgeOrthogonalRoutes()
+    fn nudge_orthogonal_routes(&mut self, router: &mut Router, dimension: usize, just_unifying: bool) {
+        let nudge_final_segments = router.routing_option(RoutingOption::NudgeOrthogonalSegmentsConnectedToShapes);
+        let nudge_shared_paths_with_common_end =
+            router.routing_option(RoutingOption::NudgeSharedPathsWithCommonEndPoint);
+        let base_sep_dist = router.routing_parameter(RoutingParameter::IdealNudgingDistance);
+        debug_assert!(base_sep_dist >= 0.0);
+        // If we can fit things with the desired separation distance, then
+        // we try 10 times, reducing each time by a 10th of the original amount.
+        let reduction_steps = 10.0;
+
+        let total_segments_to_shift = self.m_segment_list.len();
+        let mut num_of_segments_shifted;
+        // Do the actual nudging.
+        let mut current_region: Vec<NudgingShiftSegment>;
+        while !self.m_segment_list.is_empty() {
+            // Progress reporting and continuation check.
+            num_of_segments_shifted = total_segments_to_shift - self.m_segment_list.len();
+            router.perform_continuation_check(
+                if dimension == XDIM {
+                    TRANSACTION_PHASE_ORTHOGONAL_NUDGING_X
+                } else {
+                    TRANSACTION_PHASE_ORTHOGONAL_NUDGING_Y
+                },
+                num_of_segments_shifted,
+                total_segments_to_shift,
+            );
+
+            // Take a reference segment
+            let current_segment = self.m_segment_list.remove(0);
+            // Then, find the segments that overlap this one.
+            current_region = vec![current_segment];
+            let mut curr = 0;
+            while curr < self.m_segment_list.len() {
+                let mut overlaps = false;
+                for curr2 in current_region.iter() {
+                    if self.m_segment_list[curr].nudging_overlaps_with(curr2, dimension, router) {
+                        overlaps = true;
+                        break;
+                    }
+                }
+                if overlaps {
+                    let seg = self.m_segment_list.remove(curr);
+                    current_region.push(seg);
+                    // Consider segments from the beginning, since we may have
+                    // since passed segments that overlap with the new set.
+                    curr = 0;
+                } else {
+                    curr += 1;
+                }
+            }
+
+            if !just_unifying {
+                let mut line_sort_comp = CmpLineOrder {
+                    orders: &mut self.m_point_orders,
+                    dimension,
+                };
+                current_region = linesort(router, nudge_final_segments, current_region, &mut line_sort_comp);
+            }
+
+            if current_region.len() == 1 {
+                // Save creating the solver instance if there is just one
+                // immovable segment, or if we are in the unifying stage.
+                if current_region[0].immovable(router) || just_unifying {
+                    // delete currentRegion.front();
+                    continue;
+                }
+            }
+
+            // Process these segments.
+            let mut free_indexes: Vec<usize> = Vec::new();
+            let mut vs: Vec<Variable> = Vec::new();
+            let mut cs: Vec<Constraint> = Vec::new();
+            // (Upstream `gapcs`: filled but never read.)
+            let mut gapcs: Vec<ConIdx> = Vec::new();
+            // Indexes into current_region.
+            let mut prev_vars: Vec<usize> = Vec::new();
+            let mut sep_dist = base_sep_dist;
+            for curr_segment_it in 0..current_region.len() {
+                // Create a solver variable for the position of this segment.
+                current_region[curr_segment_it].create_solver_variable(router, just_unifying, &mut vs);
+                let curr_segment = &current_region[curr_segment_it];
+
+                let index = vs.len() - 1;
+
+                if just_unifying {
+                    // Just doing centring, not nudging.
+                    // Record the index of the variable so we can use it as
+                    // a segment to potentially constrain to other segments.
+                    if vs[index].weight == FREE_WEIGHT {
+                        free_indexes.push(index);
+                    }
+                    // Thus, we don't need to constrain position against other
+                    // segments.
+                    prev_vars.push(curr_segment_it);
+                    continue;
+                }
+
+                // The constraints generated here must be in order of
+                // leftBoundary-segment ... segment-segment ... segment-rightBoundary
+                // since this order is leveraged later for rewriting the
+                // separations of unsatisfable channel groups.
+
+                // Constrain to channel boundary.
+                if !curr_segment.fixed {
+                    // If this segment sees a channel boundary to its left,
+                    // then constrain its placement as such.
+                    if curr_segment.base.min_space_limit > -CHANNEL_MAX {
+                        vs.push(Variable::with_weight(
+                            CHANNEL_LEFT_ID,
+                            curr_segment.base.min_space_limit,
+                            FIXED_WEIGHT,
+                        ));
+                        cs.push(Constraint::new(vs.len() - 1, index, 0.0, false));
+                    }
+                }
+
+                // Constrain position in relation to previously seen segments,
+                // if necessary (i.e. when they could overlap).
+                for &prev_var_it in prev_vars.iter() {
+                    let prev_seg = &current_region[prev_var_it];
+                    let prev_var = prev_seg.variable.expect("solver variable");
+
+                    if curr_segment.nudging_overlaps_with(prev_seg, dimension, router)
+                        && (!curr_segment.fixed || !prev_seg.fixed)
+                    {
+                        // If there is a previous segment to the left that
+                        // could overlap this in the shift direction, then
+                        // constrain the two segments to be separated.
+                        // Though don't add the constraint if both the
+                        // segments are fixed in place.
+                        let mut this_sep_dist = sep_dist;
+                        let mut equality = false;
+                        if curr_segment.should_align_with(prev_seg, dimension, router) {
+                            // Handles the case where the two end segments can
+                            // be brought together to make a single segment. This
+                            // can help in situations where having the small kink
+                            // can restrict other kinds of nudging.
+                            this_sep_dist = 0.0;
+                            equality = true;
+                        } else if curr_segment.can_align_with(prev_seg, dimension) {
+                            // We need to address the problem of two neighbouring
+                            // segments of the same connector being kept separated
+                            // due only to a kink created in the other dimension.
+                            // Here, we let such segments drift back together.
+                            this_sep_dist = 0.0;
+                        } else if !nudge_shared_paths_with_common_end
+                            && self.m_shared_path_connectors_with_common_endpoints.contains(&UnsignedPair::new(
+                                router.conns[curr_segment.conn_ref].id(),
+                                router.conns[prev_seg.conn_ref].id(),
+                            ))
+                        {
+                            // We don't want to nudge apart these two segments
+                            // since they are from a shared path with a common
+                            // endpoint.  There might be multiple chains of
+                            // segments that don't all have the same endpoints
+                            // so we need to make this an equality to prevent
+                            // some of them possibly getting nudged apart.
+                            this_sep_dist = 0.0;
+                            equality = true;
+                        }
+
+                        cs.push(Constraint::new(prev_var, index, this_sep_dist, equality));
+                        if this_sep_dist != 0.0 {
+                            // Add to the list of gap constraints so we can
+                            // rewrite the separation distance later.
+                            gapcs.push(cs.len() - 1);
+                        }
+                    }
+                }
+
+                if !curr_segment.fixed {
+                    // If this segment sees a channel boundary to its right,
+                    // then constrain its placement as such.
+                    if curr_segment.base.max_space_limit < CHANNEL_MAX {
+                        vs.push(Variable::with_weight(
+                            CHANNEL_RIGHT_ID,
+                            curr_segment.base.max_space_limit,
+                            FIXED_WEIGHT,
+                        ));
+                        cs.push(Constraint::new(index, vs.len() - 1, 0.0, false));
+                    }
+                }
+
+                prev_vars.push(curr_segment_it);
+            }
+
+            // std::list<PotentialSegmentConstraint>
+            let mut potential_constraints: VecDeque<PotentialSegmentConstraint> = VecDeque::new();
+            if just_unifying {
+                for curr in 0..free_indexes.len() {
+                    for curr2 in curr..free_indexes.len() {
+                        if curr == curr2 {
+                            continue;
+                        }
+                        potential_constraints
+                            .push_back(PotentialSegmentConstraint::new(free_indexes[curr], free_indexes[curr2]));
+                    }
+                }
+            }
+
+            // Repeatedly try solving this.  There are two cases:
+            //  -  When Unifying, we greedily place as many free segments as
+            //     possible at the same positions, that way they have more
+            //     accurate nudging orders determined for them in the Nudging
+            //     stage.
+            //  -  When Nudging, if we can't fit all the segments with the
+            //     default nudging distance we try smaller separation
+            //     distances till we find a solution that is satisfied.
+            let mut just_added_constraint = false;
+            let mut satisfied;
+
+            // typedef std::pair<size_t, size_t> UnsatisfiedRange;
+            let mut unsatisfied_ranges: VecDeque<(usize, usize)> = VecDeque::new();
+            loop {
+                {
+                    let mut f = IncSolver::new(&mut vs, &mut cs);
+                    if let Err(e) = f.solve() {
+                        // Upstream throws a `const char *` nobody catches.
+                        panic!("vpsc: unsatisfied constraint {:?} (uncaught exception upstream)", e);
+                    }
+                }
+
+                // Determine if the problem was satisfied.
+                satisfied = true;
+                for i in 0..vs.len() {
+                    // For each variable...
+                    if vs[i].id != FREE_SEGMENT_ID {
+                        // If it is a fixed segment (should stay still)...
+                        if (vs[i].final_position - vs[i].desired_position).abs() > 0.0001 {
+                            // and it is not at it's desired position, then
+                            // we consider the problem to be unsatisfied.
+                            satisfied = false;
+
+                            // We record ranges of unsatisfied variables based on
+                            // the channel edges.
+                            if vs[i].id == CHANNEL_LEFT_ID {
+                                // This is the left-hand-side of a channel.
+                                let start_new_range = match unsatisfied_ranges.back() {
+                                    None => true,
+                                    Some(back) => back.0 != back.1,
+                                };
+                                if start_new_range {
+                                    // There are no existing unsatisfied ranges,
+                                    // or there are but they are a valid range
+                                    // (we've encountered the right-hand channel
+                                    // edges already).
+                                    // So, start a new unsatisfied range.
+                                    unsatisfied_ranges.push_back((i, i + 1));
+                                }
+                            } else if vs[i].id == CHANNEL_RIGHT_ID {
+                                // This is the right-hand-side of a channel.
+                                if unsatisfied_ranges.is_empty() {
+                                    // There are no existing unsatisfied ranges,
+                                    // so start a new unsatisfied range.
+                                    // We are looking at a unsatisfied right side
+                                    // where the left side was satisfied, so the
+                                    // range begins at the previous variable
+                                    // which should be a left channel side.
+                                    debug_assert!(i > 0);
+                                    debug_assert!(vs[i - 1].id == CHANNEL_LEFT_ID);
+                                    unsatisfied_ranges.push_back((i - 1, i));
+                                } else {
+                                    // Expand the existing range to include index.
+                                    unsatisfied_ranges.back_mut().unwrap().1 = i;
+                                }
+                            } else if vs[i].id == FIXED_SEGMENT_ID {
+                                // Fixed connector segments can also start and
+                                // extend unsatisfied variable ranges.
+                                if unsatisfied_ranges.is_empty() {
+                                    // There are no existing unsatisfied ranges,
+                                    // so start a new unsatisfied range.
+                                    unsatisfied_ranges.push_back((i, i));
+                                } else {
+                                    // Expand the existing range to include index.
+                                    unsatisfied_ranges.back_mut().unwrap().1 = i;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if just_unifying {
+                    // When we're centring, we'd like to greedily place as many
+                    // segments as possible at the same positions, that way they
+                    // have more accurate nudging orders determined for them.
+                    //
+                    // We do this by taking pairs of adjoining free segments and
+                    // attempting to constrain them to have the same position,
+                    // starting from the closest up to the furthest.
+
+                    if just_added_constraint {
+                        debug_assert!(!potential_constraints.is_empty());
+                        if !satisfied {
+                            // We couldn't satisfy the problem with the added
+                            // potential constraint, so we can't position these
+                            // segments together.  Roll back.
+                            potential_constraints.pop_front();
+                            cs.pop();
+                        } else {
+                            // We could position these two segments together.
+                            let pc = *potential_constraints.front().unwrap();
+
+                            // Rewrite the indexes of these two variables to
+                            // one, so we need not worry about redundant
+                            // equality constraints.
+                            for it in potential_constraints.iter_mut() {
+                                it.rewrite_index(pc.index1, pc.index2);
+                            }
+                            potential_constraints.pop_front();
+                        }
+                    }
+                    // std::list::sort() is a stable merge sort; any stable
+                    // sort gives the identical permutation for this strict
+                    // weak ordering (ties keep list order).
+                    {
+                        let vs_ref = &vs;
+                        potential_constraints.make_contiguous().sort_by(|a, b| {
+                            if a.less_than(b, vs_ref) {
+                                Ordering::Less
+                            } else if b.less_than(a, vs_ref) {
+                                Ordering::Greater
+                            } else {
+                                Ordering::Equal
+                            }
+                        });
+                    }
+                    just_added_constraint = false;
+
+                    // Remove now invalid potential segment constraints.
+                    // This could have been caused by the variable rewriting.
+                    while !potential_constraints.is_empty() && !potential_constraints.front().unwrap().still_valid() {
+                        potential_constraints.pop_front();
+                    }
+
+                    if !potential_constraints.is_empty() {
+                        // We still have more possibilities to consider.
+                        // Create a constraint for this, add it, and mark as
+                        // unsatisfied, so the problem gets re-solved.
+                        let pc = *potential_constraints.front().unwrap();
+                        debug_assert!(pc.index1 != pc.index2);
+                        cs.push(Constraint::new(pc.index1, pc.index2, 0.0, true));
+                        satisfied = false;
+                        just_added_constraint = true;
+                    }
+                } else {
+                    if !satisfied {
+                        debug_assert!(!unsatisfied_ranges.is_empty());
+                        // Reduce the separation distance.
+                        sep_dist -= base_sep_dist / reduction_steps;
+                        if cfg!(debug_assertions) {
+                            for it in unsatisfied_ranges.iter() {
+                                debug_assert!(vs[it.0].id != FREE_SEGMENT_ID);
+                                debug_assert!(vs[it.1].id != FREE_SEGMENT_ID);
+                            }
+                        }
+                        // And rewrite all the gap constraints to have the new
+                        // reduced separation distance.
+                        let mut within_unsatisfied_group = false;
+                        for c_it in 0..cs.len() {
+                            let range = *unsatisfied_ranges.front().expect("unsatisfied range");
+                            let constraint = &mut cs[c_it];
+
+                            if constraint.left == range.0 {
+                                // Entered an unsatisfied range of variables.
+                                within_unsatisfied_group = true;
+                            }
+
+                            if within_unsatisfied_group && (constraint.gap > 0.0) {
+                                // Rewrite constraints in unsatisfied ranges
+                                // that have a non-zero gap.
+                                constraint.gap = sep_dist;
+                            }
+
+                            if constraint.right == range.1 {
+                                // Left an unsatisfied range of variables.
+                                within_unsatisfied_group = false;
+                                unsatisfied_ranges.pop_front();
+                                if unsatisfied_ranges.is_empty() {
+                                    // And there are no more unsatisfied variables.
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if !(!satisfied && (sep_dist > 0.0001)) {
+                    break;
+                }
+            }
+
+            if satisfied {
+                for curr_segment in current_region.iter() {
+                    curr_segment.update_positions_from_solver(router, &vs, just_unifying);
+                }
+            }
+            // for_each(currentRegion/vs/cs, delete_object()): dropped here.
+            let _ = gapcs;
+        }
+    }
+
+    // upstream: orthogonal.cpp ImproveOrthogonalRoutes::simplifyOrthogonalRoutes()
+    fn simplify_orthogonal_routes(&mut self, router: &mut Router) {
+        // Simplify routes.
+        let conn_refs = router.conn_refs.clone();
+        for &curr in conn_refs.iter() {
+            if router.conns[curr].routing_type() != ConnType::ConnTypeOrthogonal {
+                continue;
+            }
+            let simplified = router.conns[curr].display_route().simplify();
+            router.conns[curr].set_route(&simplified);
+        }
+    }
+
+    // Populates m_point_orders and m_shared_path_connectors_with_common_endpoints.
+    // upstream: orthogonal.cpp ImproveOrthogonalRoutes::buildOrthogonalNudgingOrderInfo()
+    fn build_orthogonal_nudging_order_info(&mut self, router: &mut Router) {
+        // Simplify routes.
+        self.simplify_orthogonal_routes(router);
+
+        let mut crossings_n: i32 = 0;
+
+        let mut build_shared_path_info = false;
+        if !router.routing_option(RoutingOption::NudgeSharedPathsWithCommonEndPoint)
+            && self.m_shared_path_connectors_with_common_endpoints.is_empty()
+        {
+            // We're not going to nudge apart shared paths with common ends so we
+            // will need to store information about this during the crossing
+            // detection.
+            build_shared_path_info = true;
+        }
+
+        // Make a vector of the ConnRefList, for convenience.
+        let conn_refs: Vec<ConnIdx> = router.conn_refs.clone();
+
+        // Make a temporary copy of all the connector displayRoutes.
+        let mut conn_routes: Vec<Polygon> = Vec::with_capacity(conn_refs.len());
+        for ind in 0..conn_refs.len() {
+            conn_routes.push(router.conns[conn_refs[ind]].display_route().clone());
+        }
+
+        // Do segment splitting.
+        for ind1 in 0..conn_refs.len() {
+            let conn = conn_refs[ind1];
+            if router.conns[conn].routing_type() != ConnType::ConnTypeOrthogonal {
+                continue;
+            }
+
+            for ind2 in 0..conn_refs.len() {
+                if ind1 == ind2 {
+                    continue;
+                }
+
+                let conn2 = conn_refs[ind2];
+                if router.conns[conn2].routing_type() != ConnType::ConnTypeOrthogonal {
+                    continue;
+                }
+
+                let (route, route2) = two_mut(&mut conn_routes, ind1, ind2);
+                split_branching_segments(route2, true, route, 0.0);
+            }
+        }
+
+        let router_ref: &Router = router;
+        for ind1 in 0..conn_refs.len() {
+            let conn = conn_refs[ind1];
+            if router_ref.conns[conn].routing_type() != ConnType::ConnTypeOrthogonal {
+                continue;
+            }
+
+            for ind2 in (ind1 + 1)..conn_refs.len() {
+                let conn2 = conn_refs[ind2];
+                if router_ref.conns[conn2].routing_type() != ConnType::ConnTypeOrthogonal {
+                    continue;
+                }
+
+                let (route, route2) = two_mut(&mut conn_routes, ind1, ind2);
+                let mut crossings: i32 = 0;
+                let mut crossing_flags: u32 = 0;
+                {
+                    let mut cross = ConnectorCrossings::new(true, Some(conn2), Some(conn));
+                    cross.point_orders = Some(&mut self.m_point_orders);
+                    let mut i = 1;
+                    while i < route.size() {
+                        let final_segment = (i + 1) == route.size();
+                        cross.count_for_segment(router_ref, route2, route, i, final_segment);
+
+                        crossings += cross.crossing_count as i32;
+                        crossing_flags |= cross.crossing_flags;
+                        i += 1;
+                    }
+                }
+                if crossings > 0 {
+                    crossings_n += crossings;
+                }
+
+                if build_shared_path_info && ((crossing_flags & CROSSING_SHARES_PATH_AT_END) != 0) {
+                    // Record if these two connectors have a shared path with a
+                    // common end point.
+                    self.m_shared_path_connectors_with_common_endpoints.insert(UnsignedPair::new(
+                        router_ref.conns[conn].id(),
+                        router_ref.conns[conn2].id(),
+                    ));
+                }
+            }
+        }
+        let _ = crossings_n;
+    }
+}
+
+/// Two distinct mutable elements of a slice.
+fn two_mut<T>(v: &mut [T], a: usize, b: usize) -> (&mut T, &mut T) {
+    debug_assert!(a != b);
+    if a < b {
+        let (lo, hi) = v.split_at_mut(b);
+        (&mut lo[a], &mut hi[0])
+    } else {
+        let (lo, hi) = v.split_at_mut(a);
+        (&mut hi[0], &mut lo[b])
+    }
+}
 
 // upstream: orthogonal.cpp improveOrthogonalRoutes()
 pub fn improve_orthogonal_routes(router: &mut Router) {
-    let _ = router;
-    todo!("upstream: orthogonal.cpp improveOrthogonalRoutes — not yet ported")
+    let mut improver = ImproveOrthogonalRoutes::new();
+    improver.execute(router);
 }
 
 #[cfg(test)]

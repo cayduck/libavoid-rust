@@ -645,14 +645,16 @@ impl Polygon {
         index_modifier: i32,
     ) -> Vec<Point> {
         let mut checkpoints = Vec::new();
-        let mut checkpoint_lower_value = 2 * segment_lower_index;
-        let mut checkpoint_upper_value = checkpoint_lower_value + 2;
+        // size_t arithmetic: orthogonal.cpp passes `i - 2` with i == 1
+        // (i.e. SIZE_MAX), so this must wrap exactly like upstream.
+        let mut checkpoint_lower_value = segment_lower_index.wrapping_mul(2);
+        let mut checkpoint_upper_value = checkpoint_lower_value.wrapping_add(2);
         let mut index = 0;
 
         if index_modifier > 0 {
-            checkpoint_lower_value += 1;
+            checkpoint_lower_value = checkpoint_lower_value.wrapping_add(1);
         } else if index_modifier < 0 {
-            checkpoint_upper_value -= 1;
+            checkpoint_upper_value = checkpoint_upper_value.wrapping_sub(1);
         }
 
         while index < self.checkpoints_on_route.len() {

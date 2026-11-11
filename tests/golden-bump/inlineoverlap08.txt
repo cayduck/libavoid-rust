@@ -1,0 +1,95 @@
+rect
+id=10
+x=155
+y=-185
+width=20
+height=20
+
+rect
+id=9
+x=130
+y=-185
+width=20
+height=20
+
+rect
+id=8
+x=105
+y=-185
+width=20
+height=20
+
+rect
+id=7
+x=80
+y=-185
+width=20
+height=20
+
+rect
+id=6
+x=55
+y=-185
+width=20
+height=20
+
+rect
+id=5
+x=0
+y=-140
+width=20
+height=20
+
+rect
+id=4
+x=0
+y=-115
+width=20
+height=20
+
+rect
+id=3
+x=0
+y=-90
+width=20
+height=20
+
+rect
+id=2
+x=0
+y=-65
+width=20
+height=20
+
+rect
+id=1
+x=55
+y=-20
+width=44
+height=20
+
+path
+id=14
+p0: 61 -20 
+p1: 61 -24 
+
+path
+id=13
+p0: 15 -74 
+p1: 65 -74 
+p2: 65 -20 
+
+path
+id=12
+p0: 61 -165 
+p1: 61 -43.000000004950003 
+p2: 57 -43.000000004950003 
+p3: 57 -20 
+
+path
+id=11
+p0: 20 -47 
+p1: 57 -47 
+p2: 57 -165 
+
+

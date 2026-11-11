@@ -1,0 +1,204 @@
+rect
+id=16
+x=701.99000000000001
+y=481.99000000000001
+width=9.0099999999999909
+height=9.0099999999999909
+
+rect
+id=15
+x=212.495
+y=481.99000000000001
+width=9.0099999999999909
+height=9.0099999999999909
+
+rect
+id=14
+x=459.495
+y=481.99000000000001
+width=9.0099999999999909
+height=9.0099999999999909
+
+rect
+id=13
+x=741
+y=130
+width=30
+height=30
+
+rect
+id=12
+x=741
+y=583
+width=30
+height=30
+
+rect
+id=11
+x=633
+y=583
+width=30
+height=30
+
+rect
+id=10
+x=633
+y=354
+width=30
+height=30
+
+rect
+id=9
+x=520
+y=354
+width=30
+height=30
+
+rect
+id=8
+x=520
+y=491
+width=30
+height=30
+
+rect
+id=7
+x=151
+y=130
+width=30
+height=30
+
+rect
+id=6
+x=151
+y=583
+width=30
+height=30
+
+rect
+id=5
+x=252.5
+y=583
+width=30
+height=30
+
+rect
+id=4
+x=252.5
+y=354
+width=30
+height=30
+
+rect
+id=3
+x=354
+y=354
+width=30
+height=30
+
+rect
+id=2
+x=354
+y=583
+width=30
+height=30
+
+rect
+id=1
+x=449
+y=583
+width=30
+height=30
+
+rect
+id=1
+x=449
+y=491
+width=30
+height=30
+
+path
+id=32
+p0: 535 506 
+p1: 464 506 
+
+path
+id=31
+p0: 267.5 369 
+p1: 267.5 598 
+
+path
+id=30
+p0: 648 369 
+p1: 535 369 
+
+path
+id=29
+p0: 166 598 
+p1: 166 145 
+
+path
+id=28
+p0: 648 598 
+p1: 756 598 
+
+path
+id=27
+p0: 464 486.495 
+p1: 464 354 
+p2: 217 354 
+p3: 217 486.495 
+
+path
+id=26
+p0: 648 598 
+p1: 648 369 
+
+path
+id=25
+p0: 535 369 
+p1: 535 506 
+
+path
+id=24
+p0: 464 486.495 
+p1: 464 354 
+p2: 706.495 354 
+p3: 706.495 486.495 
+
+path
+id=23
+p0: 166 145 
+p1: 756 145 
+
+path
+id=22
+p0: 369 369 
+p1: 267.5 369 
+
+path
+id=21
+p0: 756 598 
+p1: 756 145 
+
+path
+id=20
+p0: 464 506 
+p1: 464 598 
+
+path
+id=19
+p0: 369 598 
+p1: 369 369 
+
+path
+id=18
+p0: 267.5 598 
+p1: 166 598 
+
+path
+id=17
+p0: 464 598 
+p1: 369 598 
+
+

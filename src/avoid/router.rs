@@ -1616,19 +1616,7 @@ impl Router {
         }
 
         // Perform centring and nudging for orthogonal routes.
-        // TEMP(visibility/makepath port): improveOrthogonalRoutes() is still
-        // a todo! stub in orthogonal.rs.  For routers without orthogonal
-        // connectors it changes no route (it only lazily fills display
-        // routes, which displayRoute() does anyway), so it is skipped then.
-        // REMOVE this guard (call unconditionally, as upstream) when the
-        // orthogonal.rs port is merged.
-        if self
-            .conn_refs
-            .iter()
-            .any(|&c| self.conns[c].routing_type() == ConnType::ConnTypeOrthogonal)
-        {
-            improve_orthogonal_routes(self);
-        }
+        improve_orthogonal_routes(self);
 
         // Find a list of all the deleted connectors in hyperedges.
         let changed_hyperedge_objs = self.m_hyperedge_improver.new_and_deleted_object_lists();
