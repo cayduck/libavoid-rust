@@ -22,13 +22,33 @@
 //!   sequence; `erase` while iterating keeps the relative order.
 //! * `LineSegment *` results of `SegmentListWrapper::insert` are indices
 //!   into the list, used before the next insertion exactly as upstream.
+//!
+//! # Pointer ties (`// PTR-ORDER:`) that change the graph
+//! * `CmpVertInf` (`u < v` for two vertices at the same point) decides
+//!   which of several coincident vertices `PosVertInf` keeps (it treats all
+//!   dummies -- `dummyOrthogID` *and* `dummyOrthogShapeID`, since `VertID`
+//!   equality ignores props -- at one position as equal) and so which one
+//!   gets the edges and, when a plain and a shape-edge dummy coincide, the
+//!   `orthogVisPropFlags`.
+//! * `compare_events` ties (same position and type, e.g. aligned shape
+//!   edges) decide the processing order and thus the vertex creation order.
+//!   Upstream computes `(int)(ea->v - eb->v)` on unrelated `Node*`s, whose
+//!   sign is only meaningful if the nodes lie in one array.
+//! Both are modelled as creation order (serial / node index), which is what
+//! upstream computes with a monotonic allocator; with glibc malloc the
+//! upstream result depends on the heap history (see
+//! `tools/oracle/orthogonal_vis_oracle.cpp`).  `CmpNodePos` ties do not
+//! influence this graph (all scanline queries here are symmetric), only
+//! `buildOrthogonalChannelInfo`.
 
 #![allow(dead_code)]
 #![allow(
     clippy::collapsible_if,
     clippy::collapsible_else_if,
     clippy::needless_range_loop,
-    clippy::too_many_arguments
+    clippy::too_many_arguments,
+    clippy::if_same_then_else,
+    clippy::nonminimal_bool
 )]
 
 use std::cmp::Ordering;

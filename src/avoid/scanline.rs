@@ -43,7 +43,12 @@
 //!   `Box<T>` and `&mut T` usable as `S`).
 
 #![allow(dead_code)]
-#![allow(clippy::collapsible_if, clippy::collapsible_else_if, clippy::needless_range_loop)]
+#![allow(
+    clippy::collapsible_if,
+    clippy::collapsible_else_if,
+    clippy::needless_range_loop,
+    clippy::nonminimal_bool
+)]
 
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
