@@ -1514,4 +1514,28 @@ mod tests {
         assert!(c < a && a < b);
         assert_eq!(UnsignedPair::new(4, 9), UnsignedPair::new(9, 4));
     }
+
+    #[test]
+    fn segment_list_wrapper_merges_into_later_overlapping_segment() {
+        use crate::avoid::router::ORTHOGONAL_ROUTING;
+        let r = Router::new(ORTHOGONAL_ROUTING);
+        let v = &r.vert_infs;
+        let mut w = SegmentListWrapper::new();
+        assert_eq!(w.insert(LineSegment::new(v, 0.0, 10.0, 5.0, true, None, None)), 0);
+        assert_eq!(w.insert(LineSegment::new(v, 20.0, 30.0, 5.0, true, None, None)), 1);
+        assert_eq!(w.insert(LineSegment::new(v, 0.0, 50.0, 7.0, true, None, None)), 2);
+        // Overlaps the first two: the first absorbs the new segment, then
+        // the second absorbs the first, which is erased.
+        assert_eq!(w.insert(LineSegment::new(v, 8.0, 22.0, 5.0, true, None, None)), 0);
+        let l = w.list();
+        assert_eq!(l.len(), 2);
+        assert_eq!((l[0].begin, l[0].finish, l[0].pos), (0.0, 30.0, 5.0));
+        assert_eq!((l[1].begin, l[1].finish, l[1].pos), (0.0, 50.0, 7.0));
+        // Touching end points count as overlapping; point segments too.
+        assert_eq!(w.insert(LineSegment::new_point(v, 30.0, 5.0, None)), 0);
+        assert_eq!(w.insert(LineSegment::new_point(v, 60.0, 7.0, None)), 2);
+        sort_segment_list(w.list());
+        let order: Vec<(f64, f64)> = w.list().iter().map(|s| (s.begin, s.pos)).collect();
+        assert_eq!(order, vec![(0.0, 5.0), (0.0, 7.0), (60.0, 7.0)]);
+    }
 }

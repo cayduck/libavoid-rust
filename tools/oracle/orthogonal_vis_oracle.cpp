@@ -14,7 +14,9 @@
 //  * translations of upstream fixtures (tools/oracle/fixture_scenes.py ->
 //    tools/oracle/orthogonal_vis_fixtures.scenes, passed as argv[1]);
 //  * deterministic random scenes generated here (LCG below, same as the
-//    geometry oracle).  Never put two RNG calls in one C++ expression.
+//    geometry oracle), plus "checkpoints-N" scenes whose hand-made display
+//    routes pass through / bend at / just miss checkpoints.  Never put two
+//    RNG calls in one C++ expression.
 //
 // No routing happens: `process` runs Router::processActions(), marks the
 // static orthogonal graph invalidated and calls
@@ -390,6 +392,7 @@ static ConnEnd readEnd(Scene& sc, std::istringstream& in)
 //   cpcache                      build/dump/clear/dump checkpoint cache
 //   seg DIM lx ly hx hy MIN MAX  new TestShiftSegment (appended to list)
 //   channel DIM                  buildOrthogonalChannelInfo + dump, clear list
+//   obstacles                    print m_obstacles ids (debugging aid)
 static void runCommand(Scene& sc, const std::string& line)
 {
     std::istringstream in(line);
@@ -1033,6 +1036,95 @@ static std::vector<std::string> genScene(unsigned index)
     return g.lines;
 }
 
+// Scenes focused on buildConnectorRouteCheckpointCache: display routes are
+// built to pass through (or bend at, or just miss) the checkpoints.
+static std::vector<std::string> genCheckpointScene(void)
+{
+    std::vector<std::string> lines;
+    std::vector<std::string> routes;
+    lines.push_back("router 2");
+    unsigned nConns = 1 + rnd(4);
+    for (unsigned c = 0; c < nConns; ++c)
+    {
+        std::string name = "c" + std::to_string(c + 1);
+        double sx = 5.0 * rnd(21);
+        double sy = 5.0 * rnd(21);
+        double tx = 5.0 * rnd(21);
+        double ty = 5.0 * rnd(21);
+        lines.push_back("connse " + name + " 0 P " + f17(sx) + " " + f17(sy) +
+                " 15 P " + f17(tx) + " " + f17(ty) + " 15");
+        unsigned nCps = rnd(4);
+        std::vector<Point> cps;
+        std::string s = "checkpoints " + name + " " + std::to_string(nCps);
+        for (unsigned k = 0; k < nCps; ++k)
+        {
+            double x = 5.0 * rnd(21);
+            double y = 5.0 * rnd(21);
+            cps.push_back(Point(x, y));
+            s += " " + f17(x) + " " + f17(y) + " 15 15";
+        }
+        lines.push_back(s);
+        routes.push_back(std::string());
+        std::string& r = routes.back();
+        // Build an orthogonal route visiting the checkpoints.
+        std::vector<Point> route;
+        Point curr(sx, sy);
+        route.push_back(curr);
+        for (unsigned k = 0; k < nCps; ++k)
+        {
+            const Point& cp = cps[k];
+            unsigned how = rnd(5);
+            if (how == 0)
+            {
+                // Bend exactly at the checkpoint.
+                route.push_back(Point(cp.x, curr.y));
+                route.push_back(cp);
+                curr = cp;
+            }
+            else if (how == 1)
+            {
+                // Pass through the checkpoint on a vertical segment.
+                double d = 5.0 * (1 + rnd(3));
+                route.push_back(Point(cp.x, curr.y));
+                route.push_back(Point(cp.x, cp.y - d));
+                route.push_back(Point(cp.x, cp.y + d));
+                curr = Point(cp.x, cp.y + d);
+            }
+            else if (how == 2)
+            {
+                // Pass through on a horizontal segment.
+                double d = 5.0 * (1 + rnd(3));
+                route.push_back(Point(curr.x, cp.y));
+                route.push_back(Point(cp.x - d, cp.y));
+                route.push_back(Point(cp.x + d, cp.y));
+                curr = Point(cp.x + d, cp.y);
+            }
+            else if (how == 3)
+            {
+                // Bend within / just outside Point::equals() epsilon.
+                double eps = (rnd(2) == 0) ? 0.00005 : 0.0002;
+                route.push_back(Point(cp.x + eps, curr.y));
+                route.push_back(Point(cp.x + eps, cp.y));
+                curr = Point(cp.x + eps, cp.y);
+            }
+            // how == 4: the route misses this checkpoint.
+        }
+        route.push_back(Point(tx, curr.y));
+        route.push_back(Point(tx, ty));
+        r = "route " + name + " " + std::to_string(route.size());
+        for (size_t k = 0; k < route.size(); ++k)
+        {
+            r += " " + f17(route[k].x) + " " + f17(route[k].y);
+        }
+    }
+    // (Connectors join Router::connRefs when processActions() makes them
+    // active.)
+    lines.push_back("process");
+    lines.insert(lines.end(), routes.begin(), routes.end());
+    lines.push_back("cpcache");
+    return lines;
+}
+
 //============================================================================
 
 int main(int argc, char **argv)
@@ -1077,6 +1169,14 @@ int main(int argc, char **argv)
     {
         std::vector<std::string> dsl = genScene(i);
         std::string name = "random-" + std::to_string(i);
+        size_t mark = arenaMark();
+        runScene(name, dsl);
+        arenaRelease(mark);
+    }
+    for (unsigned i = 0; i < nRandom / 5; ++i)
+    {
+        std::vector<std::string> dsl = genCheckpointScene();
+        std::string name = "checkpoints-" + std::to_string(i);
         size_t mark = arenaMark();
         runScene(name, dsl);
         arenaRelease(mark);
