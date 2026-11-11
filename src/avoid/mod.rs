@@ -35,6 +35,7 @@
 //!   `tests/golden/`.  Ported fixtures must reproduce those routes.
 
 pub mod actioninfo;
+pub mod arena;
 pub mod connectionpin;
 pub mod connector;
 pub mod connend;
