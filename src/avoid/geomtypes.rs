@@ -988,4 +988,19 @@ mod tests {
         let bb = rp.view(&lookup).bounding_rect_polygon();
         assert_eq!(bb.ps[3], Point::new(1.0, 11.0));
     }
+
+    /// Regression: orthogonal.cpp calls `checkpointsOnSegment(i - 2, -1)`
+    /// with `i == 1`, i.e. `size_t` `SIZE_MAX`; the bounds wrap to
+    /// `[SIZE_MAX - 1, SIZE_MAX]` (and so match only wrapped checkpoint
+    /// indices).  This used to overflow-panic in debug builds.
+    #[test]
+    fn checkpoints_on_segment_wraps_like_size_t() {
+        let mut p = Polygon::new();
+        p.ps = vec![Point::new(0.0, 0.0), Point::new(10.0, 0.0)];
+        p.checkpoints_on_route = vec![(1, Point::new(5.0, 0.0)), (usize::MAX, Point::new(0.0, 0.0))];
+        let prev = p.checkpoints_on_segment(1usize.wrapping_sub(2), -1);
+        assert_eq!(prev, vec![Point::new(0.0, 0.0)]);
+        assert_eq!(p.checkpoints_on_segment(0, 0), vec![Point::new(5.0, 0.0)]);
+        assert!(p.checkpoints_on_segment(1, 1).is_empty());
+    }
 }
