@@ -5,6 +5,7 @@
 #   tools/oracle/build.sh [fixture-name ...]
 #
 # Output: tests/golden/<fixture>.txt   (full precision outputDiagramText dump)
+#         tests/golden/<fixture>-final.txt (same dump taken in Router::~Router)
 #         tests/golden/<fixture>.exit  (process exit code; 0 == upstream test passed)
 #         tests/golden/<fixture>.stdout
 # The vendored sources are never modified: they are copied into a build
@@ -47,6 +48,22 @@ junctions = r'''
 '''
 body = body.replace(marker, junctions + marker)
 out = src[:start] + body + src[end:]
+# Dump the final router state from the destructor so that fixtures which never
+# call outputDiagram() still produce a golden file (<fixture>-final.txt).
+dtor = "Router::~Router()\n{\n"
+assert out.count(dtor) == 1
+out = out.replace(dtor, dtor + """    if (getenv("ORACLE_FINAL"))
+    {
+        static int oracleRouterCount = 0;
+        char oracleName[1024];
+        if (oracleRouterCount == 0)
+            snprintf(oracleName, sizeof(oracleName), "%s-final", getenv("ORACLE_FINAL"));
+        else
+            snprintf(oracleName, sizeof(oracleName), "%s-final%d", getenv("ORACLE_FINAL"), oracleRouterCount + 1);
+        ++oracleRouterCount;
+        outputDiagramText(oracleName);
+    }
+""")
 try:
     if open(sys.argv[2]).read() == out:
         sys.exit(0)
@@ -75,9 +92,11 @@ run_one() {
   local n="$1"
   g++ $CXXFLAGS "$SRC/tests/$n.cpp" "$BUILD/libavoid.a" -o "$BUILD/bin/$n" || { echo "BUILD-FAIL $n"; return; }
   local code=0
-  (cd "$BUILD/run" && rm -f "output/$n.txt" && timeout "$TIMEOUT" "$BUILD/bin/$n" > "$BUILD/run/$n.stdout" 2>&1) || code=$?
+  (cd "$BUILD/run" && rm -f "output/$n.txt" && ORACLE_FINAL="output/$n" timeout "$TIMEOUT" "$BUILD/bin/$n" > "$BUILD/run/$n.stdout" 2>&1) || code=$?
   echo "$code" > "$GOLDEN/$n.exit"
   cp "$BUILD/run/$n.stdout" "$GOLDEN/$n.stdout"
+  # endlessLoop01 writes "1.txt" into the working directory.
+  if [ "$n" = endlessLoop01 ] && [ -f "$BUILD/run/1.txt" ]; then cp "$BUILD/run/1.txt" "$GOLDEN/endlessLoop01-1.txt"; fi
   # Fixtures name their output file freely; collect whatever new .txt appeared.
   echo "$n exit=$code"
 }
