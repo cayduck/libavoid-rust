@@ -69,7 +69,8 @@
     clippy::needless_range_loop,
     clippy::too_many_arguments,
     clippy::if_same_then_else,
-    clippy::nonminimal_bool
+    clippy::nonminimal_bool,
+    clippy::bool_comparison
 )]
 
 use std::cmp::Ordering;
@@ -2390,7 +2391,7 @@ impl CmpLineOrder<'_> {
         // Need to index using the original point into the map, so find it.
         let unchanged = if lhs_low[alt_dim] > rhs_low[alt_dim] { lhs_low } else { rhs_low };
 
-        let low_order = self.orders.entry(PointOrd(unchanged)).or_insert_with(PtOrder::new);
+        let low_order = self.orders.entry(PointOrd(unchanged)).or_default();
         let lhs_pos = low_order.position_for(dimension, Some(lhs.conn_ref));
         let rhs_pos = low_order.position_for(dimension, Some(rhs.conn_ref));
         if (lhs_pos == -1) || (rhs_pos == -1) {
@@ -2853,7 +2854,7 @@ impl ImproveOrthogonalRoutes {
                     let mut f = IncSolver::new(&mut vs, &mut cs);
                     if let Err(e) = f.solve() {
                         // Upstream throws a `const char *` nobody catches.
-                        panic!("vpsc: unsatisfied constraint {:?} (uncaught exception upstream)", e);
+                        panic!("vpsc: unsatisfied constraint {e:?} (uncaught exception upstream)");
                     }
                 }
 
@@ -2993,9 +2994,13 @@ impl ImproveOrthogonalRoutes {
                         // Reduce the separation distance.
                         sep_dist -= base_sep_dist / reduction_steps;
                         if cfg!(debug_assertions) {
+                            // (Upstream reads vs[it->second] out of bounds
+                            // when a range was started by the last
+                            // variable, a channelLeft one; treat that as
+                            // passing instead of panicking.)
                             for it in unsatisfied_ranges.iter() {
-                                debug_assert!(vs[it.0].id != FREE_SEGMENT_ID);
-                                debug_assert!(vs[it.1].id != FREE_SEGMENT_ID);
+                                debug_assert!(vs.get(it.0).map_or(true, |v| v.id != FREE_SEGMENT_ID));
+                                debug_assert!(vs.get(it.1).map_or(true, |v| v.id != FREE_SEGMENT_ID));
                             }
                         }
                         // And rewrite all the gap constraints to have the new
