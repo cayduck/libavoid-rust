@@ -1058,7 +1058,10 @@ static double junctionCoord()
 // Builds junction trees: nTrees junction-rooted hyperedges, each with 1-3
 // junctions connected by connectors and 3-6 terminals (shape pins / free
 // points).
-static void genJunctionTrees(Gen& g, unsigned nTrees, bool freePoints)
+// cycles: sometimes add a second connector between two junctions of a
+// tree (a cyclic hyperedge, which the improver skips; the rerouter would
+// recurse forever on it, so only for unregistered scenes).
+static void genJunctionTrees(Gen& g, unsigned nTrees, bool freePoints, bool cycles)
 {
     for (unsigned t = 0; t < nTrees; ++t)
     {
@@ -1075,6 +1078,10 @@ static void genJunctionTrees(Gen& g, unsigned nTrees, bool freePoints)
                 std::string b = "J " + g.juncNames[other];
                 if (rnd(2)) newConn(g, a, b); else newConn(g, b, a);
             }
+        }
+        if (cycles && nJ >= 2 && rnd(5) == 0)
+        {
+            newConn(g, "J " + g.juncNames[first], "J " + g.juncNames[first + nJ - 1]);
         }
         unsigned nTerm = (nJ == 1) ? 3 + rnd(3) : 2 + rnd(4);
         for (unsigned k = 0; k < nTerm || k < nJ + 1; ++k)
@@ -1156,7 +1163,7 @@ static std::vector<std::string> genRerouteScene(bool improver, bool registered,
     g.connCount = 0;
     genOptions(g, improver);
     genShapes(g, 2 + rnd(6));
-    genJunctionTrees(g, 1 + rnd(2), true);
+    genJunctionTrees(g, 1 + rnd(2), true, improver && !registered);
     // Some unrelated connectors.
     unsigned nC = rnd(3);
     for (unsigned k = 0; k < nC; ++k)
