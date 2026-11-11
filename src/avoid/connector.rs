@@ -1,9 +1,9 @@
 //! Faithful port of upstream `libavoid/connector.{h,cpp}`.
 //!
-//! This file currently contains the `ConnRef` class, `Checkpoint`, and
-//! `validateBendPoint`.  The second half of connector.cpp
-//! (`PtOrder`, `ConnectorCrossings`, `splitBranchingSegments`, ...) is
-//! declared at the bottom with `todo!` bodies for a later port.
+//! First half: the `ConnRef` class, `Checkpoint`, and `validateBendPoint`.
+//! Second half (bottom of the file): `PtOrder`, `ConnectorCrossings`,
+//! `splitBranchingSegments` and their static helpers.  See [`PtRef`] for
+//! how the upstream `Point *` in `PtConnPtrPair` is represented.
 //!
 //! * `ConnRef *` is a [`ConnIdx`] into `Router::conns`.  Public upstream
 //!   methods are available as methods on the handle
@@ -36,7 +36,9 @@
     clippy::question_mark,
     clippy::neg_multiply,
     clippy::needless_late_init,
-    clippy::uninlined_format_args
+    clippy::uninlined_format_args,
+    clippy::needless_range_loop,
+    clippy::implicit_saturating_sub
 )]
 #![allow(clippy::new_ret_no_self, clippy::too_many_arguments)]
 
@@ -45,7 +47,9 @@ use std::fmt;
 
 use crate::avoid::arena::{ConnIdx, ObstacleIdx, RerouteFlagIdx, VertIdx};
 use crate::avoid::connend::{ConnDirFlags, ConnEnd, ConnEndRef, CONN_DIR_ALL, CONN_DIR_NONE};
-use crate::avoid::geometry::{euclidean_dist, manhattan_dist, vec_dir};
+use crate::avoid::geometry::{
+    corner_side, euclidean_dist, manhattan_dist, point_on_line, segment_intersect_point, vec_dir, DO_INTERSECT,
+};
 use crate::avoid::geomtypes::{
     Point, PointOrd, PolyLine, Polygon, PolygonInterface, K_UNASSIGNED_VERTEX_NUMBER, XDIM, YDIM,
 };
@@ -1362,10 +1366,10 @@ impl ConnIdx {
     }
 }
 
+
 // ===========================================================================
-// Second half of connector.cpp (PtOrder, ConnectorCrossings,
-// splitBranchingSegments, ...): NOT YET PORTED.  Declarations below are the
-// interface the router code calls; bodies are `todo!`.
+// Second half of connector.cpp: PtOrder, ConnectorCrossings,
+// splitBranchingSegments and their static helpers.
 // ===========================================================================
 
 // upstream: connector.h CROSSING_* flags
@@ -1386,20 +1390,410 @@ pub type PointSet = BTreeSet<PointOrd>;
 // upstream: connector.h typedef std::map<Avoid::Point,PtOrder> PtOrderMap
 pub type PtOrderMap = BTreeMap<PointOrd, PtOrder>;
 
-/// Upstream `class PtOrder` — NOT YET PORTED.  Its members are to be
-/// defined by the agent porting the second half of connector.cpp.
+/// Which of the two polygons handed to
+/// [`ConnectorCrossings::count_for_segment`] a [`PtRef`] points into.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum PtRefRoute {
+    /// The `poly` argument (owned by `ConnectorCrossings::poly_conn_ref`).
+    Poly,
+    /// The `conn` argument (owned by `ConnectorCrossings::conn_conn_ref`).
+    Conn,
+}
+
+/// Port of the `Point *` half of upstream `PtConnPtrPair`: a pointer to
+/// one vertex of one of the two polygons being compared.
+///
+/// Upstream stores `&poly.ps[i]` / `&conn.ps[i]`.  Here the pointer is
+/// represented by *which* polygon (`route`) and the vertex `index` at the
+/// time the pair was recorded, plus a snapshot of the point value
+/// (`point`, including `id`/`vn`).  Equality (used only by the upstream
+/// `COLA_ASSERT(inner != outer)`) compares `route` and `index`, i.e.
+/// pointer identity.
+///
+/// No upstream consumer ever dereferences these pointers (orthogonal.cpp
+/// only uses `PtOrder::positionFor(dim, conn)`, i.e. the `ConnRef *` half);
+/// upstream they may even dangle once the routes are later modified.
+/// When the pairs are produced by `count_for_segment` the owning connector
+/// is the pair's `second` (poly side ↔ `poly_conn_ref`, conn side ↔
+/// `conn_conn_ref`), so `(second, index)` names "vertex `index` of that
+/// connector's route copy as it was when the pair was recorded".
+#[derive(Clone, Copy, Debug)]
+pub struct PtRef {
+    pub route: PtRefRoute,
+    pub index: usize,
+    pub point: Point,
+}
+
+impl PartialEq for PtRef {
+    fn eq(&self, other: &PtRef) -> bool {
+        self.route == other.route && self.index == other.index
+    }
+}
+
+/// upstream: connector.h typedef std::pair<Point *, ConnRef *> PtConnPtrPair
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PtConnPtrPair {
+    pub first: PtRef,
+    pub second: Option<ConnIdx>,
+}
+
+impl PtConnPtrPair {
+    pub fn new(first: PtRef, second: Option<ConnIdx>) -> PtConnPtrPair {
+        PtConnPtrPair { first, second }
+    }
+}
+
+// upstream: connector.h typedef std::vector< PtConnPtrPair > PointRepVector
+pub type PointRepVector = Vec<PtConnPtrPair>;
+// upstream: connector.h typedef std::list<std::pair<size_t, size_t> > NodeIndexPairLinkList
+pub type NodeIndexPairLinkList = Vec<(usize, usize)>;
+
+/// Upstream `class PtOrder`: ordering information for the connectors
+/// passing through one point, per dimension.
 // upstream: connector.h class PtOrder
 #[derive(Clone, Debug, Default)]
-pub struct PtOrder {}
+pub struct PtOrder {
+    // One for each dimension.
+    sorted: [bool; 2],
+    nodes: [PointRepVector; 2],
+    links: [NodeIndexPairLinkList; 2],
+    sorted_conn_vector: [PointRepVector; 2],
+}
+
+impl PtOrder {
+    // upstream: connector.cpp PtOrder::PtOrder()
+    pub fn new() -> PtOrder {
+        // We have sorted neither list initially.
+        PtOrder::default()
+    }
+
+    // upstream: connector.cpp PtOrder::sortedPoints()
+    pub fn sorted_points(&mut self, dim: usize) -> PointRepVector {
+        // Sort if not already sorted.
+        if !self.sorted[dim] {
+            self.sort(dim);
+        }
+        self.sorted_conn_vector[dim].clone()
+    }
+
+    /// Position of `conn` in the sorted list of dimension `dim`, or -1.
+    // upstream: connector.cpp PtOrder::positionFor()
+    pub fn position_for(&mut self, dim: usize, conn: Option<ConnIdx>) -> i32 {
+        // Sort if not already sorted.
+        if !self.sorted[dim] {
+            self.sort(dim);
+        }
+
+        // Just return position from the sorted list.
+        for i in 0..self.sorted_conn_vector[dim].len() {
+            if self.sorted_conn_vector[dim][i].second == conn {
+                return i as i32;
+            }
+        }
+        -1
+    }
+
+    // upstream: connector.cpp PtOrder::insertPoint()
+    fn insert_point(&mut self, dim: usize, point_pair: &PtConnPtrPair) -> usize {
+        // Is this connector bendpoint already inserted?
+        for i in 0..self.nodes[dim].len() {
+            if self.nodes[dim][i].second == point_pair.second {
+                return i;
+            }
+        }
+        // Not found, insert.
+        self.nodes[dim].push(*point_pair);
+        self.nodes[dim].len() - 1
+    }
+
+    // upstream: connector.cpp PtOrder::addPoints()
+    pub fn add_points(&mut self, dim: usize, arg1: &PtConnPtrPair, arg2: &PtConnPtrPair) {
+        // Add points, but not ordering information.
+        self.insert_point(dim, arg1);
+        self.insert_point(dim, arg2);
+    }
+
+    // upstream: connector.cpp PtOrder::addOrderedPoints()
+    pub fn add_ordered_points(
+        &mut self,
+        dim: usize,
+        inner_arg: &PtConnPtrPair,
+        outer_arg: &PtConnPtrPair,
+        swapped: bool,
+    ) {
+        let inner = if swapped { *outer_arg } else { *inner_arg };
+        let outer = if swapped { *inner_arg } else { *outer_arg };
+        debug_assert!(inner != outer);
+
+        // Add points.
+        let inner_index = self.insert_point(dim, &inner);
+        let outer_index = self.insert_point(dim, &outer);
+
+        // And edge for ordering information.
+        self.links[dim].push((outer_index, inner_index));
+    }
+
+    // upstream: connector.cpp PtOrder::sort()
+    fn sort(&mut self, dim: usize) {
+        // This is just a topological sort of the points using the edges info.
+
+        self.sorted[dim] = true;
+
+        let n = self.nodes[dim].len();
+
+        // Build an adjacency matrix for easy lookup.
+        let mut adjacency_matrix: Vec<Vec<bool>> = vec![vec![false; n]; n];
+        let mut incoming_degree: Vec<i32> = vec![0; n];
+        let mut queue: std::collections::VecDeque<usize> = std::collections::VecDeque::new();
+
+        // Populate the dependency matrix.
+        for &(first, second) in self.links[dim].iter() {
+            adjacency_matrix[first][second] = true;
+        }
+
+        // Build incoming degree lookup structure, and add nodes with no
+        // incoming edges to queue.
+        for i in 0..n {
+            let mut degree = 0;
+
+            for j in 0..n {
+                if adjacency_matrix[j][i] {
+                    degree += 1;
+                }
+            }
+            incoming_degree[i] = degree;
+
+            if degree == 0 {
+                queue.push_back(i);
+            }
+        }
+
+        while let Some(k) = queue.pop_front() {
+            debug_assert!(k < self.nodes[dim].len());
+
+            // Insert node k into the sorted list
+            let node = self.nodes[dim][k];
+            self.sorted_conn_vector[dim].push(node);
+
+            // Remove all edges leaving node k:
+            for i in 0..n {
+                if adjacency_matrix[k][i] {
+                    adjacency_matrix[k][i] = false;
+                    incoming_degree[i] -= 1;
+
+                    if incoming_degree[i] == 0 {
+                        queue.push_back(i);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Returns a vertex number representing a point on the line between two
+/// shape corners, represented by p0 and p1.
+// upstream: connector.cpp midVertexNumber() (static)
+fn mid_vertex_number(p0: &Point, p1: &Point, c: &Point) -> u16 {
+    if c.vn != K_UNASSIGNED_VERTEX_NUMBER {
+        // The split point is a shape corner, so doesn't need its
+        // vertex number adjusting.
+        return c.vn;
+    }
+    if (p0.vn >= 4) && (p0.vn < K_UNASSIGNED_VERTEX_NUMBER) {
+        // The point next to this has the correct nudging direction,
+        // so use that.
+        return p0.vn;
+    }
+    if (p1.vn >= 4) && (p1.vn < K_UNASSIGNED_VERTEX_NUMBER) {
+        // The point next to this has the correct nudging direction,
+        // so use that.
+        return p1.vn;
+    }
+    if (p0.vn < 4) && (p1.vn < 4) {
+        if p0.vn != p1.vn {
+            return p0.vn;
+        }
+        // Splitting between two ordinary shape corners.
+        let mut vn_mid = std::cmp::min(p0.vn, p1.vn);
+        if (std::cmp::max(p0.vn, p1.vn) == 3) && (vn_mid == 0) {
+            vn_mid = 3; // Next vn is effectively 4.
+        }
+        return vn_mid + 4;
+    }
+    debug_assert!((p0.x == p1.x) || (p0.y == p1.y));
+    if p0.vn != K_UNASSIGNED_VERTEX_NUMBER {
+        if p0.x == p1.x {
+            if (p0.vn == 2) || (p0.vn == 3) {
+                return 6;
+            }
+            return 4;
+        } else {
+            if (p0.vn == 0) || (p0.vn == 3) {
+                return 7;
+            }
+            return 5;
+        }
+    } else if p1.vn != K_UNASSIGNED_VERTEX_NUMBER {
+        if p0.x == p1.x {
+            if (p1.vn == 2) || (p1.vn == 3) {
+                return 6;
+            }
+            return 4;
+        } else {
+            if (p1.vn == 0) || (p1.vn == 3) {
+                return 7;
+            }
+            return 5;
+        }
+    }
+
+    // Shouldn't both be new (kUnassignedVertexNumber) points.
+    K_UNASSIGNED_VERTEX_NUMBER
+}
+
+/// Break up overlapping parallel segments that are not the same edge in
+/// the visibility graph, i.e., where one segment is a subsegment of
+/// another.  (Upstream default `tolerance` is 0.)
+///
+/// The upstream iterators `i` (into `conn.ps`) and `j` (into `poly.ps`)
+/// are indices here; every `insert` returns an iterator to the inserted
+/// element, i.e. the index is unchanged.
+// upstream: connector.cpp splitBranchingSegments()
+pub fn split_branching_segments(poly: &mut Polygon, poly_is_conn: bool, conn: &mut Polygon, tolerance: f64) {
+    let mut i: usize = 0;
+    while i != conn.ps.len() {
+        if i == 0 {
+            // Skip the first point.
+            // There are points-1 segments in a connector.
+            i += 1;
+            continue;
+        }
+
+        let mut j: usize = 0;
+        while j != poly.ps.len() {
+            if poly_is_conn && (j == 0) {
+                // Skip the first point.
+                // There are points-1 segments in a connector.
+                j += 1;
+                continue;
+            }
+            let c0 = conn.ps[i - 1];
+            let c1 = conn.ps[i];
+
+            let p0_idx = if j == 0 { poly.ps.len() - 1 } else { j - 1 };
+            let p0 = poly.ps[p0_idx];
+            let p1 = poly.ps[j];
+
+            // Check the first point of the first segment.
+            if ((i - 1) == 0) && point_on_line(&p0, &p1, &c0, tolerance) {
+                conn.ps[i - 1].vn = mid_vertex_number(&p0, &p1, &c0);
+                let v = conn.ps[i - 1];
+                poly.ps.insert(j, v);
+                if j != 0 {
+                    j -= 1;
+                }
+                continue;
+            }
+            // And the second point of every segment.
+            if point_on_line(&p0, &p1, &c1, tolerance) {
+                conn.ps[i].vn = mid_vertex_number(&p0, &p1, &c1);
+                let v = conn.ps[i];
+                poly.ps.insert(j, v);
+                if j != 0 {
+                    j -= 1;
+                }
+                continue;
+            }
+
+            // Check the first point of the first segment.
+            // (`j - 1 == begin` is only evaluated when polyIsConn, so j >= 1.)
+            if poly_is_conn && ((j - 1) == 0) && point_on_line(&c0, &c1, &p0, tolerance) {
+                poly.ps[p0_idx].vn = mid_vertex_number(&c0, &c1, &p0);
+                let v = poly.ps[p0_idx];
+                conn.ps.insert(i, v);
+                continue;
+            }
+            // And the second point of every segment.
+            if point_on_line(&c0, &c1, &p1, tolerance) {
+                poly.ps[j].vn = mid_vertex_number(&c0, &c1, &p1);
+                let v = poly.ps[j];
+                conn.ps.insert(i, v);
+            }
+            j += 1;
+        }
+        i += 1;
+    }
+}
+
+// upstream: connector.cpp segDir() (static)
+fn seg_dir(p1: &Point, p2: &Point) -> i32 {
+    let mut result = 1;
+    if p1.x == p2.x {
+        if p2.y > p1.y {
+            result = -1;
+        }
+    } else if p1.y == p2.y {
+        if p2.x < p1.x {
+            result = -1;
+        }
+    }
+    result
+}
+
+// upstream: connector.cpp posInlineWithConnEndSegs() (static)
+fn pos_inline_with_conn_end_segs(pos: f64, dim: usize, poly: &Polygon, conn: &Polygon) -> bool {
+    let p_last = poly.size().wrapping_sub(1);
+    let c_last = conn.size().wrapping_sub(1);
+    if (
+        // Is inline with the beginning of the "poly" line
+        ((pos == poly.ps[0][dim]) && (pos == poly.ps[1][dim])) ||
+        // Is inline with the end of the "poly" line
+        ((pos == poly.ps[p_last][dim]) && (pos == poly.ps[p_last.wrapping_sub(1)][dim]))
+    ) && (
+        // Is inline with the beginning of the "conn" line
+        ((pos == conn.ps[0][dim]) && (pos == conn.ps[1][dim])) ||
+        // Is inline with the end of the "conn" line
+        ((pos == conn.ps[c_last][dim]) && (pos == conn.ps[c_last.wrapping_sub(1)][dim]))
+    ) {
+        return true;
+    }
+    false
+}
+
+/// Computes the *shared* length of these two shared paths.  The upstream
+/// `Point **` arrays are index arrays into `conn` / `poly` here.
+// upstream: connector.cpp pathLength() (static)
+fn path_length(conn: &Polygon, poly: &Polygon, c_path: &[usize], p_path: &[usize], size: usize) -> f64 {
+    let mut length = 0.0;
+
+    for ind in 1..size {
+        if (conn.ps[c_path[ind - 1]] == poly.ps[p_path[ind - 1]]) && (conn.ps[c_path[ind]] == poly.ps[p_path[ind]]) {
+            // This segment is shared by both paths.
+            //
+            // This function will only be used for orthogonal paths, so we
+            // can use Manhattan distance here since it will be faster to
+            // compute.
+            length += manhattan_dist(&conn.ps[c_path[ind - 1]], &conn.ps[c_path[ind]]);
+        }
+    }
+
+    length
+}
 
 /// Upstream `class ConnectorCrossings`.
 ///
 /// The upstream `Polygon& poly` / `Polygon& conn` members are passed to
 /// [`ConnectorCrossings::count_for_segment`] instead (so that callers can
 /// hand in connector routes temporarily moved out of the `ConnRef`s; the
-/// implementation must therefore not read the routes of
-/// `poly_conn_ref`/`conn_conn_ref` through the router).  The optional
+/// implementation therefore never reads the routes of
+/// `poly_conn_ref`/`conn_conn_ref` through the router — only their
+/// routing type, fixed-route flag and endpoint ConnEnds).  The optional
 /// output pointers are `Option<&mut ..>`.
+///
+/// Point identity in `point_orders`: every [`PtConnPtrPair`] recorded has
+/// `first.route == PtRefRoute::Poly` with `second == poly_conn_ref`, or
+/// `first.route == PtRefRoute::Conn` with `second == conn_conn_ref`;
+/// `first.index` is the vertex index in that polygon (see [`PtRef`]).
 // upstream: connector.h class ConnectorCrossings
 #[derive(Debug)]
 pub struct ConnectorCrossings<'a> {
@@ -1443,27 +1837,559 @@ impl<'a> ConnectorCrossings<'a> {
 
     // upstream: connector.cpp ConnectorCrossings::clear()
     pub fn clear(&mut self) {
-        todo!("upstream: connector.cpp ConnectorCrossings::clear — not yet ported")
+        self.crossing_count = 0;
+        self.crossing_flags = CROSSING_NONE;
+        self.first_shared_path_at_end_length = f64::MAX;
+        self.second_shared_path_at_end_length = f64::MAX;
     }
 
     /// Works out if the segment `conn[c_index-1]--conn[c_index]` really
-    /// crosses `poly`.
+    /// crosses `poly`.  This does not count non-crossing shared paths as
+    /// crossings.  `poly` can be either a connector (`poly_is_conn`) or a
+    /// cluster boundary (closed polygon).
+    ///
+    /// The upstream `Point *c_path[] / *p_path[]` arrays are index vectors
+    /// into `conn.ps` / `poly.ps`.  (Upstream allocates them with
+    /// `min(poly.size(), conn.size())` entries; a shared path longer than
+    /// that — only possible for a closed `poly` shorter than `conn` —
+    /// overflows the heap buffer upstream (UB), whereas here the vector
+    /// just grows.)
     // upstream: connector.cpp ConnectorCrossings::countForSegment()
     pub fn count_for_segment(
         &mut self,
         router: &Router,
         poly: &mut Polygon,
         conn: &mut Polygon,
-        c_index: usize,
+        mut c_index: usize,
         final_segment: bool,
     ) {
-        let _ = (router, poly, conn, c_index, final_segment);
-        todo!("upstream: connector.cpp ConnectorCrossings::countForSegment — not yet ported")
-    }
-}
+        self.clear();
 
-// upstream: connector.cpp splitBranchingSegments()
-pub fn split_branching_segments(poly: &mut Polygon, poly_is_conn: bool, conn: &mut Polygon, tolerance: f64) {
-    let _ = (poly, poly_is_conn, conn, tolerance);
-    todo!("upstream: connector.cpp splitBranchingSegments — not yet ported")
+        let poly_is_orthogonal = self
+            .poly_conn_ref
+            .is_some_and(|c| router.conns[c].routing_type() == ConnType::ConnTypeOrthogonal);
+        let conn_is_orthogonal = self
+            .conn_conn_ref
+            .is_some_and(|c| router.conns[c].routing_type() == ConnType::ConnTypeOrthogonal);
+
+        // Fixed routes will not have segment breaks at possible crossings.
+        let poly_is_fixed = self.poly_conn_ref.is_some_and(|c| router.conns[c].has_fixed_route());
+        let conn_is_fixed = self.conn_conn_ref.is_some_and(|c| router.conns[c].has_fixed_route());
+
+        // We need to split apart connectors at potential crossing points if
+        // either has a fixed route or it is a polyline connector.  This is not
+        // needed for orthogonal connectors where crossings occur at vertices
+        // in visibility graph and on the raw connector routes.
+        if self.check_for_branching_segments
+            || poly_is_fixed
+            || conn_is_fixed
+            || !poly_is_orthogonal
+            || !conn_is_orthogonal
+        {
+            let epsilon = f64::EPSILON;
+            let conn_pn = conn.size();
+            // XXX When doing the pointOnLine test we allow the points to be
+            // slightly non-collinear.  This addresses a problem with clustered
+            // routing where connectors could otherwise route cheaply through
+            // shape corners that were not quite on the cluster boundary, but
+            // reported to be on there by the line segment intersection code,
+            // which I suspect is not numerically accurate enough.  This occurred
+            // for points that only differed by about 10^-12 in the y-dimension.
+            let tolerance = if !self.poly_is_conn { epsilon } else { 0.0 };
+            split_branching_segments(poly, self.poly_is_conn, conn, tolerance);
+            // cIndex is going to be the last, so take into account added points.
+            c_index += conn.size() - conn_pn;
+        }
+        debug_assert!(c_index >= 1);
+        debug_assert!(c_index < conn.size());
+
+        let poly_size = poly.size();
+
+        let a1_idx = c_index - 1;
+        let a2_idx = c_index;
+        let a1 = conn.ps[a1_idx];
+        let a2 = conn.ps[a2_idx];
+
+        // Arrays for computing shared paths (indices into conn / poly).
+        let max_path_size = std::cmp::min(poly_size, conn.size());
+        let mut c_path: Vec<usize> = Vec::with_capacity(max_path_size);
+        let mut p_path: Vec<usize> = Vec::with_capacity(max_path_size);
+        let mut size: usize;
+
+        let j_start = if self.poly_is_conn { 1 } else { 0 };
+        for j in j_start..poly_size {
+            let b1_idx = j.wrapping_sub(1).wrapping_add(poly_size) % poly_size;
+            let b1 = poly.ps[b1_idx];
+            let b2 = poly.ps[j];
+
+            size = 0;
+            c_path.clear();
+            p_path.clear();
+
+            let mut converging = false;
+
+            let a1_eq_b1 = a1 == b1;
+            let a2_eq_b1 = a2 == b1;
+            let a2_eq_b2 = a2 == b2;
+            let a1_eq_b2 = a1 == b2;
+
+            if (a1_eq_b1 && a2_eq_b2) || (a2_eq_b1 && a1_eq_b2) {
+                if final_segment {
+                    converging = true;
+                } else {
+                    // Route along same segment: no penalty.  We detect
+                    // crossovers when we see the segments diverge.
+                    continue;
+                }
+            } else if a2_eq_b1 || a2_eq_b2 || a1_eq_b2 {
+                // Each crossing that is at a vertex in the
+                // visibility graph gets noticed four times.
+                // We ignore three of these cases.
+                // This also catches the case of a shared path,
+                // but this is one that terminates at a common
+                // endpoint, so we don't care about it.
+                continue;
+            }
+
+            if a1_eq_b1 || converging {
+                if !converging {
+                    if self.poly_is_conn && (j == 1) {
+                        // Can't be the end of a shared path or crossing path
+                        // since the common point is the first point of the
+                        // connector path.  This is not a shared path at all.
+                        continue;
+                    }
+
+                    let b0 = poly.ps[j.wrapping_sub(2).wrapping_add(poly_size) % poly_size];
+                    // The segments share an endpoint -- a1==b1.
+                    if a2 == b0 {
+                        // a2 is not a split, continue.
+                        continue;
+                    }
+                }
+
+                // If here and not converging, then we know that a2 != b2
+                // And a2 and its pair in b are a split.
+                debug_assert!(converging || !a2_eq_b2);
+
+                let mut shared_path = false;
+
+                // Initial values here don't matter. They are only used after
+                // being set to sensible values.
+                let mut p_dir_back = false;
+                let mut p_dir: i32 = 0;
+                let mut trace_c: i32 = 0;
+                let mut trace_p: i32 = 0;
+
+                if converging {
+                    // Determine direction we have to look through
+                    // the points of connector b.
+                    p_dir_back = a2_eq_b2;
+                    p_dir = if p_dir_back { -1 } else { 1 };
+                    trace_c = c_index as i32;
+                    trace_p = j as i32;
+                    if !p_dir_back {
+                        if final_segment {
+                            trace_p -= 1;
+                        } else {
+                            trace_c -= 1;
+                        }
+                    }
+
+                    shared_path = true;
+                } else if c_index >= 2 {
+                    let b0 = poly.ps[j.wrapping_sub(2).wrapping_add(poly_size) % poly_size];
+                    let a0 = conn.ps[c_index - 2];
+
+                    if (a0 == b2) || (a0 == b0) {
+                        // Determine direction we have to look through
+                        // the points of connector b.
+                        p_dir_back = a0 == b0;
+                        p_dir = if p_dir_back { -1 } else { 1 };
+                        trace_c = c_index as i32;
+                        // `(int) (size_t)` conversion: truncating, as upstream.
+                        trace_p = (if p_dir_back { j } else { j.wrapping_sub(2) }) as i32;
+
+                        shared_path = true;
+                    }
+                }
+
+                if shared_path {
+                    self.crossing_flags |= CROSSING_SHARES_PATH;
+                    // Shouldn't be here if p_dir is still equal to zero.
+                    debug_assert!(p_dir != 0);
+
+                    // Build the shared path, including the diverging points at
+                    // each end if the connector does not end at a common point.
+                    while (trace_c >= 0)
+                        && (!self.poly_is_conn || ((trace_p >= 0) && (trace_p < poly_size as i32)))
+                    {
+                        // If poly is a cluster boundary, then it is a closed
+                        // poly-line and so it wraps around.
+                        // (int + size_t arithmetic is size_t upstream.)
+                        let index_p = (trace_p as isize as usize).wrapping_add(2 * poly_size) % poly_size;
+                        let index_c = trace_c as usize;
+                        c_path.push(index_c);
+                        p_path.push(index_p);
+                        size += 1;
+                        if (size > 1) && (conn.ps[index_c] != poly.ps[index_p]) {
+                            // Points don't match, so break out of loop.
+                            break;
+                        }
+                        trace_c -= 1;
+                        trace_p += p_dir;
+                    }
+
+                    let cp = |k: usize| -> Point { conn.ps[c_path[k]] };
+                    let pp = |k: usize| -> Point { poly.ps[p_path[k]] };
+
+                    // Are there diverging points at the ends of the shared path.
+                    let front_same = cp(0) == pp(0);
+                    let back_same = cp(size - 1) == pp(size - 1);
+
+                    // Determine if the shared path originates at a junction.
+                    let mut terminates_at_junction = false;
+                    if let (Some(poly_conn_ref), Some(conn_conn_ref)) = (self.poly_conn_ref, self.conn_conn_ref) {
+                        if front_same || back_same {
+                            // To do this we find the two ConnEnds at the common
+                            // end of the shared path.  Then check if they are
+                            // attached to a junction and it is the same one.
+                            let conn_ends = router.conns[conn_conn_ref].endpoint_conn_ends(router);
+
+                            let poly_ends = router.conns[poly_conn_ref].endpoint_conn_ends(router);
+
+                            // The front of the c_path corresponds to destination
+                            // of the connector.
+                            let conn_junction = if front_same {
+                                conn_ends.1.junction(router)
+                            } else {
+                                conn_ends.0.junction(router)
+                            };
+                            let mut use_first = back_same;
+                            if p_dir_back {
+                                // Reversed, so use opposite.
+                                use_first = !use_first;
+                            }
+                            // The front of the p_path corresponds to destination
+                            // of the connector.
+                            let poly_junction = if use_first {
+                                poly_ends.1.junction(router)
+                            } else {
+                                poly_ends.0.junction(router)
+                            };
+
+                            terminates_at_junction = conn_junction.is_some() && (conn_junction == poly_junction);
+                        }
+                    }
+
+                    if let Some(shared_paths) = self.shared_paths.as_deref_mut() {
+                        // Store a copy of the shared path
+                        let start = if front_same { 0 } else { 1 };
+                        let limit = size - if back_same { 0 } else { 1 };
+
+                        let mut s_path: PointList = vec![Point::default(); limit - start];
+                        for i in start..limit {
+                            s_path[i - start] = cp(i);
+                        }
+                        shared_paths.push(s_path);
+                    }
+
+                    // Check to see if these share a fixed segment.
+                    if poly_is_orthogonal && conn_is_orthogonal {
+                        let start_pt = if front_same { 0 } else { 1 };
+                        let end_pt = size - if back_same { 1 } else { 2 };
+                        for dim in 0..2 {
+                            if cp(start_pt)[dim] == cp(end_pt)[dim] {
+                                let pos = cp(start_pt)[dim];
+                                // See if this is inline with either the start
+                                // or end point of both connectors.  We don't
+                                // count them as crossing if they originate at a
+                                // junction and are part of the same hyperedge.
+                                if ((pos == poly.ps[0][dim]) || (pos == poly.ps[poly_size - 1][dim]))
+                                    && ((pos == conn.ps[0][dim]) || (pos == conn.ps[c_index][dim]))
+                                    && !terminates_at_junction
+                                {
+                                    self.crossing_flags |= CROSSING_SHARES_FIXED_SEGMENT;
+                                }
+                            }
+                        }
+
+                        if !front_same && !back_same {
+                            // Find overlapping segments that are constrained by
+                            // the fact that both the adjoining segments are fixed
+                            // in the other dimension, i.e.,
+                            //
+                            // X------++---X
+                            //        ||
+                            //        ||
+                            //    X---++------X
+                            //
+                            // In the example above, altDim is X, and dim is Y.
+                            //
+
+                            // For each dimension...
+                            for dim in 0..2 {
+                                let end = size - 1;
+                                let alt_dim = (dim + 1) % 2;
+                                // If segment is in this dimension...
+                                if cp(1)[alt_dim] == cp(end - 1)[alt_dim] {
+                                    let pos_beg = cp(1)[dim];
+                                    let pos_end = cp(end - 1)[dim];
+                                    // If both segment ends diverge at right-angles...
+                                    if (pos_beg == cp(0)[dim])
+                                        && (pos_beg == pp(0)[dim])
+                                        && (pos_end == cp(end)[dim])
+                                        && (pos_end == pp(end)[dim])
+                                    {
+                                        // and these segments are inline with the conn and path ends themselves...
+                                        if pos_inline_with_conn_end_segs(pos_beg, dim, conn, poly)
+                                            && pos_inline_with_conn_end_segs(pos_end, dim, conn, poly)
+                                        {
+                                            // If all endpoints branch at right angles,
+                                            // then penalise this since it is a segment
+                                            // will will not be able to nudge apart
+                                            // without introducing fixed segment
+                                            // crossings.
+                                            self.crossing_flags |= CROSSING_SHARES_FIXED_SEGMENT;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        // (An `#if 0` block upstream is not ported.)
+                    }
+
+                    // {start,end}CornerSide specifies which side of conn the
+                    // poly path enters and leaves.
+                    let mut start_corner_side = 1;
+                    let end_corner_side;
+
+                    let mut reversed;
+                    if !front_same {
+                        // If there is a divergence at the beginning,
+                        // then order the shared path based on this.
+                        start_corner_side = corner_side(&cp(0), &cp(1), &cp(2), &pp(0));
+                    }
+                    if !back_same {
+                        // If there is a divergence at the end of the path,
+                        // then order the shared path based on this.
+                        end_corner_side = corner_side(&cp(size - 3), &cp(size - 2), &cp(size - 1), &pp(size - 1));
+                    } else {
+                        end_corner_side = start_corner_side;
+                    }
+                    if front_same {
+                        start_corner_side = end_corner_side;
+                    }
+
+                    if end_corner_side != start_corner_side {
+                        // Mark that the shared path crosses.
+                        self.crossing_count += 1;
+                        if let Some(crossing_points) = self.crossing_points.as_deref_mut() {
+                            crossing_points.insert(PointOrd(cp(1)));
+                        }
+                    }
+
+                    if front_same || back_same {
+                        self.crossing_flags |= CROSSING_SHARES_PATH_AT_END;
+
+                        // Reduce the cost of paths that stay straight after
+                        // the split, and make this length available so that the
+                        // paths can be ordered during the improveCrossings()
+                        // step and the straight (usually better) paths will be
+                        // left alone while the router attempts to find better
+                        // paths for the others.
+                        let straight_modifier = 200.0;
+                        let len = path_length(conn, poly, &c_path, &p_path, size);
+                        self.first_shared_path_at_end_length = len;
+                        self.second_shared_path_at_end_length = len;
+                        if back_same && (size > 2) {
+                            if vec_dir(&pp(0), &pp(1), &pp(2), 0.0) == 0 {
+                                self.first_shared_path_at_end_length -= straight_modifier;
+                            }
+
+                            if vec_dir(&cp(0), &cp(1), &cp(2), 0.0) == 0 {
+                                self.second_shared_path_at_end_length -= straight_modifier;
+                            }
+                        } else if front_same && (size > 2) {
+                            if vec_dir(&pp(size - 3), &pp(size - 2), &pp(size - 1), 0.0) == 0 {
+                                self.first_shared_path_at_end_length -= straight_modifier;
+                            }
+
+                            if vec_dir(&cp(size - 3), &cp(size - 2), &cp(size - 1), 0.0) == 0 {
+                                self.second_shared_path_at_end_length -= straight_modifier;
+                            }
+                        }
+                    } else if poly_is_orthogonal && conn_is_orthogonal {
+                        let c_start_dir = vec_dir(&cp(0), &cp(1), &cp(2), 0.0);
+                        let p_start_dir = vec_dir(&pp(0), &pp(1), &pp(2), 0.0);
+                        if (c_start_dir != 0) && (c_start_dir == -p_start_dir) {
+                            // The start segments diverge at 180 degrees to each
+                            // other.  So order based on not introducing overlap
+                            // of the diverging segments when these are nudged
+                            // apart.
+                            start_corner_side = -c_start_dir;
+                        } else {
+                            let c_end_dir = vec_dir(&cp(size - 3), &cp(size - 2), &cp(size - 1), 0.0);
+                            let p_end_dir = vec_dir(&pp(size - 3), &pp(size - 2), &pp(size - 1), 0.0);
+                            if (c_end_dir != 0) && (c_end_dir == -p_end_dir) {
+                                // The end segments diverge at 180 degrees to
+                                // each other.  So order based on not introducing
+                                // overlap of the diverging segments when these
+                                // are nudged apart.
+                                start_corner_side = -c_end_dir;
+                            }
+                        }
+                    }
+
+                    // (An `#if 0` block upstream is not ported.)
+                    if let Some(point_orders) = self.point_orders.as_deref_mut() {
+                        reversed = false;
+                        let start_pt = if front_same { 0 } else { 1 };
+
+                        // Orthogonal should always have at least one segment.
+                        debug_assert!(size > (start_pt + 1));
+
+                        if start_corner_side > 0 {
+                            reversed = !reversed;
+                        }
+
+                        let mut prev_dir = 0;
+                        // Return the ordering for the shared path.
+                        debug_assert!(size > 0 || back_same);
+                        let adj_size = size - if back_same { 0 } else { 1 };
+                        for i in start_pt..adj_size {
+                            let an = cp(i);
+                            let bn = pp(i);
+                            debug_assert!(an == bn);
+
+                            if i > start_pt {
+                                let ap = cp(i - 1);
+                                let bp = pp(i - 1);
+
+                                let this_dir = seg_dir(&ap, &an);
+                                if prev_dir == 0 {
+                                    if this_dir > 0 {
+                                        reversed = !reversed;
+                                    }
+                                } else if this_dir != prev_dir {
+                                    reversed = !reversed;
+                                }
+
+                                let orientation = if ap.x == an.x { 0 } else { 1 };
+                                point_orders.entry(PointOrd(an)).or_default().add_ordered_points(
+                                    orientation,
+                                    &PtConnPtrPair::new(
+                                        PtRef { route: PtRefRoute::Poly, index: p_path[i], point: bn },
+                                        self.poly_conn_ref,
+                                    ),
+                                    &PtConnPtrPair::new(
+                                        PtRef { route: PtRefRoute::Conn, index: c_path[i], point: an },
+                                        self.conn_conn_ref,
+                                    ),
+                                    reversed,
+                                );
+                                debug_assert!(ap == bp);
+                                point_orders.entry(PointOrd(ap)).or_default().add_ordered_points(
+                                    orientation,
+                                    &PtConnPtrPair::new(
+                                        PtRef { route: PtRefRoute::Poly, index: p_path[i - 1], point: bp },
+                                        self.poly_conn_ref,
+                                    ),
+                                    &PtConnPtrPair::new(
+                                        PtRef { route: PtRefRoute::Conn, index: c_path[i - 1], point: ap },
+                                        self.conn_conn_ref,
+                                    ),
+                                    reversed,
+                                );
+                                prev_dir = this_dir;
+                            }
+                        }
+                    }
+                    // (An `#if 0` block upstream is not ported.)
+
+                    self.crossing_flags |= CROSSING_TOUCHES;
+                } else if c_index >= 2 {
+                    // The connectors cross or touch at this point.
+
+                    // Crossing shouldn't be at an endpoint.
+                    debug_assert!(c_index >= 2);
+                    debug_assert!(!self.poly_is_conn || (j >= 2));
+
+                    let b0 = poly.ps[j.wrapping_sub(2).wrapping_add(poly_size) % poly_size];
+                    let a0 = conn.ps[c_index - 2];
+
+                    let side1 = corner_side(&a0, &a1, &a2, &b0);
+                    let side2 = corner_side(&a0, &a1, &a2, &b2);
+                    if side1 != side2 {
+                        // The connectors cross at this point.
+                        self.crossing_count += 1;
+                        if let Some(crossing_points) = self.crossing_points.as_deref_mut() {
+                            crossing_points.insert(PointOrd(a1));
+                        }
+                    }
+
+                    self.crossing_flags |= CROSSING_TOUCHES;
+                    if let Some(point_orders) = self.point_orders.as_deref_mut() {
+                        if poly_is_orthogonal && conn_is_orthogonal {
+                            // Orthogonal case:
+                            // Just order based on which comes from the left and
+                            // top in each dimension because this can only be two
+                            // L-shaped segments touching at the bend.
+                            let reversed_x = (a0.x < a1.x) || (a2.x < a1.x);
+                            let reversed_y = (a0.y < a1.y) || (a2.y < a1.y);
+                            // XXX: Why do we need to invert the reversed values
+                            //      here?  Are they wrong for orthogonal points
+                            //      in the other places?
+                            let b1_pair = PtConnPtrPair::new(
+                                PtRef { route: PtRefRoute::Poly, index: b1_idx, point: b1 },
+                                self.poly_conn_ref,
+                            );
+                            let a1_pair = PtConnPtrPair::new(
+                                PtRef { route: PtRefRoute::Conn, index: a1_idx, point: a1 },
+                                self.conn_conn_ref,
+                            );
+                            let order = point_orders.entry(PointOrd(b1)).or_default();
+                            order.add_ordered_points(0, &b1_pair, &a1_pair, !reversed_x);
+                            let order = point_orders.entry(PointOrd(b1)).or_default();
+                            order.add_ordered_points(1, &b1_pair, &a1_pair, !reversed_y);
+                        }
+                        // (An `#if 0` block upstream is not ported.)
+                    }
+                }
+            } else {
+                if poly_is_orthogonal && conn_is_orthogonal {
+                    // All crossings in orthogonal connectors will be at a
+                    // vertex in the visibility graph, so we need not bother
+                    // doing normal line intersection.
+                    continue;
+                }
+
+                // No endpoint is shared between these two line segments,
+                // so just calculate normal segment intersection.
+
+                let mut c_pt = Point::default();
+                let (mut cx, mut cy) = (c_pt.x, c_pt.y);
+                let intersect_result = segment_intersect_point(&a1, &a2, &b1, &b2, &mut cx, &mut cy);
+                c_pt.x = cx;
+                c_pt.y = cy;
+
+                if intersect_result == DO_INTERSECT {
+                    if !self.poly_is_conn && ((a1 == c_pt) || (a2 == c_pt) || (b1 == c_pt) || (b2 == c_pt)) {
+                        // XXX: This shouldn't actually happen, because these
+                        //      points should be added as bends to each line by
+                        //      splitBranchingSegments().  Thus, lets ignore them.
+                        debug_assert!(a1 != c_pt);
+                        debug_assert!(a2 != c_pt);
+                        debug_assert!(b1 != c_pt);
+                        debug_assert!(b2 != c_pt);
+                        continue;
+                    }
+                    self.crossing_count += 1;
+                    if let Some(crossing_points) = self.crossing_points.as_deref_mut() {
+                        crossing_points.insert(PointOrd(c_pt));
+                    }
+                }
+            }
+        }
+    }
 }
