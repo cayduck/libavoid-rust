@@ -1,3 +1,4 @@
+pub mod avoid;
 mod constants;
 mod geometry;
 mod graph;
