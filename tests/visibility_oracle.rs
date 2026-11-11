@@ -11,12 +11,15 @@
 use std::fmt::Write as _;
 
 use libavoid_rust::avoid::arena::ConnIdx;
+use libavoid_rust::avoid::connectionpin::{
+    ShapeConnectionPin, ATTACH_POS_BOTTOM, ATTACH_POS_CENTRE, ATTACH_POS_LEFT, ATTACH_POS_RIGHT, ATTACH_POS_TOP,
+};
 use libavoid_rust::avoid::connector::{Checkpoint, ConnRef};
 use libavoid_rust::avoid::connend::ConnEnd;
 use libavoid_rust::avoid::geomtypes::{Point, Polygon, Rectangle};
 use libavoid_rust::avoid::router::{format_g, Router, RoutingParameter, POLY_LINE_ROUTING};
 use libavoid_rust::avoid::shape::ShapeRef;
-use libavoid_rust::avoid::vertices::VertID;
+use libavoid_rust::avoid::vertices::{VertID, CONN_DIR_NONE};
 use libavoid_rust::avoid::viscluster::ClusterRef;
 
 fn g17(v: f64) -> String {
@@ -54,6 +57,7 @@ struct Scene {
     shapes: Vec<Option<ShapeRef>>,
     shape_polys: Vec<Polygon>,
     shape_added_this_round: Vec<bool>,
+    shape_has_pin: Vec<bool>,
     conns: Vec<Option<ConnIdx>>,
     conn_src: Vec<Point>,
     conn_dst: Vec<Point>,
@@ -118,7 +122,9 @@ impl Scene {
             if self.penalty_mode && self.has_cluster && (i == 0) {
                 continue;
             }
-            if for_deletion && self.shape_added_this_round[i] {
+            // (Shapes with pins are never deleted: connectors attached to their
+            // pins would be left referring to the deleted shape upstream.)
+            if for_deletion && (self.shape_added_this_round[i] || self.shape_has_pin[i]) {
                 continue;
             }
             live.push(i);
@@ -185,6 +191,29 @@ impl Scene {
         self.shapes.push(Some(shape));
         self.shape_polys.push(poly);
         self.shape_added_this_round.push(true);
+        self.shape_has_pin.push(false);
+        if self.rnd(4) == 0 {
+            // A connection pin (class 1) at a proportional position on the
+            // shape's bounding box.
+            let px = self.rnd(3);
+            let py = self.rnd(3);
+            let xs = if px == 0 {
+                ATTACH_POS_LEFT
+            } else if px == 1 {
+                ATTACH_POS_CENTRE
+            } else {
+                ATTACH_POS_RIGHT
+            };
+            let ys = if py == 0 {
+                ATTACH_POS_TOP
+            } else if py == 1 {
+                ATTACH_POS_CENTRE
+            } else {
+                ATTACH_POS_BOTTOM
+            };
+            ShapeConnectionPin::new_shape(&mut self.router, shape, 1, xs, ys, true, 0.0, CONN_DIR_NONE);
+            *self.shape_has_pin.last_mut().unwrap() = true;
+        }
     }
 
     fn add_conn(&mut self) {
@@ -193,7 +222,26 @@ impl Scene {
         if src == dst {
             dst.x += 5.0;
         }
-        let conn = ConnRef::new_with_ends(&mut self.router, &ConnEnd::from_point(src), &ConnEnd::from_point(dst), 0);
+        let mut src_end = ConnEnd::from_point(src);
+        let mut dst_end = ConnEnd::from_point(dst);
+        let pin_shapes: Vec<usize> = (0..self.shapes.len())
+            .filter(|&i| self.shapes[i].is_some() && self.shape_has_pin[i])
+            .collect();
+        if !pin_shapes.is_empty() {
+            let mut src_pin_shape: Option<usize> = None;
+            if self.rnd(4) == 0 {
+                let s = pin_shapes[self.rnd(pin_shapes.len() as i32) as usize];
+                src_pin_shape = Some(s);
+                src_end = ConnEnd::from_shape_pin(&self.router, self.shapes[s].unwrap(), 1);
+            }
+            if self.rnd(4) == 0 {
+                let s = pin_shapes[self.rnd(pin_shapes.len() as i32) as usize];
+                if Some(s) != src_pin_shape {
+                    dst_end = ConnEnd::from_shape_pin(&self.router, self.shapes[s].unwrap(), 1);
+                }
+            }
+        }
+        let conn = ConnRef::new_with_ends(&mut self.router, &src_end, &dst_end, 0);
         self.conns.push(Some(conn));
         self.conn_src.push(src);
         self.conn_dst.push(dst);
@@ -292,6 +340,7 @@ fn run_scene(index: i32, penalty_mode: bool, out: &mut String) {
         shapes: Vec::new(),
         shape_polys: Vec::new(),
         shape_added_this_round: Vec::new(),
+        shape_has_pin: Vec::new(),
         conns: Vec::new(),
         conn_src: Vec::new(),
         conn_dst: Vec::new(),

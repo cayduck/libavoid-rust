@@ -51,6 +51,7 @@
 #include "libavoid/connector.h"
 #include "libavoid/connend.h"
 #include "libavoid/viscluster.h"
+#include "libavoid/connectionpin.h"
 #include "libavoid/vertices.h"
 #include "libavoid/graph.h"
 
@@ -89,6 +90,7 @@ struct Scene
     std::vector<ShapeRef *> shapes;
     std::vector<Polygon> shapePolys;
     std::vector<bool> shapeAddedThisRound;
+    std::vector<bool> shapeHasPin;
     std::vector<ConnRef *> conns;
     std::vector<Point> connSrc;
     std::vector<Point> connDst;
@@ -173,7 +175,9 @@ static std::vector<int> liveShapes(Scene& sc, bool forDeletion)
         {
             continue;
         }
-        if (forDeletion && sc.shapeAddedThisRound[i])
+        // (Shapes with pins are never deleted: connectors attached to their
+        // pins would be left referring to the deleted shape upstream.)
+        if (forDeletion && (sc.shapeAddedThisRound[i] || sc.shapeHasPin[i]))
         {
             continue;
         }
@@ -253,9 +257,24 @@ static Point randPoint(Scene& sc)
 static void addShape(Scene& sc)
 {
     Polygon poly = makeShapePoly();
-    sc.shapes.push_back(new ShapeRef(sc.router, poly));
+    ShapeRef *shape = new ShapeRef(sc.router, poly);
+    sc.shapes.push_back(shape);
     sc.shapePolys.push_back(poly);
     sc.shapeAddedThisRound.push_back(true);
+    sc.shapeHasPin.push_back(false);
+    if (rnd(4) == 0)
+    {
+        // A connection pin (class 1) at a proportional position on the
+        // shape's bounding box.
+        int px = rnd(3);
+        int py = rnd(3);
+        double xs = (px == 0) ? ATTACH_POS_LEFT :
+                ((px == 1) ? ATTACH_POS_CENTRE : ATTACH_POS_RIGHT);
+        double ys = (py == 0) ? ATTACH_POS_TOP :
+                ((py == 1) ? ATTACH_POS_CENTRE : ATTACH_POS_BOTTOM);
+        new ShapeConnectionPin(shape, 1, xs, ys, true, 0.0, ConnDirNone);
+        sc.shapeHasPin.back() = true;
+    }
 }
 
 static void addConn(Scene& sc)
@@ -266,7 +285,34 @@ static void addConn(Scene& sc)
     {
         dst.x += 5;
     }
-    ConnRef *conn = new ConnRef(sc.router, ConnEnd(src), ConnEnd(dst));
+    ConnEnd srcEnd(src);
+    ConnEnd dstEnd(dst);
+    std::vector<int> pinShapes;
+    for (size_t i = 0; i < sc.shapes.size(); ++i)
+    {
+        if (sc.shapes[i] && sc.shapeHasPin[i])
+        {
+            pinShapes.push_back((int) i);
+        }
+    }
+    if (!pinShapes.empty())
+    {
+        int srcPinShape = -1;
+        if (rnd(4) == 0)
+        {
+            srcPinShape = pinShapes[rnd((int) pinShapes.size())];
+            srcEnd = ConnEnd(sc.shapes[srcPinShape], 1);
+        }
+        if (rnd(4) == 0)
+        {
+            int s = pinShapes[rnd((int) pinShapes.size())];
+            if (s != srcPinShape)
+            {
+                dstEnd = ConnEnd(sc.shapes[s], 1);
+            }
+        }
+    }
+    ConnRef *conn = new ConnRef(sc.router, srcEnd, dstEnd);
     sc.conns.push_back(conn);
     sc.connSrc.push_back(src);
     sc.connDst.push_back(dst);
