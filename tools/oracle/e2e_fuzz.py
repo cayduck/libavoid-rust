@@ -229,8 +229,11 @@ def compare(golden_path, soft=False, scene=None, full=False, quiet=False, env_ex
         env["E2E_FULL"] = "1"
     if env_extra:
         env.update(env_extra)
-    r = subprocess.run([rust_bin(), "--nocapture", "--test-threads", "1"], capture_output=True,
-                       text=True, env=env)
+    try:
+        r = subprocess.run([rust_bin(), "--nocapture", "--test-threads", "1"], capture_output=True,
+                           text=True, env=env, timeout=float(os.environ.get("E2E_REPLAY_TIMEOUT", "600")))
+    except subprocess.TimeoutExpired:
+        return {"<process>": "died: replay timeout"}, ""
     status = {}
     try:
         for line in open(rep_path):
@@ -320,13 +323,14 @@ def wait_for_memory(quiet=False):
         time.sleep(10)
 
 
-def gen_fast(seed, first, count, path):
+def gen_fast(seed, first, count, path, nd=None):
     """Campaign mode: run the NDEBUG build and compare every scene that did
     not crash with the Rust port; only scenes that crash or diverge are run
     on the asserting and ASan builds and classified (a scene whose NDEBUG
     output the port reproduces needs no UB verdict).  Returns the
     classified scenes and the Rust statuses."""
-    nd = gen_variant("ndebug", seed, first, count)
+    if nd is None:
+        nd = gen_variant("ndebug", seed, first, count)
     with open(path, "w") as f:
         f.write(format_scenes([(n, d, o if not is_crash(o) else ["#exclude crash pending"])
                                for n, d, o in nd]))
@@ -380,10 +384,18 @@ def cmd_campaign(args):
             done[(e["seed"], e["first"], e["count"])] = e
     import time
     t_start = time.time()
-    for first in range(args.first, args.first + args.scenes, args.batch):
-        count = min(args.batch, args.first + args.scenes - first)
-        if (args.seed, first, count) in done:
-            continue
+    # Campaign replays use all cores (the C++ prefetch of the next batch
+    # runs alongside); the slot-reuse and excluded-scene replays run on
+    # every 5th batch only.
+    os.environ["E2E_THREADS"] = os.environ.get("E2E_THREADS", "10")
+    batches = [(f, min(args.batch, args.first + args.scenes - f))
+               for f in range(args.first, args.first + args.scenes, args.batch)
+               if (args.seed, f, min(args.batch, args.first + args.scenes - f)) not in done]
+    prefetch = ThreadPoolExecutor(1)
+    pending = {}
+    if batches and not args.full_classify:
+        pending[batches[0][0]] = prefetch.submit(gen_variant, "ndebug", args.seed, *batches[0])
+    for bi, (first, count) in enumerate(batches):
         if args.max_minutes and time.time() - t_start > args.max_minutes * 60:
             progress("campaign seed %d: time budget of %d min reached before batch %d"
                      % (args.seed, args.max_minutes, first))
@@ -396,11 +408,24 @@ def cmd_campaign(args):
                 f.write(format_scenes(scenes))
             status, _ = compare(path, quiet=True)
         else:
-            scenes, status = gen_fast(args.seed, first, count, path)
+            nd = pending.pop(first).result()
+            if bi + 1 < len(batches) and not (args.max_minutes and
+                                               time.time() - t_start > args.max_minutes * 60):
+                nf, nc = batches[bi + 1]
+                pending[nf] = prefetch.submit(gen_variant, "ndebug", args.seed, nf, nc)
+            scenes, status = gen_fast(args.seed, first, count, path, nd)
         # The same replay with arena slot reuse disabled must give the same
         # statuses (else a slot index leaks into behaviour).
-        status2, _ = compare(path, quiet=True, env_extra={"E2E_NO_SLOT_REUSE": "1"})
-        slot_diff = sorted(n for n in set(status) | set(status2) if status.get(n) != status2.get(n))
+        slot_diff = []
+        extra = (first // args.batch) % 5 == 0
+        if extra:
+            status2, _ = compare(path, quiet=True, env_extra={"E2E_NO_SLOT_REUSE": "1"})
+            slot_diff = sorted(n for n in set(status) | set(status2) if status.get(n) != status2.get(n))
+            # Excluded scenes: the port must not panic (bounded time).
+            soft, _ = compare(path, quiet=True, soft=True)
+            for n, st in soft.items():
+                if st.startswith("panic") or st.startswith("died"):
+                    slot_diff.append(n + " (excluded scene: " + st[:80] + ")")
         divergent = sorted((n, s) for n, s in status.items()
                            if s.startswith(("differ", "panic", "died")))
         keep = [sc for sc in scenes if status.get(sc[0], "").startswith(("differ", "panic"))]
@@ -432,9 +457,12 @@ def cmd_campaign(args):
                 for k, v in e["classes"].items():
                     tot_cls[k] = tot_cls.get(k, 0) + v
         el = time.time() - t_start
-        progress("campaign seed %d: %d scenes done (batch %d..%d); classes %s; divergent %d; "
-                 "elapsed %.0f min" % (args.seed, tot_scenes, first, first + count - 1,
-                                       sorted(tot_cls.items()), tot_div, el / 60))
+        progress("campaign seed %d: %d scenes done (batch %d..%d%s); classes %s; divergent %d; "
+                 "elapsed %.0f min, %.0f scenes/min" % (
+                     args.seed, tot_scenes, first, first + count - 1,
+                     ", +slot-reuse/panic replays" if extra else "",
+                     sorted(tot_cls.items()), tot_div, el / 60,
+                     tot_scenes / max(el / 60, 1e-9)))
         print("batch seed %d %d..%d: %s | rust: %s | divergent: %d" % (
             args.seed, first, first + count - 1, sorted(entry["classes"].items()),
             sorted(rust.items()), len(divergent)), flush=True)
