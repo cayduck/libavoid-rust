@@ -1863,7 +1863,7 @@ CPP_TYPES = {
     "jiter": "Avoid::JunctionRefList::const_iterator", "citer": "Avoid::ConnRefList::const_iterator",
     "jcpair": "std::pair<Avoid::JunctionRef *, Avoid::ConnRef *>",
     "endpair": "std::pair<Avoid::ConnEnd, Avoid::ConnEnd>", "connlist": "Avoid::ConnRefList",
-    "int": "int", "double": "double", "bool": "bool",
+    "int": "int", "double": "double", "bool": "bool", "cluster": "Avoid::ClusterRef *",
 }
 
 CPP_METHOD = {  # receiver->method(args)
@@ -1875,7 +1875,15 @@ CPP_METHOD = {  # receiver->method(args)
     "makePathInvalid", "displayRoute", "route", "splitAtSegment", "endpointConnEnds", "id",
     "setPositionFixed", "recommendedPosition", "position", "attachedConnectors",
     "removeJunctionAndMergeConnectors", "setExclusive",
+    # audit additions (tests/audit_scenes/*.ops)
+    "deleteCluster", "markAllObstaclesAsMoved", "setFixedExistingRoute", "setHateCrossings",
+    "setEndpoint", "setCentrePos", "setConnectionCost",
 }
+
+# setRouterFlag ROUTER CODE BOOL (audit scenes): public Router flag members.
+ROUTER_FLAGS = ["PartialTime", "SimpleRouting", "ClusteredRouting", "IgnoreRegions",
+                "UseLeesAlgorithm", "InvisibilityGrph", "SelectiveReroute", "PartialFeedback",
+                "RubberBandRouting"]
 
 
 EXPR_TYPES = {
@@ -1889,7 +1897,7 @@ EXPR_TYPES = {
     "endpointConnEnds": "endpair", "newAndDeletedObjectListsFromHyperedgeImprovement": "ndlists",
     "attachedConnectors": "connlist", "newConnectorList": "connlist", "newJunctionList": "junctionlist",
     "deletedConnectorList": "connlist", "deletedJunctionList": "junctionlist",
-    "changedConnectorList": "connlist",
+    "changedConnectorList": "connlist", "ClusterRef": "cluster",
 }
 
 
@@ -1924,7 +1932,7 @@ def cpp_expr(e, types):
 
     def recv(x):
         # pointers use ->, values use .
-        if etype(x, types) in ("router", "conn", "shape", "junction", "pin", "rerouter"):
+        if etype(x, types) in ("router", "conn", "shape", "junction", "pin", "rerouter", "cluster"):
             return ("%s->" if isinstance(x, str) else "(%s)->") % cpp_expr(x, types)
         return ("%s." if isinstance(x, str) else "(%s).") % cpp_expr(x, types)
 
@@ -1983,6 +1991,14 @@ def cpp_expr(e, types):
         return "new Avoid::ShapeConnectionPin(%s, %s, %s, %s, %s, %s)" % tuple(a)
     if f == "PinJunction":
         return "new Avoid::ShapeConnectionPin(%s, %s, %s)" % tuple(a)
+    if f == "ClusterRef":
+        return "new Avoid::ClusterRef(%s, %s, %s)" % tuple(a)
+    if f == "clusterSetNewPoly":
+        return "%ssetNewPoly(%s)" % (recv(e[1]), a[1])
+    if f == "setRouterFlag":
+        return "%s%s = %s" % (recv(e[1]), ROUTER_FLAGS[int(a[1])], a[2])
+    if f == "preferOrthogonalDimension":
+        return "%spreferOrthogonalDimension((size_t) %s)" % (recv(e[1]), a[1])
     if f == "setRoutingParameter" or f == "setRoutingPenalty":
         return "%s%s((Avoid::RoutingParameter) %s, %s)" % (recv(e[1]), f, a[1], a[2])
     if f == "setRoutingOption":

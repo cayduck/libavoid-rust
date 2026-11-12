@@ -28,7 +28,8 @@ use std::collections::HashMap;
 use std::panic::{self, AssertUnwindSafe};
 use std::rc::Rc;
 
-use libavoid_rust::avoid::arena::{ConnIdx, PinIdx};
+use libavoid_rust::avoid::arena::{ClusterIdx, ConnIdx, PinIdx};
+use libavoid_rust::avoid::viscluster::ClusterRef;
 use libavoid_rust::avoid::connectionpin::ShapeConnectionPin;
 use libavoid_rust::avoid::connector::{Checkpoint, ConnRef, ConnType};
 use libavoid_rust::avoid::connend::ConnEnd;
@@ -355,6 +356,7 @@ enum Value {
     Shape(ShapeRef),
     Junction(JunctionRef),
     Pin(PinIdx),
+    Cluster(ClusterIdx),
     Checkpoint(Checkpoint),
     Checkpoints(Vec<Checkpoint>),
     ConnEndList(Vec<ConnEnd>),
@@ -384,6 +386,7 @@ impl Value {
             Value::Shape(_) => "shape",
             Value::Junction(_) => "junction",
             Value::Pin(_) => "pin",
+            Value::Cluster(_) => "cluster",
             Value::Checkpoint(_) => "checkpoint",
             Value::Checkpoints(_) => "checkpoints",
             Value::ConnEndList(_) => "connendlist",
@@ -398,7 +401,7 @@ impl Value {
     }
 }
 
-const POINTER_TYPES: &[&str] = &["router", "conn", "shape", "junction", "pin", "rerouter"];
+const POINTER_TYPES: &[&str] = &["router", "conn", "shape", "junction", "pin", "rerouter", "cluster"];
 
 type CallbackLog = Rc<RefCell<Vec<(ConnIdx, CbKind)>>>;
 
@@ -789,6 +792,98 @@ impl Interp {
                 let j = self.junction(n(0));
                 let (cls, dirs) = (self.uint(n(1)), self.uint(n(2)));
                 Value::Pin(ShapeConnectionPin::new_junction(self.r(), j, cls, dirs))
+            }
+            // --- audit additions (tests/audit_scenes) ---
+            "ClusterRef" => {
+                ar!(3);
+                self.router_arg(n(0));
+                let (p, id) = (self.poly(n(1)), self.uint(n(2)));
+                Value::Cluster(ClusterRef::new(self.r(), &p, id))
+            }
+            "deleteCluster" => {
+                ar!(2);
+                self.router_arg(n(0));
+                let c = match n(1) {
+                    Value::Cluster(c) => *c,
+                    o => self.err(&format!("expected a ClusterRef, got {}", o.kind())),
+                };
+                self.r().delete_cluster(c);
+                Value::Void
+            }
+            "clusterSetNewPoly" => {
+                ar!(2);
+                let c = match n(0) {
+                    Value::Cluster(c) => *c,
+                    o => self.err(&format!("expected a ClusterRef, got {}", o.kind())),
+                };
+                let p = self.poly(n(1));
+                c.set_new_poly(self.r(), &p);
+                Value::Void
+            }
+            "setRouterFlag" => {
+                ar!(3);
+                self.router_arg(n(0));
+                let (flag, b) = (self.int(n(1)), self.boolean(n(2)));
+                let r = self.r();
+                match flag {
+                    0 => r.partial_time = b,
+                    1 => r.simple_routing = b,
+                    2 => r.clustered_routing = b,
+                    3 => r.ignore_regions = b,
+                    4 => r.use_lees_algorithm = b,
+                    5 => r.invisibility_grph = b,
+                    6 => r.selective_reroute = b,
+                    7 => r.partial_feedback = b,
+                    8 => r.rubber_band_routing = b,
+                    _ => self.err(&format!("bad router flag {}", flag)),
+                }
+                Value::Void
+            }
+            "markAllObstaclesAsMoved" => {
+                ar!(1);
+                self.router_arg(n(0));
+                self.r().mark_all_obstacles_as_moved();
+                Value::Void
+            }
+            "setFixedExistingRoute" => {
+                ar!(1);
+                let c = self.conn(n(0));
+                c.set_fixed_existing_route(self.r());
+                Value::Void
+            }
+            "setHateCrossings" => {
+                ar!(2);
+                let (c, b) = (self.conn(n(0)), self.boolean(n(1)));
+                c.set_hate_crossings(self.r(), b);
+                Value::Void
+            }
+            "setEndpoint" => {
+                ar!(3);
+                let (c, t, e) = (self.conn(n(0)), self.uint(n(1)), self.connend(n(2)));
+                c.set_endpoint(self.r(), t, &e);
+                Value::Void
+            }
+            "setCentrePos" => {
+                ar!(2);
+                let (sh, p) = (self.shape(n(0)), self.point(n(1)));
+                sh.set_centre_pos(self.r(), &p);
+                Value::Void
+            }
+            "preferOrthogonalDimension" => {
+                ar!(2);
+                let (j, d) = (self.junction(n(0)), self.uint(n(1)));
+                j.prefer_orthogonal_dimension(self.r(), d as usize);
+                Value::Void
+            }
+            "setConnectionCost" => {
+                ar!(2);
+                let p = match n(0) {
+                    Value::Pin(p) => *p,
+                    o => self.err(&format!("expected a pin, got {}", o.kind())),
+                };
+                let c = self.num(n(1));
+                p.set_connection_cost(self.r(), c);
+                Value::Void
             }
             // --- Router methods ---
             "processTransaction" => {
