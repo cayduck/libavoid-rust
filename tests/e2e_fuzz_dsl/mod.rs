@@ -404,6 +404,40 @@ impl Scene {
         self.stage += 1;
     }
 
+    /// As `hyperedgeIsTree()` in the C++ driver.
+    fn hyperedge_is_tree(&self, root: JunctionRef) -> bool {
+        let r = self.router.as_ref().unwrap();
+        let mut seen_j = vec![root];
+        let mut seen_c: Vec<ConnIdx> = Vec::new();
+        let mut stack = vec![root];
+        while let Some(j) = stack.pop() {
+            for &(c, _) in self.conns.iter() {
+                let (e1, e2) = c.endpoint_conn_ends(r);
+                let a = e1.junction(r);
+                let b = e2.junction(r);
+                if a != Some(j) && b != Some(j) {
+                    continue;
+                }
+                if a == b {
+                    return false;
+                }
+                if seen_c.contains(&c) {
+                    continue;
+                }
+                seen_c.push(c);
+                let o = if a == Some(j) { b } else { a };
+                if let Some(o) = o {
+                    if seen_j.contains(&o) {
+                        return false;
+                    }
+                    seen_j.push(o);
+                    stack.push(o);
+                }
+            }
+        }
+        true
+    }
+
     fn pin_at(&self, s: ShapeRef, t: &mut Toks) -> Option<PinIdx> {
         let pins = s.connection_pins(self.router.as_ref().unwrap());
         t.reference(pins.len()).map(|i| pins[i])
@@ -414,10 +448,30 @@ impl Scene {
     /// one-command transaction.
     fn run_command(&mut self, line: &str) {
         let cmd = line.split_whitespace().next().unwrap_or("");
+        if self.router.as_ref().is_some_and(|r| !r.transaction_use()) {
+            for _ in 0..3 {
+                if self.router.as_ref().unwrap().action_list.is_empty() {
+                    break;
+                }
+                self.r().set_transaction_use(true);
+                self.r().process_transaction();
+                self.r().set_transaction_use(false);
+            }
+        }
         let wrap = self.router.as_ref().is_some_and(|r| !r.transaction_use())
             && matches!(
                 cmd,
-                "moveby" | "moveto" | "delshape" | "movejby" | "movejto" | "deljunc" | "mergej" | "markmoved" | "conn" | "split"
+                "moveby"
+                    | "moveto"
+                    | "delshape"
+                    | "movejby"
+                    | "movejto"
+                    | "deljunc"
+                    | "mergej"
+                    | "markmoved"
+                    | "conn"
+                    | "split"
+                    | "pin"
             );
         if wrap {
             self.r().set_transaction_use(true);
@@ -473,7 +527,15 @@ impl Scene {
                 self.sync();
                 self.dump(ret);
             }
-            "markmoved" => self.r().mark_all_obstacles_as_moved(),
+            "markmoved" => {
+                // (as the C++ driver: not with queued removals)
+                if self.router.as_ref().unwrap().action_list.iter().any(|a| {
+                    a.type_ == ActionType::ShapeRemove || a.type_ == ActionType::JunctionRemove
+                }) {
+                    return;
+                }
+                self.r().mark_all_obstacles_as_moved()
+            }
             "rect" => {
                 let id = t.unum();
                 let x1 = t.num();
@@ -725,6 +787,9 @@ impl Scene {
             "regj" => {
                 let i = refr!(self.juncs.len());
                 let j = self.juncs[i].0;
+                if !self.hyperedge_is_tree(j) {
+                    return;
+                }
                 self.r().hyperedge_rerouter().register_hyperedge_for_rerouting_junction(j);
             }
             "regends" => {
@@ -757,7 +822,7 @@ impl Scene {
                         _ => ok = false,
                     }
                 }
-                if !ok || ends.len() < 2 {
+                if !ok || ends.len() < 3 {
                     return;
                 }
                 self.r().hyperedge_rerouter().register_hyperedge_for_rerouting(ends);
@@ -789,6 +854,7 @@ pub fn run_scene(dsl: &[String], full: bool) -> Vec<String> {
     }
     if let Some(r) = sc.router.as_mut() {
         // (as the C++ driver: process queued deletions before ~Router)
+        r.set_transaction_use(true);
         r.process_transaction();
     }
     if let Some(mut r) = sc.router.take() {

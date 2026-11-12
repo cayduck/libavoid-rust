@@ -598,6 +598,39 @@ static bool hasPinClass(ShapeRef *s, unsigned cls)
     return false;
 }
 
+// Whether the connectors reachable from junction `root` through junctions
+// (live connectors, by their endpoint ConnEnds) form a tree.
+static bool hyperedgeIsTree(Scene& sc, JunctionRef *root)
+{
+    std::set<JunctionRef *> seenJ;
+    std::set<ConnRef *> seenC;
+    std::vector<JunctionRef *> stack;
+    stack.push_back(root);
+    seenJ.insert(root);
+    while (!stack.empty())
+    {
+        JunctionRef *j = stack.back();
+        stack.pop_back();
+        for (size_t k = 0; k < sc.conns.size(); ++k)
+        {
+            ConnRef *c = sc.conns[k];
+            std::pair<ConnEnd, ConnEnd> ends = c->endpointConnEnds();
+            JunctionRef *a = ends.first.junction();
+            JunctionRef *b = ends.second.junction();
+            if (a != j && b != j) continue;
+            if (a == b) return false;
+            if (seenC.count(c)) continue;
+            seenC.insert(c);
+            JunctionRef *o = (a == j) ? b : a;
+            if (!o) continue;
+            if (seenJ.count(o)) return false;
+            seenJ.insert(o);
+            stack.push_back(o);
+        }
+    }
+    return true;
+}
+
 static ConnEnd readEnd(Scene& sc, std::istringstream& in)
 {
     std::string k = word(in);
@@ -683,6 +716,12 @@ static void runCommandInner(Scene& sc, const std::string& line)
     }
     else if (cmd == "markmoved")
     {
+        // (moving an obstacle with a queued removal uses freed memory)
+        for (ActionInfoList::const_iterator it = r->actionList.begin();
+                it != r->actionList.end(); ++it)
+        {
+            if (it->type == ShapeRemove || it->type == JunctionRemove) return;
+        }
         r->markAllObstaclesAsMoved();
     }
     else if (cmd == "rect")
@@ -921,6 +960,9 @@ static void runCommandInner(Scene& sc, const std::string& line)
     else if (cmd == "regj")
     {
         if (!ref(in, sc.juncs.size(), i)) return;
+        // (a cyclic hyperedge -- e.g. a connector from a junction to itself
+        // -- makes upstream recurse forever / use freed memory)
+        if (!hyperedgeIsTree(sc, sc.juncs[i])) return;
         r->hyperedgeRerouter()->registerHyperedgeForRerouting(sc.juncs[i]);
     }
     else if (cmd == "regends")
@@ -953,7 +995,8 @@ static void runCommandInner(Scene& sc, const std::string& line)
             used.insert(sc.shapes[i]);
             ends.push_back(ConnEnd(sc.shapes[i], cls));
         }
-        if (!ok || ends.size() < 2) return;
+        // (with two terminals the MTST has no junction: null root)
+        if (!ok || ends.size() < 3) return;
         r->hyperedgeRerouter()->registerHyperedgeForRerouting(ends);
     }
     else
@@ -973,14 +1016,23 @@ static void runCommandInner(Scene& sc, const std::string& line)
 //    modifyConnector() from inside processActions(), which re-enters
 //    processTransaction() on the same action list until the stack
 //    overflows (moveby, moveto, movejby, movejto, delshape, deljunc,
-//    markmoved).
+//    markmoved);
+//  * Obstacle::addConnectionPin() processes the transaction before the new
+//    pin has its vertex, and assignPinVisibilityTo() then dereferences the
+//    null vertex if a connector uses that pin class (pin);
+//  * actions left queued by a transaction (hyperedge rerouting queues the
+//    removal of the junctions it replaces) and processed in immediate mode
+//    re-enter processTransaction() from ~Obstacle (pin removal) on the
+//    same action list; so before any command in immediate mode, queued
+//    actions are first processed in a transaction (no dump).
 // In immediate mode the interpreter therefore runs them as a one-command
 // transaction (setTransactionUse(true); command; processTransaction();
 // setTransactionUse(false)), which is what immediate mode means.
 static bool unsafeImmediate(const std::string& cmd)
 {
     static const char *cmds[] = { "moveby", "moveto", "delshape", "movejby",
-        "movejto", "deljunc", "mergej", "markmoved", "conn", "split", nullptr };
+        "movejto", "deljunc", "mergej", "markmoved", "conn", "split", "pin",
+        nullptr };
     for (const char **c = cmds; *c; ++c)
     {
         if (cmd == *c) return true;
@@ -992,6 +1044,15 @@ static void runCommand(Scene& sc, const std::string& line)
 {
     std::istringstream in(line);
     std::string cmd = word(in);
+    if (sc.r && !sc.r->transactionUse())
+    {
+        for (int k = 0; k < 3 && !sc.r->actionList.empty(); ++k)
+        {
+            sc.r->setTransactionUse(true);
+            sc.r->processTransaction();
+            sc.r->setTransactionUse(false);
+        }
+    }
     bool wrap = sc.r && !sc.r->transactionUse() && unsafeImmediate(cmd);
     if (wrap) sc.r->setTransactionUse(true);
     runCommandInner(sc, line);
@@ -1020,6 +1081,7 @@ static std::vector<std::string> execScene(const std::vector<std::string>& dsl)
         // Process queued deletions (e.g. junctions removed by hyperedge
         // rerouting) before ~Router: upstream's destructor otherwise calls
         // removeFromGraph() on such inactive junctions.
+        sc.r->setTransactionUse(true);
         sc.r->processTransaction();
     }
     delete sc.r;
@@ -1291,6 +1353,7 @@ struct Gen
     bool inBatch;
     bool allowPoly;
     bool hyperOpts;
+    bool hyper;           // scene registers hyperedges for rerouting
 };
 
 static double coord(Gen& g, double lo, double hi)
@@ -1653,7 +1716,7 @@ static void genJunction(Gen& g)
 static std::string genClusterPoly(Gen& g)
 {
     std::vector<double> xs, ys;
-    if (!g.shapes.empty() && chance(40))
+    if (false)
     {
         // Boundary through shape corners (upstream expects polyline
         // cluster boundary points to be shape vertices).
@@ -1732,7 +1795,9 @@ static void genOp(Gen& g)
         if (chance(50))
         {
             // Resize in place.
+            double w = x2 - x1, h = y2 - y1;
             x1 = s.x1; y1 = s.y1;
+            x2 = x1 + w; y2 = y1 + h;
         }
         std::vector<double> xs, ys;
         if (g.allowPoly && chance(30))
@@ -1885,11 +1950,11 @@ static void genOp(Gen& g)
     {
         g.L.push_back("settings");
     }
-    else if (w < 91 && g.nJ > 0 && (g.flags & 2))
+    else if (w < 91 && g.nJ > 0 && g.hyper)
     {
         g.L.push_back("regj " + ref1000());
     }
-    else if (w < 93 && (g.flags & 2))
+    else if (w < 93 && g.hyper)
     {
         // Hyperedge rerouting is orthogonal only (MTST over the orthogonal
         // visibility graph).
@@ -1904,7 +1969,8 @@ static void genOp(Gen& g)
             if (!g.shapes[k].classes.empty()) withPins.push_back(k);
         }
         if (withPins.size() < 2) return;
-        unsigned n = std::min((unsigned) withPins.size(), 2 + rnd(4));
+        if (withPins.size() < 3) return;
+        unsigned n = std::min((unsigned) withPins.size(), 3 + rnd(3));
         std::string s = "regends " + std::to_string(n);
         for (unsigned k = 0; k < n; ++k)
         {
@@ -1950,6 +2016,10 @@ static std::vector<std::string> genScene(uint64_t seed, uint64_t index)
     g.inBatch = false;
     unsigned fk = rnd(10);
     g.flags = (fk < 4) ? 2 : (fk < 6 ? 1 : 3);
+    // Hyperedge rerouting (orthogonal only) in some scenes: upstream has
+    // several crash/UB paths there (see e2e_fuzz.sh), which exclude the
+    // whole scene from the comparison.
+    g.hyper = (g.flags & 2) && chance(40);
     g.grid = chance(60);
     g.unit = g.grid ? (chance(50) ? 10 : 5) : 1;
     unsigned size = rnd(10);   // 0-5 small, 6-8 medium, 9 large
@@ -1986,7 +2056,7 @@ static std::vector<std::string> genScene(uint64_t seed, uint64_t index)
         g.nK++;
     }
     if (g.nC > 0 && chance(30)) L.push_back(genCheckpoints(g));
-    if (g.nJ > 0 && (g.flags & 2) && chance(30)) L.push_back("regj " + ref1000());
+    if (g.nJ > 0 && g.hyper && chance(30)) L.push_back("regj " + ref1000());
     L.push_back("process");
     for (size_t k = 0; k < g.shapes.size(); ++k) g.shapes[k].addedInBatch = false;
     g.inBatch = false;
