@@ -180,6 +180,15 @@
 //! increment is in uninstrumented libstdc++; the e2e fuzzer's ASan build
 //! detects it, "iterator-erased"); the port continues with the next root.
 //!
+//! Known upstream behaviour (faithful, not misuse): with
+//! `improveHyperedgeRoutesMovingAddingAndDeletingJunctions` on, some
+//! scenes make `HyperedgeImprover` add one junction and one connector on
+//! every `processTransaction()`, even with nothing else queued, so the
+//! cost of each transaction grows with the number of transactions run.
+//! The port reproduces this byte for byte (and terminates); the e2e
+//! fuzzer's bump-allocator C++ builds run out of memory on long such
+//! scenes ("#exclude memory", e.g. s1-80, which takes the port ~280 s).
+//!
 //! ## Asserts
 //! `COLA_ASSERT` becomes `debug_assert!`, with one exception: an assert
 //! that upstream itself violates on valid input (or whose violation
