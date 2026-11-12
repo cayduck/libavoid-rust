@@ -2,24 +2,63 @@
   "name": "libavoid-rust",
   "version": "0.1.0",
   "description": "Rust/WASM port of the libavoid connector-routing library (adaptagrams) with a JavaScript API",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cayduck/libavoid-rust.git"
+  },
   "main": "index.cjs",
+  "module": "index.mjs",
   "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "node": {
+        "types": "./index.d.ts",
+        "default": "./index.cjs"
+      },
+      "browser": {
+        "types": "./index.d.mts",
+        "default": "./index.mjs"
+      },
+      "import": {
+        "types": "./index.d.mts",
+        "default": "./index.mjs"
+      },
+      "default": {
+        "types": "./index.d.ts",
+        "default": "./index.cjs"
+      }
+    },
+    "./web": {
+      "types": "./index.d.mts",
+      "default": "./index.mjs"
+    },
+    "./package.json": "./package.json"
+  },
   "files": [
     "index.cjs",
+    "index.mjs",
     "index.d.ts",
+    "index.d.mts",
+    "lib/adapter.cjs",
+    "lib/adapter.mjs",
     "PORTING.md",
     "pkg",
+    "pkg-web",
     "vendor/adaptagrams/cola/libavoid",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
-    "build": "wasm-pack build --target web --out-dir pkg && node scripts/prepare-pkg.cjs",
+    "build": "npm run build:node && npm run build:web",
     "build:node": "wasm-pack build --target nodejs --out-dir pkg && node scripts/prepare-pkg.cjs",
-    "test": "cargo test && npm run build:node && npm run test:node",
+    "build:web": "wasm-pack build --target web --out-dir pkg-web && node scripts/prepare-pkg.cjs",
+    "build:demo": "npm run build:web && node scripts/build-demo.cjs",
+    "demo": "node scripts/serve-demo.cjs",
+    "test": "cargo test && npm run build && npm run test:node",
     "test:rust": "cargo test",
-    "test:node": "node test/api-sync.cjs && node test/node-smoke.cjs",
-    "prepack": "npm run build:node"
+    "test:node": "node test/api-sync.cjs && node test/esm-entry.mjs && node test/node-smoke.cjs",
+    "test:demo": "node test/demo-browser.cjs",
+    "prepack": "npm run build"
   },
   "keywords": [
     "libavoid",
