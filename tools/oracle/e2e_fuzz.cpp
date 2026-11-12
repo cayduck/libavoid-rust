@@ -218,6 +218,23 @@ static bool isPendingAction(Router *r, ActionType type, const void *obj)
     return false;
 }
 
+// Whether a queued ConnChange action holds a ConnEnd attached to `o`:
+// deleting `o` in the same transaction makes processActions() read the
+// freed obstacle when it applies the ConnEnd (connend.cpp:128).
+static bool queuedConnEndUses(Router *r, const Obstacle *o)
+{
+    for (ActionInfoList::const_iterator it = r->actionList.begin();
+            it != r->actionList.end(); ++it)
+    {
+        if (it->type != ConnChange) continue;
+        for (ConnUpdateList::const_iterator c = it->conns.begin(); c != it->conns.end(); ++c)
+        {
+            if (c->second.m_anchor_obj == o) return true;
+        }
+    }
+    return false;
+}
+
 static bool inObstacles(Router *r, const Obstacle *o)
 {
     for (ObstacleList::const_iterator it = r->m_obstacles.begin();
@@ -768,7 +785,7 @@ static void runCommandInner(Scene& sc, const std::string& line)
         if (!ref(in, sc.shapes.size(), i)) return;
         ShapeRef *s = sc.shapes[i];
         // (upstream asserts / frees twice for a shape with a queued add)
-        if (isPendingAction(r, ShapeAdd, s)) return;
+        if (isPendingAction(r, ShapeAdd, s) || queuedConnEndUses(r, s)) return;
         sc.shapes.erase(sc.shapes.begin() + i);
         r->deleteShape(s);
     }
@@ -820,7 +837,11 @@ static void runCommandInner(Scene& sc, const std::string& line)
         ShapeConnectionPinSet::const_iterator prev = set.begin();
         for (ShapeConnectionPinSet::const_iterator it = set.begin(); it != set.end(); ++it)
         {
-            if (it != prev && **it < **prev) g_pinsetUnsorted = true;
+            if (it != prev && **it < **prev && !g_pinsetUnsorted)
+            {
+                g_pinsetUnsorted = true;
+                fprintf(stderr, "ERROR: pinset-unsorted (transformConnectionPinPositions)\n");
+            }
             prev = it;
         }
     }
@@ -857,7 +878,7 @@ static void runCommandInner(Scene& sc, const std::string& line)
     {
         if (!ref(in, sc.juncs.size(), i)) return;
         JunctionRef *j = sc.juncs[i];
-        if (isPendingAction(r, JunctionAdd, j)) return;
+        if (isPendingAction(r, JunctionAdd, j) || queuedConnEndUses(r, j)) return;
         sc.juncs.erase(sc.juncs.begin() + i);
         r->deleteJunction(j);
     }

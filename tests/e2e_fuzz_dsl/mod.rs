@@ -124,6 +124,13 @@ fn is_pending(r: &Router, ty: ActionType, o: ObstacleIdx) -> bool {
     r.action_list.iter().any(|a| a.type_ == ty && a.obj_ptr == ActionObj::Obstacle(o))
 }
 
+/// As `queuedConnEndUses()` in the C++ driver.
+fn queued_conn_end_uses(r: &Router, o: ObstacleIdx) -> bool {
+    r.action_list
+        .iter()
+        .any(|a| a.type_ == ActionType::ConnChange && a.conns.iter().any(|(_, ce)| ce.m_anchor_obj == Some(o)))
+}
+
 fn conn_live(r: &Router, c: ConnIdx, serial: u64) -> bool {
     // (a connector created in a transaction only joins connRefs when its
     // queued ConnChange is processed)
@@ -568,7 +575,8 @@ impl Scene {
             }
             "delshape" => {
                 let i = refr!(self.shapes.len());
-                if is_pending(self.router.as_ref().unwrap(), ActionType::ShapeAdd, self.shapes[i].0) {
+                let r = self.router.as_ref().unwrap();
+                if is_pending(r, ActionType::ShapeAdd, self.shapes[i].0) || queued_conn_end_uses(r, self.shapes[i].0) {
                     return;
                 }
                 let s = self.shapes.remove(i);
@@ -661,7 +669,8 @@ impl Scene {
             "deljunc" => {
                 let i = refr!(self.juncs.len());
                 let j = self.juncs[i].0;
-                if is_pending(self.router.as_ref().unwrap(), ActionType::JunctionAdd, j.0) {
+                let r = self.router.as_ref().unwrap();
+                if is_pending(r, ActionType::JunctionAdd, j.0) || queued_conn_end_uses(r, j.0) {
                     return;
                 }
                 self.juncs.remove(i);
