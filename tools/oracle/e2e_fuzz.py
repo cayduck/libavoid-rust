@@ -289,8 +289,14 @@ _rust_bin = None
 
 
 def rust_bin():
+    """The release e2e_fuzz test binary (built here), or E2E_RUST_BIN: a
+    pinned copy, so that a long campaign does not pick up work in progress
+    in the source tree."""
     global _rust_bin
     if _rust_bin:
+        return _rust_bin
+    if os.environ.get("E2E_RUST_BIN"):
+        _rust_bin = os.environ["E2E_RUST_BIN"]
         return _rust_bin
     r = subprocess.run(["cargo", "test", "--release", "--test", "e2e_fuzz", "--no-run",
                         "--message-format=json"], cwd=ROOT, capture_output=True, text=True)

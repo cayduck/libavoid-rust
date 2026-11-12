@@ -885,8 +885,18 @@ fn run_scene_mode(dsl: &[String], full: bool, raw: bool) -> Vec<String> {
         stages: Vec::new(),
         callbacks: Rc::new(RefCell::new(Vec::new())),
     };
-    for line in dsl {
+    // E2E_TRACE=1 (triage of slow scenes): one stderr line per command with
+    // its run time and the router's object counts.
+    let trace = std::env::var("E2E_TRACE").is_ok();
+    for (i, line) in dsl.iter().enumerate() {
+        let t0 = std::time::Instant::now();
         sc.run_command(line);
+        if trace {
+            let (conns, obstacles) =
+                sc.router.as_ref().map(|r| (r.conn_refs.len(), r.obstacles.len())).unwrap_or((0, 0));
+            let cmd = line.split_whitespace().next().unwrap_or("");
+            eprintln!("trace {} {} ms {} conns={} obstacles={}", i, t0.elapsed().as_millis(), cmd, conns, obstacles);
+        }
     }
     if let Some(r) = sc.router.as_mut() {
         // (as the C++ driver: process queued deletions before ~Router)
