@@ -52,11 +52,13 @@ router.addShapeConnectionPinWithOptions("target", "in", {
 });
 router.addConnectorBetweenPinClasses("edge", "box", 1, "target", 2);
 
-console.log(router.routeConnector("edge"));
+// As in upstream libavoid, changes are queued until the transaction is processed.
+router.processTransaction();
+console.log(router.displayConnectorRoute("edge"));
 console.log(router.shapeBoundingBox("target"));
 ```
 
-The package also exports `WasmAvoidRouter`, the raw `wasm-bindgen` class. That lower-level class returns JSON strings from `routeConnector()` and `routeAll()`.
+The package also exports `WasmAvoidRouter`, the raw `wasm-bindgen` class. That lower-level class returns JSON strings for structured results (see `index.d.ts`).
 
 ## Scope
 
