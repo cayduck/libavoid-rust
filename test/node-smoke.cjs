@@ -481,6 +481,26 @@ test("every AvoidRouter method", () => {
   assert.deepEqual(missed, [], "methods not exercised");
 });
 
+test("connectors created by hyperedge rerouting are reported as updated", () => {
+  const r = new AvoidRouter(RouterFlag.OrthogonalRouting);
+  r.addJunction("j", 150, 150);
+  for (const [id, x, y] of [["a", 0, 0], ["b", 300, 20], ["c", 40, 260], ["d", 320, 280]]) {
+    r.addShape(id, x, y, x + 60, y + 40);
+    r.addShapeConnectionPin(id, "p", 1, 0.5, 0.5, true, 0, ConnDir.None);
+    r.addConnectorWithConnEnds(`to-${id}`, { shapeId: id, pinId: "p" }, { junctionId: "j" });
+  }
+  r.processTransaction();
+  assert.deepEqual(r.lastTransactionUpdatedConnectorIds().sort(), ["to-a", "to-b", "to-c", "to-d"]);
+  assert.equal(r.registerHyperedgeForReroutingJunction("j"), 0);
+  r.processTransaction();
+  const { newConnectorIds } = r.hyperedgeNewAndDeletedObjectLists(0);
+  assert.ok(newConnectorIds.length >= 4);
+  // Upstream creates them without a callback; the wrapper still reports them.
+  assert.deepEqual(r.lastTransactionUpdatedConnectorIds().sort(), [...newConnectorIds].sort());
+  assert.deepEqual(r.connectorIds().sort(), [...newConnectorIds].sort());
+  r.free();
+});
+
 test("raw WasmAvoidRouter never aborts on bad input", () => {
   const w = new WasmAvoidRouter(2);
   assert.equal(w.addShape("s", NaN, 0, 1, 1), false);

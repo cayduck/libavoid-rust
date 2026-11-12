@@ -1,8 +1,15 @@
 # Rust build output
 /target/
 
-# Generated wasm-pack package
+# Generated wasm-pack packages (nodejs target, web target) and the ES-module
+# adapter generated from lib/adapter.cjs
 /pkg/
+/pkg-web/
+/lib/adapter.mjs
+
+# Assembled demo site (npm run build:demo) and its smoke-test screenshots
+/demo-dist/
+/test-output/
 
 # Upstream source copy used only as a reference
 /vendor/adaptagrams/

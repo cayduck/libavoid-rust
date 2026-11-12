@@ -1,0 +1,795 @@
+:root {
+  --paper: #f4f7f6;
+  --grid-minor: #e4ebe8;
+  --grid-major: #d2ddd8;
+  --panel: #ffffff;
+  --line: #d8e0dd;
+  --ink: #1f2a36;
+  --ink-muted: #5a6772;
+  --shape-fill: #ffffff;
+  --shape-stroke: #34414e;
+  --accent: #2f5bd3;
+  --accent-soft: #e3eafc;
+  --buffer: #2f5bd3;
+  --danger: #b4332f;
+  --c0: #2f5bd3;
+  --c1: #0d8576;
+  --c2: #b8337a;
+  --c3: #a8690e;
+  --c4: #6b4fc8;
+  --c5: #4d7a24;
+  --shadow: 0 1px 2px rgb(31 42 54 / 0.08);
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #1a2027;
+    --grid-minor: #212932;
+    --grid-major: #2a343f;
+    --panel: #20272f;
+    --line: #333e4a;
+    --ink: #e2e8ee;
+    --ink-muted: #9aa7b3;
+    --shape-fill: #262f39;
+    --shape-stroke: #b9c4cf;
+    --accent: #86a3ff;
+    --accent-soft: #2a3550;
+    --buffer: #86a3ff;
+    --danger: #ff8a80;
+    --c0: #86a3ff;
+    --c1: #3cc7b4;
+    --c2: #f07ab8;
+    --c3: #e8b04e;
+    --c4: #ad96ff;
+    --c5: #93c86c;
+    --shadow: none;
+    color-scheme: dark;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 14px/1.45 var(--font);
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+a {
+  color: var(--accent);
+  text-underline-offset: 2px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* --- masthead ------------------------------------------------------------ */
+
+.masthead {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.masthead-text {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  min-width: 0;
+  flex: 1;
+}
+
+.masthead h1 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.intro {
+  margin: 0;
+  color: var(--ink-muted);
+  max-width: 78ch;
+}
+
+.repo-link {
+  flex: none;
+  font-weight: 550;
+  text-decoration: none;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink);
+}
+
+.repo-link:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* --- workspace layout ---------------------------------------------------- */
+
+.workspace {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  min-height: 0;
+}
+
+.stage {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.inspector {
+  border-left: 1px solid var(--line);
+  background: var(--panel);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* --- toolbar ------------------------------------------------------------- */
+
+.toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.tools,
+.zoom {
+  display: flex;
+  gap: 2px;
+}
+
+.toolbar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.toolbar button:hover {
+  background: var(--accent-soft);
+}
+
+.toolbar button[aria-pressed="true"] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.toolbar svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.toolbar [data-tool="move"] svg,
+.toolbar [data-tool="box"] svg {
+  fill: none;
+}
+
+/* --- canvas -------------------------------------------------------------- */
+
+.canvas-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+#canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+
+#canvas.panning {
+  cursor: grabbing;
+}
+
+#canvas.tool-box,
+#canvas.tool-junction {
+  cursor: crosshair;
+}
+
+.grid-minor {
+  stroke: var(--grid-minor);
+}
+
+.grid-major {
+  stroke: var(--grid-major);
+}
+
+.cluster path {
+  fill: var(--accent-soft);
+  fill-opacity: 0.55;
+  stroke: var(--accent);
+  stroke-opacity: 0.55;
+  stroke-dasharray: 6 4;
+}
+
+.cluster text {
+  fill: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.buffer {
+  fill: none;
+  stroke: var(--buffer);
+  stroke-opacity: 0.45;
+  stroke-dasharray: 3 3;
+}
+
+.shape {
+  cursor: grab;
+  outline: none;
+}
+
+.shape .body {
+  fill: var(--shape-fill);
+  stroke: var(--shape-stroke);
+  stroke-width: 1.4;
+}
+
+.shape .label {
+  fill: var(--ink);
+  font-size: 13px;
+  font-weight: 500;
+  text-anchor: middle;
+  dominant-baseline: central;
+  pointer-events: none;
+}
+
+.shape.obstacle .body {
+  fill: var(--grid-minor);
+  stroke: var(--ink-muted);
+  stroke-dasharray: 4 3;
+}
+
+.shape.obstacle .label {
+  fill: var(--ink-muted);
+}
+
+.shape.selected .body,
+.shape:focus-visible .body {
+  stroke: var(--accent);
+  stroke-width: 2.4;
+}
+
+.pin {
+  fill: var(--shape-fill);
+  stroke: var(--ink-muted);
+  stroke-width: 1.2;
+}
+
+.tool-connect .pin {
+  fill: var(--accent-soft);
+  stroke: var(--accent);
+  cursor: crosshair;
+}
+
+.tool-connect .shape,
+.tool-connect .junction {
+  cursor: crosshair;
+}
+
+.pin.drop {
+  fill: var(--accent);
+}
+
+.conn {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+
+.conn-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 14;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.tool-checkpoint .conn-hit,
+.tool-junction .conn-hit {
+  cursor: copy;
+}
+
+.tool-delete .conn-hit,
+.tool-delete .shape,
+.tool-delete .junction,
+.tool-delete .cluster path {
+  cursor: not-allowed;
+}
+
+.conn.selected {
+  stroke-width: 3.4;
+}
+
+.raw {
+  fill: none;
+  stroke: var(--ink-muted);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+  opacity: 0.9;
+}
+
+.raw-hidden #layer-raw {
+  display: none;
+}
+
+.buffers-hidden #layer-buffers {
+  display: none;
+}
+
+.junction {
+  fill: var(--ink);
+  stroke: var(--paper);
+  stroke-width: 2;
+  cursor: grab;
+  outline: none;
+}
+
+.junction.fixed {
+  fill: var(--paper);
+  stroke: var(--ink);
+}
+
+.junction.selected,
+.junction:focus-visible {
+  fill: var(--accent);
+}
+
+.endpoint {
+  fill: var(--paper);
+  stroke-width: 2;
+  cursor: grab;
+}
+
+.checkpoint {
+  fill: var(--paper);
+  stroke-width: 1.8;
+  cursor: grab;
+}
+
+.tool-checkpoint .checkpoint,
+.tool-delete .checkpoint {
+  cursor: pointer;
+}
+
+#preview {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-dasharray: 5 4;
+  pointer-events: none;
+}
+
+.c0 { stroke: var(--c0); color: var(--c0); }
+.c1 { stroke: var(--c1); color: var(--c1); }
+.c2 { stroke: var(--c2); color: var(--c2); }
+.c3 { stroke: var(--c3); color: var(--c3); }
+.c4 { stroke: var(--c4); color: var(--c4); }
+.c5 { stroke: var(--c5); color: var(--c5); }
+
+.arrow {
+  fill: context-stroke;
+}
+
+.boot {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  text-align: center;
+  color: var(--ink-muted);
+  background: var(--paper);
+}
+
+.boot.error {
+  color: var(--danger);
+  font-weight: 550;
+}
+
+.boot[hidden] {
+  display: none;
+}
+
+/* --- status strip -------------------------------------------------------- */
+
+.status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 24px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.timing {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 20px;
+  margin: 0;
+}
+
+.timing div {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.timing dt {
+  color: var(--ink-muted);
+  font-size: 12.5px;
+}
+
+.timing dd {
+  margin: 0;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  min-width: 5.2ch;
+}
+
+.hint {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 12.5px;
+  flex: 1;
+  min-width: 16ch;
+  text-align: right;
+}
+
+/* --- inspector ----------------------------------------------------------- */
+
+.panel {
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.panel h2,
+.field-label {
+  display: block;
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+select {
+  width: 100%;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+}
+
+.blurb {
+  margin: 10px 0 0;
+  color: var(--ink-muted);
+}
+
+.selection .blurb {
+  margin-top: 0;
+  color: var(--ink);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.actions:not(:empty) {
+  margin-top: 12px;
+}
+
+.actions button,
+.actions label {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.actions button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.actions button.danger:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.segmented {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 2px;
+  background: var(--paper);
+}
+
+.segmented label {
+  position: relative;
+  cursor: pointer;
+}
+
+.segmented input {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.segmented span {
+  display: block;
+  padding: 6px 0;
+  border-radius: 5px;
+  text-align: center;
+  font-weight: 550;
+  color: var(--ink-muted);
+}
+
+.segmented input:checked + span {
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: var(--shadow), 0 0 0 1px var(--line);
+}
+
+.segmented input:focus-visible + span {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.params {
+  display: grid;
+  gap: 14px;
+}
+
+.param-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.param-head label {
+  font-weight: 500;
+}
+
+.param output {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.param .scope {
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.param input[type="range"] {
+  width: 100%;
+  margin: 6px 0 0;
+  accent-color: var(--accent);
+}
+
+.param .param-hint {
+  display: none;
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  color: var(--ink-muted);
+}
+
+.param:focus-within .param-hint,
+.param:hover .param-hint {
+  display: block;
+}
+
+.param.inactive label,
+.param.inactive output {
+  color: var(--ink-muted);
+}
+
+.param.inactive input[type="range"] {
+  opacity: 0.5;
+}
+
+.text-button {
+  margin-top: 14px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.checks {
+  display: grid;
+  gap: 8px;
+}
+
+.checks label {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  cursor: pointer;
+}
+
+.checks input {
+  margin: 2px 0 0;
+  flex: none;
+  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
+}
+
+.checks label.inactive {
+  color: var(--ink-muted);
+}
+
+.colophon {
+  padding: 16px 18px 24px;
+  color: var(--ink-muted);
+  font-size: 12.5px;
+}
+
+.colophon p {
+  margin: 0;
+}
+
+/* --- narrow screens ------------------------------------------------------ */
+
+@media (max-width: 900px) {
+  body {
+    height: auto;
+  }
+
+  .masthead {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 16px;
+  }
+
+  .masthead-text {
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .repo-link {
+    display: none;
+  }
+
+  .workspace {
+    display: block;
+    height: auto;
+  }
+
+  .intro {
+    font-size: 13.5px;
+  }
+
+  .stage {
+    height: min(62dvh, 560px);
+    min-height: 360px;
+  }
+
+  .inspector {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    overflow: visible;
+  }
+
+  .panel {
+    padding: 14px 16px;
+  }
+
+  .toolbar {
+    padding: 6px 8px;
+    overflow-x: auto;
+  }
+
+  .hint {
+    text-align: left;
+    flex-basis: 100%;
+  }
+}
+
+@media (max-width: 600px) {
+  .toolbar button span {
+    display: none;
+  }
+
+  .toolbar button {
+    padding: 0 8px;
+  }
+
+  .timing {
+    gap: 2px 14px;
+  }
+
+  .status {
+    padding: 8px 12px;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .toolbar button,
+  .actions button,
+  .repo-link {
+    transition: background-color 120ms, border-color 120ms, color 120ms;
+  }
+}

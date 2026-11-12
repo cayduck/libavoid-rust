@@ -52,10 +52,20 @@ for (const m of dts.matchAll(/^export (?:const|class|function) (\w+)/gm)) declar
 assert.deepEqual(sorted(declaredExports), sorted(new Set(Object.keys(api))), "index.d.ts exports vs index.cjs");
 
 // Every raw wasm method is used by the JS wrapper (no unreachable exports).
-const cjs = fs.readFileSync(path.join(__dirname, "..", "index.cjs"), "utf8");
+const adapterPath = path.join(__dirname, "..", "lib", "adapter.cjs");
+const adapter = fs.readFileSync(adapterPath, "utf8");
 for (const name of declaredMethods("WasmAvoidRouter")) {
   if (name === "withFlags") continue;
-  assert.ok(cjs.includes(`#inner.${name}(`), `index.cjs does not use wasm method ${name}`);
+  assert.ok(adapter.includes(`#inner.${name}(`), `lib/adapter.cjs does not use wasm method ${name}`);
 }
 
-console.log("ok - index.d.ts, index.cjs and the wasm exports are in sync");
+// The ES-module adapter used by index.mjs is the generated copy of the
+// current lib/adapter.cjs (rerun `node scripts/prepare-pkg.cjs` otherwise).
+const { adapterToEsm } = require("../scripts/prepare-pkg.cjs");
+assert.equal(
+  fs.readFileSync(path.join(__dirname, "..", "lib", "adapter.mjs"), "utf8"),
+  adapterToEsm(adapter),
+  "lib/adapter.mjs is stale: run `node scripts/prepare-pkg.cjs`",
+);
+
+console.log("ok - index.d.ts, index.cjs, lib/adapter.mjs and the wasm exports are in sync");

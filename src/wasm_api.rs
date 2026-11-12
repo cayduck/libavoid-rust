@@ -404,11 +404,13 @@ impl AvoidRouter {
             .map(|(c, conn)| (conn.serial, c))
             .collect();
         new_conns.sort_by_key(|e| e.0);
+        let mut created_conns = Vec::with_capacity(new_conns.len());
         for (serial, c) in new_conns {
             let id = self.router.conns[c].m_id;
             let name = self.auto_name(id);
-            self.register(name, Obj::Conn(c), serial);
+            self.register(name.clone(), Obj::Conn(c), serial);
             self.set_conn_callback(c);
+            created_conns.push(name);
         }
 
         // 4. New / changed objects are resolved against the updated maps.
@@ -428,7 +430,9 @@ impl AvoidRouter {
             self.improvement_results = nd;
         }
 
-        // 5. Connectors whose callback fired (routes changed).
+        // 5. Connectors whose callback fired (routes changed), then the
+        //    connectors the core created (they had no callback yet, but
+        //    their routes are new too).
         let log: Vec<(ConnIdx, u64)> = self.callback_log.borrow_mut().drain(..).collect();
         let mut seen = HashSet::new();
         self.last_updated = log
@@ -437,6 +441,7 @@ impl AvoidRouter {
                 Some((s, name)) if *s == serial => Some(name.clone()),
                 _ => None,
             })
+            .chain(created_conns)
             .filter(|n| seen.insert(n.clone()))
             .collect();
     }
@@ -914,7 +919,9 @@ impl AvoidRouter {
 
     /// Ids of the connectors whose upstream callback fired (route changed)
     /// in the last transaction (all transactions of the last call when
-    /// transaction use is off).  JSON string array.
+    /// transaction use is off), followed by the connectors the core itself
+    /// created in it (hyperedge rerouting / improvement), which upstream
+    /// creates without a callback.  JSON string array.
     #[wasm_bindgen(js_name = lastTransactionUpdatedConnectorIds)]
     pub fn last_transaction_updated_connector_ids(&self) -> String {
         json::strings(&self.last_updated)
