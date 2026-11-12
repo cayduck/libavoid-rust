@@ -268,49 +268,100 @@ def exclusion_reasons(scenes):
     return reasons
 
 
+CAMPAIGN_LOG = os.path.join(ROOT, "tools", "oracle", "e2e_fuzz_campaign.log")
+
+
+def short_reason(r):
+    """Exclusion reason without addresses, for aggregation."""
+    import re
+    r = re.sub(r"0x[0-9a-f]*", "", r)
+    r = re.sub(r" \(pc .*T0\)", "", r)
+    r = re.sub(r" at pc .*sp  ?", " ", r)
+    return r[:160]
+
+
 def cmd_campaign(args):
+    """Runs batches of scenes; every finished batch appends one JSON line to
+    tools/oracle/e2e_fuzz_campaign.log, and batches already in the log are
+    skipped, so an interrupted campaign resumes where it stopped."""
     outdir = os.path.join(BUILD, "campaign-%d" % args.seed)
     os.makedirs(outdir, exist_ok=True)
-    total = {}
-    soft = {}
-    reasons = {}
-    divergent = []
+    done = {}
+    if os.path.exists(CAMPAIGN_LOG):
+        for line in open(CAMPAIGN_LOG):
+            try:
+                e = json.loads(line)
+            except ValueError:
+                continue
+            done[(e["seed"], e["first"], e["count"])] = e
     for first in range(args.first, args.first + args.scenes, args.batch):
         count = min(args.batch, args.first + args.scenes - first)
+        if (args.seed, first, count) in done:
+            continue
         scenes = gen(args.seed, first, count)
         path = os.path.join(outdir, "batch-%06d.txt" % first)
         with open(path, "w") as f:
             f.write(format_scenes(scenes))
-        status, _ = compare(path, soft=True, quiet=True)
-        for k, v in summarize(scenes, status).items():
-            total[k] = total.get(k, 0) + v
-        for r, names in exclusion_reasons(scenes).items():
-            reasons.setdefault(r, []).extend(names)
-        for n, s in status.items():
-            soft[s.split()[0]] = soft.get(s.split()[0], 0) + 1
-            if s.startswith("differ") or s.startswith("panic") or s.startswith("died"):
-                divergent.append((n, s))
+        status, _ = compare(path, quiet=True)
+        divergent = sorted((n, s) for n, s in status.items()
+                           if s.startswith(("differ", "panic", "died")))
         keep = [sc for sc in scenes if status.get(sc[0], "").startswith(("differ", "panic"))]
-        if keep:
-            with open(os.path.join(outdir, "divergent-%06d.txt" % first), "a") as f:
+        if keep or divergent:
+            with open(os.path.join(outdir, "divergent-%06d.txt" % first), "w") as f:
                 f.write(format_scenes(keep))
-        os.unlink(path)
-        print("batch %d..%d: %s | rust: %s | divergent so far: %d" % (
-            first, first + count - 1, sorted(total.items()), sorted(soft.items()), len(divergent)),
-            flush=True)
-    print("\n== campaign seed %d, %d scenes ==" % (args.seed, args.scenes))
+            os.rename(path, os.path.join(outdir, "batch-%06d-kept.txt" % first))
+        else:
+            os.unlink(path)
+        reasons = {}
+        for r, names in exclusion_reasons(scenes).items():
+            k = short_reason(r)
+            reasons[k] = reasons.get(k, 0) + len(names)
+        rust = {}
+        for n, st in status.items():
+            rust[st.split()[0]] = rust.get(st.split()[0], 0) + 1
+        entry = {"seed": args.seed, "first": first, "count": count,
+                 "classes": summarize(scenes, status), "rust": rust,
+                 "reasons": reasons, "divergent": divergent}
+        with open(CAMPAIGN_LOG, "a") as f:
+            f.write(json.dumps(entry, sort_keys=True) + "\n")
+        done[(args.seed, first, count)] = entry
+        print("batch seed %d %d..%d: %s | rust: %s | divergent: %d" % (
+            args.seed, first, first + count - 1, sorted(entry["classes"].items()),
+            sorted(rust.items()), len(divergent)), flush=True)
+    report(done, args.seed)
+
+
+def report(done, seed=None):
+    total, rust, reasons, divergent, n = {}, {}, {}, [], 0
+    for (s, first, count), e in sorted(done.items()):
+        if seed is not None and s != seed:
+            continue
+        n += count
+        for k, v in e["classes"].items():
+            total[k] = total.get(k, 0) + v
+        for k, v in e["rust"].items():
+            rust[k] = rust.get(k, 0) + v
+        for k, v in e["reasons"].items():
+            reasons[k] = reasons.get(k, 0) + v
+        divergent.extend(e["divergent"])
+    print("\n== campaign%s: %d scenes ==" % ("" if seed is None else " seed %d" % seed, n))
     for k, v in sorted(total.items()):
         print("%6d %s" % (v, k))
-    print("rust replay statuses: %s" % sorted(soft.items()))
+    print("rust replay statuses: %s" % sorted(rust.items()))
     print("exclusion reasons:")
-    for r, names in sorted(reasons.items(), key=lambda x: -len(x[1])):
-        print("%6d %s   (e.g. %s)" % (len(names), r, names[0]))
+    for r, c in sorted(reasons.items(), key=lambda x: -x[1]):
+        print("%6d %s" % (c, r))
     print("divergent scenes: %d" % len(divergent))
-    for n, s in divergent:
-        print("  %s\t%s" % (n, s))
-    with open(os.path.join(outdir, "summary.json"), "w") as f:
-        json.dump({"total": total, "rust": soft, "reasons": {r: len(n) for r, n in reasons.items()},
-                   "divergent": divergent}, f, indent=1)
+    for d in divergent:
+        print("  %s\t%s" % tuple(d))
+
+
+def cmd_report(args):
+    done = {}
+    for line in open(CAMPAIGN_LOG):
+        e = json.loads(line)
+        done[(e["seed"], e["first"], e["count"])] = e
+    report(done, args.seed)
 
 
 def find_scene(golden, name):
@@ -436,6 +487,9 @@ def main():
     s.add_argument("--first", type=int, default=0)
     s.add_argument("--batch", type=int, default=500)
     s.set_defaults(fn=cmd_campaign)
+    s = sub.add_parser("report")
+    s.add_argument("--seed", type=int)
+    s.set_defaults(fn=cmd_report)
     s = sub.add_parser("reduce")
     s.add_argument("--golden", required=True)
     s.add_argument("--scene", required=True)
