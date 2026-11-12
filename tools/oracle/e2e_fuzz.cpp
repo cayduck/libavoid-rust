@@ -40,6 +40,9 @@
 //   router FLAGS                 new Router(FLAGS)
 //   param K V | option K B       setRoutingParameter / setRoutingOption
 //   settings                     registerSettingsChange()
+//   nowrap                       disable the immediate-mode safety wrapping
+//                                (see unsafeImmediate()) for the rest of
+//                                the scene
 //   txn B                        setTransactionUse(B)
 //   process                      processTransaction() and dump
 //   markmoved                    markAllObstaclesAsMoved()
@@ -200,6 +203,7 @@ struct Scene
     std::map<const void *, unsigned> knownIds;
     // Last seen hyperedge improver / rerouter object lists.
     unsigned long rerouteCount;   // e2eRerouteCount at the previous sync
+    bool noWrap;                  // "nowrap" seen
     std::vector<std::string> pending;   // H/R lines for the next dump
     int stage;
     std::vector<std::vector<std::string> > stages;
@@ -1081,7 +1085,7 @@ static void runCommand(Scene& sc, const std::string& line)
 {
     std::istringstream in(line);
     std::string cmd = word(in);
-    if (sc.r && !sc.r->transactionUse())
+    if (sc.r && !sc.noWrap && !sc.r->transactionUse())
     {
         for (int k = 0; k < 3 && !sc.r->actionList.empty(); ++k)
         {
@@ -1090,7 +1094,14 @@ static void runCommand(Scene& sc, const std::string& line)
             sc.r->setTransactionUse(false);
         }
     }
-    bool wrap = sc.r && !sc.r->transactionUse() && unsafeImmediate(cmd);
+    if (cmd == "nowrap")
+    {
+        // Disables the immediate-mode wrapping below for the rest of the
+        // scene (regression scenes that need upstream's raw behaviour).
+        sc.noWrap = true;
+        return;
+    }
+    bool wrap = sc.r && !sc.noWrap && !sc.r->transactionUse() && unsafeImmediate(cmd);
     if (wrap) sc.r->setTransactionUse(true);
     runCommandInner(sc, line);
     if (wrap)
@@ -1108,6 +1119,7 @@ static std::vector<std::string> execScene(const std::vector<std::string>& dsl)
     sc.r = nullptr;
     sc.stage = 0;
     sc.rerouteCount = e2eRerouteCount;
+    sc.noWrap = false;
     g_callbacks.clear();
     g_pinsetUnsorted = false;
     for (size_t i = 0; i < dsl.size(); ++i)

@@ -74,6 +74,8 @@ struct Scene {
     known: BTreeMap<Key, (u64, u32)>,
     /// e2e_reroute_count() at the previous sync.
     reroute_count: u64,
+    /// "nowrap" seen (see `run_command`).
+    no_wrap: bool,
     pending: Vec<String>,
     stage: usize,
     stages: Vec<Vec<String>>,
@@ -455,7 +457,11 @@ impl Scene {
     /// one-command transaction.
     fn run_command(&mut self, line: &str) {
         let cmd = line.split_whitespace().next().unwrap_or("");
-        if self.router.as_ref().is_some_and(|r| !r.transaction_use()) {
+        if cmd == "nowrap" {
+            self.no_wrap = true;
+            return;
+        }
+        if !self.no_wrap && self.router.as_ref().is_some_and(|r| !r.transaction_use()) {
             for _ in 0..3 {
                 if self.router.as_ref().unwrap().action_list.is_empty() {
                     break;
@@ -465,7 +471,8 @@ impl Scene {
                 self.r().set_transaction_use(false);
             }
         }
-        let wrap = self.router.as_ref().is_some_and(|r| !r.transaction_use())
+        let wrap = !self.no_wrap
+            && self.router.as_ref().is_some_and(|r| !r.transaction_use())
             && matches!(
                 cmd,
                 "moveby"
@@ -853,6 +860,7 @@ pub fn run_scene(dsl: &[String], full: bool) -> Vec<String> {
         clusters: Vec::new(),
         known: BTreeMap::new(),
         reroute_count: e2e_reroute_count(),
+        no_wrap: false,
         pending: Vec::new(),
         stage: 0,
         stages: Vec::new(),
