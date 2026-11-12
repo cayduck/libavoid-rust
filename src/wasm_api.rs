@@ -274,6 +274,76 @@ impl AvoidRouter {
         self.transactions.get()
     }
 
+    /// Checks that the wrapper's id maps agree with each other and with the
+    /// core (Rust-only diagnostic used by the wrapper tests): every named
+    /// object is alive in the core with the recorded serial, the reverse
+    /// maps mirror `objects`, every named pin belongs to its owner, and the
+    /// last transaction's updated connectors are named connectors.  Every
+    /// live core object is named unless its removal is queued or (with
+    /// transaction use on) a transaction is pending.
+    pub fn check_consistency(&self) -> Result<(), String> {
+        for (name, e) in &self.objects {
+            let back = match e.obj {
+                Obj::Shape(o) | Obj::Junction(o) => {
+                    let ob = self.router.obstacles.get(o).ok_or(format!("{name}: dead obstacle"))?;
+                    if ob.serial != e.serial || ob.is_junction() != matches!(e.obj, Obj::Junction(_)) {
+                        return Err(format!("{name}: obstacle slot reused"));
+                    }
+                    self.by_obstacle.get(&o)
+                }
+                Obj::Conn(c) => {
+                    if self.router.conns.get(c).map(|x| x.serial) != Some(e.serial) {
+                        return Err(format!("{name}: dead connector"));
+                    }
+                    self.by_conn.get(&c)
+                }
+                Obj::Cluster(c) => {
+                    if self.router.clusters.get(c).map(|x| x.serial) != Some(e.serial) {
+                        return Err(format!("{name}: dead cluster"));
+                    }
+                    self.by_cluster.get(&c)
+                }
+            };
+            if back != Some(&(e.serial, name.clone())) {
+                return Err(format!("{name}: reverse map disagrees"));
+            }
+        }
+        if self.by_obstacle.len() + self.by_conn.len() + self.by_cluster.len() != self.objects.len() {
+            return Err("reverse maps hold unnamed entries".into());
+        }
+        for (owner, pins) in &self.pins {
+            let o = match self.lookup(owner) {
+                Some(Obj::Shape(o)) | Some(Obj::Junction(o)) => o,
+                _ => return Err(format!("pins of unknown owner {owner}")),
+            };
+            for p in pins {
+                let pin = self.router.pins.get(p.pin).ok_or(format!("{owner}/{}: dead pin", p.name))?;
+                if pin.m_shape != Some(o) && pin.m_junction != Some(o) {
+                    return Err(format!("{owner}/{}: pin of another object", p.name));
+                }
+            }
+        }
+        for name in &self.last_updated {
+            if self.conn(name).is_none() {
+                return Err(format!("updated connector {name} is not a connector"));
+            }
+        }
+        let settled = !self.router.transaction_use() || self.router.action_list.is_empty();
+        if settled {
+            for (o, ob) in self.router.obstacles.iter_unordered() {
+                if self.obstacle_name(o).is_none() && !self.has_pending_remove(o) {
+                    return Err(format!("obstacle {} has no name", ob.m_id));
+                }
+            }
+            for (c, conn) in self.router.conns.iter_unordered() {
+                if self.conn_name(c).is_none() {
+                    return Err(format!("connector {} has no name", conn.m_id));
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Read access to the wrapped core router (for tests and Rust users).
     pub fn core(&self) -> &Router {
         &self.router
@@ -540,6 +610,9 @@ impl AvoidRouter {
                 }
                 Obj::Conn(c) => {
                     self.by_conn.remove(&c);
+                    // A forgotten connector is no longer "updated" (its id
+                    // may be reused before the next transaction).
+                    self.last_updated.retain(|n| n != name);
                 }
                 Obj::Cluster(c) => {
                     self.by_cluster.remove(&c);
@@ -1831,7 +1904,6 @@ impl AvoidRouter {
         let t0 = self.begin();
         self.unregister(&id);
         self.router.delete_connector(c);
-        self.last_updated.retain(|n| *n != id);
         self.end(t0);
         true
     }
