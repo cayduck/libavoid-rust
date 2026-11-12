@@ -230,6 +230,168 @@ impl std::error::Error for UnsatisfiedConstraint {}
 // Free helpers usable while parts of the solver are borrowed.
 // ---------------------------------------------------------------------------
 
+/// Recursive traversals of a block's active constraint tree (the `Block`
+/// methods of the same names delegate here).  They recurse on plain
+/// slices rather than on `&mut IncSolver`, so the variable and constraint
+/// arrays stay in registers across the recursion; with the solver borrowed
+/// mutably every access re-loaded `self.vs` / `self.cs` and their lengths,
+/// which made these traversals -- the bulk of nudging time when a region
+/// has many equality constraints -- about twice as slow as upstream.
+/// Statements and floating-point operations are exactly upstream's.
+mod block_traversal {
+    use super::{dfdv_of, Block, BlockIdx, ConIdx, Constraint, VarIdx, Variable};
+
+    // upstream: vpsc.cpp Block::canFollowLeft()
+    #[inline(always)]
+    fn can_follow_left(vs: &[Variable], c: &Constraint, this: BlockIdx, last: Option<VarIdx>) -> bool {
+        vs[c.left].block == Some(this) && c.active && last != Some(c.left)
+    }
+
+    // upstream: vpsc.cpp Block::canFollowRight()
+    #[inline(always)]
+    fn can_follow_right(vs: &[Variable], c: &Constraint, this: BlockIdx, last: Option<VarIdx>) -> bool {
+        vs[c.right].block == Some(this) && c.active && last != Some(c.right)
+    }
+
+    // upstream: vpsc.cpp Block::compute_dfdv(v, u, min_lm)
+    pub(super) fn compute_dfdv_min(
+        vs: &[Variable],
+        cs: &mut [Constraint],
+        arena: &[Block],
+        this: BlockIdx,
+        v: VarIdx,
+        u: Option<VarIdx>,
+        min_lm: &mut Option<ConIdx>,
+    ) -> f64 {
+        let var = &vs[v];
+        let mut dfdv = dfdv_of(vs, arena, v);
+        for &c in var.out.iter() {
+            if can_follow_right(vs, &cs[c], this, u) {
+                let right = cs[c].right;
+                let lm = compute_dfdv_min(vs, cs, arena, this, right, Some(v), min_lm);
+                cs[c].lm = lm;
+                dfdv += cs[c].lm * vs[cs[c].left].scale;
+                if !cs[c].equality && (min_lm.is_none() || cs[c].lm < cs[min_lm.unwrap()].lm) {
+                    *min_lm = Some(c);
+                }
+            }
+        }
+        for &c in var.in_.iter() {
+            if can_follow_left(vs, &cs[c], this, u) {
+                let left = cs[c].left;
+                let lm = -compute_dfdv_min(vs, cs, arena, this, left, Some(v), min_lm);
+                cs[c].lm = lm;
+                dfdv -= cs[c].lm * vs[cs[c].right].scale;
+                if !cs[c].equality && (min_lm.is_none() || cs[c].lm < cs[min_lm.unwrap()].lm) {
+                    *min_lm = Some(c);
+                }
+            }
+        }
+        dfdv / var.scale
+    }
+
+    // upstream: vpsc.cpp Block::compute_dfdv(v, u)
+    pub(super) fn compute_dfdv(
+        vs: &[Variable],
+        cs: &mut [Constraint],
+        arena: &[Block],
+        this: BlockIdx,
+        v: VarIdx,
+        u: Option<VarIdx>,
+    ) -> f64 {
+        let var = &vs[v];
+        let mut dfdv = dfdv_of(vs, arena, v);
+        for &c in var.out.iter() {
+            if can_follow_right(vs, &cs[c], this, u) {
+                let right = cs[c].right;
+                let lm = compute_dfdv(vs, cs, arena, this, right, Some(v));
+                cs[c].lm = lm;
+                dfdv += cs[c].lm * vs[cs[c].left].scale;
+            }
+        }
+        for &c in var.in_.iter() {
+            if can_follow_left(vs, &cs[c], this, u) {
+                let left = cs[c].left;
+                let lm = -compute_dfdv(vs, cs, arena, this, left, Some(v));
+                cs[c].lm = lm;
+                dfdv -= cs[c].lm * vs[cs[c].right].scale;
+            }
+        }
+        dfdv / var.scale
+    }
+
+    // upstream: vpsc.cpp Block::split_path()
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn split_path(
+        vs: &[Variable],
+        cs: &[Constraint],
+        this: BlockIdx,
+        r: VarIdx,
+        v: VarIdx,
+        u: Option<VarIdx>,
+        m: &mut Option<ConIdx>,
+        desperation: bool,
+    ) -> bool {
+        for &c in vs[v].in_.iter() {
+            let con = &cs[c];
+            if can_follow_left(vs, con, this, u) {
+                if con.left == r {
+                    if desperation && !con.equality {
+                        *m = Some(c);
+                    }
+                    return true;
+                } else if split_path(vs, cs, this, r, con.left, Some(v), m, false) {
+                    if desperation && !con.equality && (m.is_none() || con.lm < cs[m.unwrap()].lm) {
+                        *m = Some(c);
+                    }
+                    return true;
+                }
+            }
+        }
+        for &c in vs[v].out.iter() {
+            let con = &cs[c];
+            if can_follow_right(vs, con, this, u) {
+                if con.right == r {
+                    if !con.equality {
+                        *m = Some(c);
+                    }
+                    return true;
+                } else if split_path(vs, cs, this, r, con.right, Some(v), m, false) {
+                    if !con.equality && (m.is_none() || con.lm < cs[m.unwrap()].lm) {
+                        *m = Some(c);
+                    }
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    // upstream: vpsc.cpp Block::reset_active_lm()
+    pub(super) fn reset_active_lm(
+        vs: &[Variable],
+        cs: &mut [Constraint],
+        this: BlockIdx,
+        v: VarIdx,
+        u: Option<VarIdx>,
+    ) {
+        for &c in vs[v].out.iter() {
+            if can_follow_right(vs, &cs[c], this, u) {
+                cs[c].lm = 0.0;
+                let right = cs[c].right;
+                reset_active_lm(vs, cs, this, right, Some(v));
+            }
+        }
+        for &c in vs[v].in_.iter() {
+            if can_follow_left(vs, &cs[c], this, u) {
+                cs[c].lm = 0.0;
+                let left = cs[c].left;
+                reset_active_lm(vs, cs, this, left, Some(v));
+            }
+        }
+    }
+}
+
 // upstream: vpsc.h Variable::position()
 fn position_of(vs: &[Variable], arena: &[Block], v: VarIdx) -> f64 {
     let var = &vs[v];
@@ -1163,64 +1325,14 @@ impl<'a> IncSolver<'a> {
         u: Option<VarIdx>,
         min_lm: &mut Option<ConIdx>,
     ) -> f64 {
-        let mut dfdv = self.dfdv(v);
-        let nout = self.vs[v].out.len();
-        for k in 0..nout {
-            let c = self.vs[v].out[k];
-            if self.can_follow_right(this, c, u) {
-                let right = self.cs[c].right;
-                let lm = self.block_compute_dfdv_min(this, right, Some(v), min_lm);
-                self.cs[c].lm = lm;
-                dfdv += self.cs[c].lm * self.vs[self.cs[c].left].scale;
-                if !self.cs[c].equality
-                    && (min_lm.is_none() || self.cs[c].lm < self.cs[min_lm.unwrap()].lm)
-                {
-                    *min_lm = Some(c);
-                }
-            }
-        }
-        let nin = self.vs[v].in_.len();
-        for k in 0..nin {
-            let c = self.vs[v].in_[k];
-            if self.can_follow_left(this, c, u) {
-                let left = self.cs[c].left;
-                let lm = -self.block_compute_dfdv_min(this, left, Some(v), min_lm);
-                self.cs[c].lm = lm;
-                dfdv -= self.cs[c].lm * self.vs[self.cs[c].right].scale;
-                if !self.cs[c].equality
-                    && (min_lm.is_none() || self.cs[c].lm < self.cs[min_lm.unwrap()].lm)
-                {
-                    *min_lm = Some(c);
-                }
-            }
-        }
-        dfdv / self.vs[v].scale
+        // (Recursion on split borrows of the solver's slices: the hot
+        // traversals of the active constraint tree, see block_traversal.)
+        block_traversal::compute_dfdv_min(&*self.vs, &mut *self.cs, &self.bs.arena, this, v, u, min_lm)
     }
 
     // upstream: vpsc.cpp Block::compute_dfdv(v, u)
     fn block_compute_dfdv(&mut self, this: BlockIdx, v: VarIdx, u: Option<VarIdx>) -> f64 {
-        let mut dfdv = self.dfdv(v);
-        let nout = self.vs[v].out.len();
-        for k in 0..nout {
-            let c = self.vs[v].out[k];
-            if self.can_follow_right(this, c, u) {
-                let right = self.cs[c].right;
-                let lm = self.block_compute_dfdv(this, right, Some(v));
-                self.cs[c].lm = lm;
-                dfdv += self.cs[c].lm * self.vs[self.cs[c].left].scale;
-            }
-        }
-        let nin = self.vs[v].in_.len();
-        for k in 0..nin {
-            let c = self.vs[v].in_[k];
-            if self.can_follow_left(this, c, u) {
-                let left = self.cs[c].left;
-                let lm = -self.block_compute_dfdv(this, left, Some(v));
-                self.cs[c].lm = lm;
-                dfdv -= self.cs[c].lm * self.vs[self.cs[c].right].scale;
-            }
-        }
-        dfdv / self.vs[v].scale
+        block_traversal::compute_dfdv(&*self.vs, &mut *self.cs, &self.bs.arena, this, v, u)
     }
 
     // upstream: vpsc.cpp Block::split_path()
@@ -1236,66 +1348,14 @@ impl<'a> IncSolver<'a> {
         m: &mut Option<ConIdx>,
         desperation: bool,
     ) -> bool {
-        for &c in &self.vs[v].in_ {
-            if self.can_follow_left(this, c, u) {
-                let con = &self.cs[c];
-                if con.left == r {
-                    if desperation && !con.equality {
-                        *m = Some(c);
-                    }
-                    return true;
-                } else if self.block_split_path(this, r, con.left, Some(v), m, false) {
-                    if desperation
-                        && !con.equality
-                        && (m.is_none() || con.lm < self.cs[m.unwrap()].lm)
-                    {
-                        *m = Some(c);
-                    }
-                    return true;
-                }
-            }
-        }
-        for &c in &self.vs[v].out {
-            if self.can_follow_right(this, c, u) {
-                let con = &self.cs[c];
-                if con.right == r {
-                    if !con.equality {
-                        *m = Some(c);
-                    }
-                    return true;
-                } else if self.block_split_path(this, r, con.right, Some(v), m, false) {
-                    if !con.equality && (m.is_none() || con.lm < self.cs[m.unwrap()].lm) {
-                        *m = Some(c);
-                    }
-                    return true;
-                }
-            }
-        }
-        false
+        block_traversal::split_path(&*self.vs, &*self.cs, this, r, v, u, m, desperation)
     }
 
     // upstream: vpsc.cpp Block::reset_active_lm()
     // resets LMs for all active constraints to 0 by traversing active
     // constraint tree starting from v, not back tracking over u
     fn block_reset_active_lm(&mut self, this: BlockIdx, v: VarIdx, u: Option<VarIdx>) {
-        let nout = self.vs[v].out.len();
-        for k in 0..nout {
-            let c = self.vs[v].out[k];
-            if self.can_follow_right(this, c, u) {
-                self.cs[c].lm = 0.0;
-                let right = self.cs[c].right;
-                self.block_reset_active_lm(this, right, Some(v));
-            }
-        }
-        let nin = self.vs[v].in_.len();
-        for k in 0..nin {
-            let c = self.vs[v].in_[k];
-            if self.can_follow_left(this, c, u) {
-                self.cs[c].lm = 0.0;
-                let left = self.cs[c].left;
-                self.block_reset_active_lm(this, left, Some(v));
-            }
-        }
+        block_traversal::reset_active_lm(&*self.vs, &mut *self.cs, this, v, u);
     }
 
     // upstream: vpsc.cpp Block::list_active() is logging-only (its body is
