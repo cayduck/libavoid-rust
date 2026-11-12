@@ -688,3 +688,145 @@ fn json_strings_are_escaped() {
     assert!(r.add_shape(id.into(), 0.0, 0.0, 1.0, 1.0, None));
     assert_eq!(parse(&r.shape_ids()).strings(), vec![id.to_string()]);
 }
+
+/// Merging a junction's connectors deletes one connector in the core; it
+/// must disappear from the last transaction's updated connectors too (a
+/// stale name there would later be reported for an unrelated connector
+/// that reuses the id).
+#[test]
+fn merged_away_connector_leaves_last_updated() {
+    let mut r = ortho();
+    assert!(r.add_shape("s".into(), 0.0, 0.0, 10.0, 10.0, None));
+    assert!(r.add_shape_connection_pin("s".into(), "c".into(), CONNECTION_PIN_CENTRE as f64, 0.5, 0.5, Some(true), None, None));
+    assert!(r.add_connector_with_conn_ends(
+        "a".into(),
+        0.0,
+        NONE.into(),
+        NONE.into(),
+        100.0,
+        5.0,
+        CONN_DIR_ALL as f64,
+        1.0,
+        "s".into(),
+        NONE.into(),
+        0.0,
+        0.0,
+        CONNECTION_PIN_CENTRE as f64,
+        None
+    ));
+    assert!(r.process_transaction());
+    assert!(!parse(&r.split_connector_at_segment("a".into(), 1.0, "J".into(), "b".into())).is_null());
+    assert!(r.process_transaction());
+    let mut updated = parse(&r.last_transaction_updated_connector_ids()).strings();
+    updated.sort();
+    assert_eq!(updated, vec!["a", "b"]);
+    let merged = parse(&r.remove_junction_and_merge_connectors("J".into())).str().to_string();
+    let gone = if merged == "a" { "b" } else { "a" };
+    assert!(!parse(&r.last_transaction_updated_connector_ids()).strings().contains(&gone.to_string()));
+    r.check_consistency().unwrap();
+    // Reusing the id does not make the new connector look updated.
+    assert!(add_point_conn(&mut r, gone, (0.0, 50.0), (10.0, 50.0)));
+    assert!(!parse(&r.last_transaction_updated_connector_ids()).strings().contains(&gone.to_string()));
+}
+
+/// The id maps stay consistent with the core after every call, including
+/// calls that are refused (early `false` / `null` returns) and transactions
+/// in which the core creates and deletes junctions and connectors itself.
+/// A deterministic pseudo-random sequence of wrapper calls on small scenes.
+#[test]
+fn id_maps_stay_consistent_with_the_core() {
+    struct Lcg(u64);
+    impl Lcg {
+        fn next(&mut self, n: usize) -> usize {
+            self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((self.0 >> 33) as usize) % n
+        }
+        fn coord(&mut self) -> f64 {
+            (self.next(30) * 10) as f64
+        }
+    }
+    type RawEnd = (f64, String, String, f64, f64, f64);
+    fn end(g: &mut Lcg) -> RawEnd {
+        match g.next(3) {
+            0 => (0.0, NONE.into(), NONE.into(), g.coord(), g.coord(), CONN_DIR_ALL as f64),
+            1 => (2.0, JUNCTIONS[g.next(3)].into(), NONE.into(), 0.0, 0.0, 0.0),
+            _ => (3.0, SHAPES[g.next(5)].into(), "p".into(), 0.0, 0.0, 0.0),
+        }
+    }
+    const SHAPES: [&str; 5] = ["s0", "s1", "s2", "s3", "s4"];
+    const JUNCTIONS: [&str; 3] = ["j0", "j1", "j2"];
+    const CONNS: [&str; 6] = ["c0", "c1", "c2", "c3", "c4", "c5"];
+    let mut succeeded = [0usize; 18];
+    for seed in 1..=24u64 {
+        let mut g = Lcg(seed);
+        let mut r = ortho();
+        // Hyperedge improvement creates and deletes core objects itself.
+        r.set_routing_option(5.0, seed % 2 == 0);
+        r.set_routing_parameter(2.0, Some(if seed % 3 == 0 { 100.0 } else { 0.0 }));
+        let mut refused = 0;
+        for step in 0..250 {
+            let s = SHAPES[g.next(SHAPES.len())].to_string();
+            let j = JUNCTIONS[g.next(JUNCTIONS.len())].to_string();
+            let c = CONNS[g.next(CONNS.len())].to_string();
+            let (x, y) = (g.coord(), g.coord());
+            let op = g.next(18);
+            let ok = match op {
+                0 | 1 => r.add_shape(s.clone(), x, y, x + 20.0, y + 20.0, None),
+                2 => r.move_shape_by(s, 5.0, -5.0),
+                3 => r.remove_shape(s),
+                4 => r.add_shape_connection_pin(s, "p".into(), 1.0, 0.5, 0.5, Some(true), None, None),
+                5 => r.remove_shape_connection_pin(s, "p".into()),
+                6 => r.add_junction(j, x, y, None),
+                7 => r.remove_junction(j),
+                8 => {
+                    // Any junction, including those created by splits and
+                    // by the core.
+                    let all = parse(&r.junction_ids()).strings();
+                    let j = if all.is_empty() { j } else { all[g.next(all.len())].clone() };
+                    !parse(&r.remove_junction_and_merge_connectors(j)).is_null()
+                }
+                9 | 10 => {
+                    let (a, b) = (end(&mut g), end(&mut g));
+                    r.add_connector_with_conn_ends(c, a.0, a.1, a.2, a.3, a.4, a.5, b.0, b.1, b.2, b.3, b.4, b.5, None)
+                }
+                11 => {
+                    let a = end(&mut g);
+                    r.set_connector_source_conn_end(c, a.0, a.1, a.2, a.3, a.4, a.5)
+                }
+                12 => r.remove_connector(c),
+                13 => {
+                    let n = (1 + g.next(3)) as f64;
+                    !parse(&r.split_connector_at_segment(c, n, format!("sj{step}"), format!("sc{step}"))).is_null()
+                }
+                14 => r.register_hyperedge_for_rerouting_junction(j).is_some(),
+                15 => {
+                    r.set_transaction_use(g.next(4) != 0);
+                    true
+                }
+                16 => {
+                    // Refused calls: invalid numbers, duplicate / unknown ids.
+                    let a = r.add_shape(s.clone(), f64::NAN, 0.0, 1.0, 1.0, None);
+                    let b = r.add_junction("s0".into(), 0.0, 0.0, Some(1.5));
+                    let d = r.remove_connector("nope".into());
+                    a || b || d
+                }
+                _ => r.process_transaction(),
+            };
+            if ok {
+                succeeded[op] += 1;
+            } else {
+                refused += 1;
+            }
+            if let Err(e) = r.check_consistency() {
+                panic!("seed {seed} step {step} op {op}: {e}");
+            }
+        }
+        r.set_transaction_use(true);
+        r.process_transaction();
+        r.check_consistency().unwrap();
+        assert!(refused > 0);
+    }
+    eprintln!("successful calls per op: {:?}", succeeded);
+    // Splits, merges and hyperedge registrations all happened.
+    assert!(succeeded[8] > 0 && succeeded[13] > 0 && succeeded[14] > 0, "{:?}", succeeded);
+}

@@ -1,7 +1,8 @@
 // Tests of the browser / ES-module entry index.mjs (web target in pkg-web/)
 // under Node: it must export exactly what index.cjs exports plus the
 // initialisers, be declared consistently in index.d.mts, refuse to work
-// before init(), and route exactly like the Node entry.
+// before init(), route exactly like the Node entry, and contain internal
+// failures like it (poisoning, recovery with init() / reset()).
 
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -72,5 +73,55 @@ function scene(api) {
 const fromEsm = scene(esm);
 assert.deepEqual(fromEsm, scene(cjs), "index.mjs and index.cjs route the same scene identically");
 assert.equal(fromEsm.updated.length, 4);
+
+// Failure containment (as test/failure-containment.cjs for the Node entry):
+// a trap poisons the instance of this entry only; `await init()` again or
+// `await reset()` replaces it.
+assert.match(dmts, /^export function reset\(/m);
+const unexpected = [];
+process.on("uncaughtException", (error) => unexpected.push(error));
+process.on("unhandledRejection", (error) => unexpected.push(error));
+const { connectionPin01 } = require("./helpers.cjs");
+const ARM = "libavoid-rust: I want to trap this WebAssembly instance";
+const wasmClassBefore = esm.WasmAvoidRouter;
+for (const [kind, expected, recover] of [
+  [1, "panic", () => esm.default()],
+  [2, "panic", () => esm.reset()],
+  [3, "stack-overflow", () => esm.default()],
+  [4, "out-of-memory", () => esm.reset()],
+]) {
+  const bystander = new esm.AvoidRouter();
+  const victim = new esm.AvoidRouter();
+  let first;
+  assert.throws(
+    () => victim.__testPanic(kind, ARM),
+    (error) => {
+      first = error;
+      return error instanceof esm.AvoidInternalError && error.kind === expected && error.method === "AvoidRouter.__testPanic";
+    },
+  );
+  if (expected === "panic") assert.match(first.location, /^src\/wasm_api\.rs:\d+:\d+$/);
+  assert.equal(esm.internalError(), first);
+  assert.equal(bystander.isPoisoned(), true);
+  assert.throws(() => bystander.shapeIds(), /router is unusable after an internal error: libavoid-rust internal error/);
+  assert.throws(() => new esm.AvoidRouter(), esm.AvoidInternalError);
+  assert.throws(() => esm.initSync(), /use `await reset\(\)`/);
+  // The Node entry has its own instance and is unaffected.
+  assert.equal(cjs.internalError(), null);
+  assert.ok(connectionPin01(cjs) > 0);
+
+  await recover();
+  assert.equal(esm.internalError(), null);
+  assert.notEqual(esm.WasmAvoidRouter, wasmClassBefore, "WasmAvoidRouter is the class of the new instance");
+  assert.ok(connectionPin01(esm) > 0);
+  assert.deepEqual(scene(esm), fromEsm, "a fresh instance routes the scene as before");
+  assert.equal(victim.isPoisoned(), true);
+}
+await esm.default(); // healthy again: a no-op
+if (typeof global.gc === "function") {
+  global.gc();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+}
+assert.deepEqual(unexpected, [], "no uncaught exceptions or unhandled rejections");
 
 console.log("ok - index.mjs (web target) matches index.cjs and index.d.mts");

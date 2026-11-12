@@ -43,41 +43,11 @@ function test(name, fn) {
 
 // --- golden helpers ----------------------------------------------------------
 
-function golden(name) {
-  return fs.readFileSync(path.join(root, "tests", "golden-bump", `${name}.txt`), "utf8");
-}
-
-/** Parses the `path` blocks of a diagram text: numeric id -> [[x, y], ...]. */
-function goldenPaths(text) {
-  const paths = new Map();
-  const lines = text.split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i] !== "path") continue;
-    const id = Number(lines[++i].slice(3));
-    const pts = [];
-    while (i + 1 < lines.length && /^p\d+:/.test(lines[i + 1])) {
-      const [, x, y] = lines[++i].trim().split(/\s+/);
-      pts.push([Number(x), Number(y)]);
-    }
-    paths.set(id, pts);
-  }
-  return paths;
-}
+const helpers = require("./helpers.cjs");
 
 /** Diagram text and every display route must equal the golden. */
 function assertGolden(router, name) {
-  const expected = golden(name);
-  assert.equal(router.outputDiagramText(true), expected, `diagram ${name}`);
-  const byNumeric = new Map(router.connectorIds().map((id) => [router.objectNumericId(id), id]));
-  for (const [nid, pts] of goldenPaths(expected)) {
-    const route = router.displayConnectorRoute(byNumeric.get(nid));
-    assert.deepEqual(
-      route.map((p) => [p.x, p.y]),
-      pts,
-      `${name}: route of connector ${nid}`,
-    );
-    checks++;
-  }
+  checks += helpers.assertGolden(router, name);
 }
 
 // --- 1. upstream fixture scenes ---------------------------------------------
@@ -112,21 +82,7 @@ test("fixture example (poly-line, callbacks)", () => {
 });
 
 test("fixture connectionpin01 (pins, moves)", () => {
-  const router = new AvoidRouter(RouterFlag.OrthogonalRouting);
-  router.addShape("shapeRef1", 0, 0, 10, 10, 0);
-  router.addShape("shapeRef2", 40, 20, 50, 30, 0);
-  assert.equal(router.addShapeConnectionPin("shapeRef1", "p", 1, 0.5, 0.5, true, 0, ConnDir.None), true);
-  assert.equal(router.addShapeConnectionPin("shapeRef2", "p", 1, 0.5, 0.5, true, 0, ConnDir.None), true);
-  router.addConnectorWithConnEnds("conn", { shapeId: "shapeRef2", classId: 1 }, { shapeId: "shapeRef1", classId: 1 }, 0);
-  router.processTransaction();
-  assertGolden(router, "connectionpin01-1");
-  router.moveShapeBy("shapeRef2", 5, 0);
-  router.processTransaction();
-  assertGolden(router, "connectionpin01-2");
-  router.moveShapeBy("shapeRef1", 0, -10);
-  router.processTransaction();
-  assertGolden(router, "connectionpin01-3");
-  assertGolden(router, "connectionpin01-final");
+  checks += helpers.connectionPin01(api);
 });
 
 test("fixture inlineoverlap01 (penalties, touching paths)", () => {
@@ -473,6 +429,24 @@ test("every AvoidRouter method", () => {
   r.moveShapeBy("s", 0, 50);
   assert.deepEqual(r.lastTransactionUpdatedConnectorIds(), ["c"]);
   assert.deepEqual(r.displayConnectorRoute("c"), [{ x: 0, y: 0 }, { x: 30, y: 0 }]);
+
+  // failure containment and transaction progress (the trapping and
+  // cancelling paths are in test/failure-containment.cjs)
+  assert.equal(r.isPoisoned(), false);
+  assert.equal(r.__testPanic(1, "not armed"), false);
+  r.setTransactionTimeLimit(1000);
+  assert.equal(r.transactionTimeLimit(), 1000);
+  r.setTransactionTimeLimit(null);
+  assert.equal(r.transactionTimeLimit(), null);
+  const phases = [];
+  r.setTransactionProgressCallback((elapsed, phase) => {
+    phases.push(phase);
+    return true;
+  });
+  r.moveShapeBy("s", 0, -50);
+  r.setTransactionProgressCallback(null);
+  assert.equal(phases.at(-1), api.TransactionPhase.Completed);
+  assert.equal(r.lastTransactionCancelled(), false);
   r.free();
   called.add("free");
 

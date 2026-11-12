@@ -8,6 +8,7 @@ pub mod avoid;
 mod constants;
 mod json;
 mod wasm_api;
+mod wasm_failure;
 
 pub use constants::*;
 pub use wasm_api::{curved_polyline, AvoidRouter};
