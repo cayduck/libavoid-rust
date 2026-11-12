@@ -16,6 +16,22 @@ VENDOR="${VENDOR:-$ROOT/vendor/adaptagrams/cola}"
 BUILD="${E2E_BUILD:-$ROOT/target/e2e_fuzz}"
 mkdir -p "$BUILD/libavoid"
 cp -u "$VENDOR"/libavoid/*.cpp "$VENDOR"/libavoid/*.h "$BUILD/libavoid/"
+# The only patch to the copy: count rerouteAndCallbackConnectors() calls
+# (e2eRerouteCount, defined in e2e_fuzz.cpp; mirrored by the Rust test hook
+# avoid::router::e2e_reroute_count()).
+python3 - "$VENDOR/libavoid/router.cpp" "$BUILD/libavoid/router.cpp" <<'PY'
+import sys
+s = open(sys.argv[1]).read()
+old = "void Router::rerouteAndCallbackConnectors(void)\n{\n"
+assert s.count(old) == 1
+s = s.replace(old, "extern unsigned long e2eRerouteCount;\n" + old + "    ++e2eRerouteCount;\n")
+try:
+    if open(sys.argv[2]).read() == s:
+        sys.exit(0)
+except FileNotFoundError:
+    pass
+open(sys.argv[2], "w").write(s)
+PY
 
 build_variant() {
   local dir="$1"; shift
