@@ -180,6 +180,13 @@ pub struct HyperedgeTreeStore {
     pub edges: Vec<HyperedgeTreeEdge>,
     pub node_sets: Vec<OrderedHENodeSet>,
     next_serial: u64,
+    /// Port addition (UPSTREAM NON-TERMINATION): set by
+    /// `HyperedgeImprover::removeZeroLengthEdges()` when it meets a
+    /// zero-length self-loop edge that upstream would merge into its own
+    /// node (upstream never returns from that call).  While set,
+    /// `writeEdgesToConns()` does not re-enter a node through a self-loop
+    /// edge (see `edge_write_edges_to_conns`).
+    pub upstream_self_merge_seen: bool,
 }
 
 // upstream: hyperedgetree.cpp travellingForwardOnConnector()
@@ -211,6 +218,7 @@ impl HyperedgeTreeStore {
         self.nodes.clear();
         self.edges.clear();
         self.node_sets.clear();
+        self.upstream_self_merge_seen = false;
     }
 
     fn next_serial(&mut self) -> u64 {
@@ -784,6 +792,16 @@ impl HyperedgeTreeStore {
             }
         }
 
+        // UPSTREAM NON-TERMINATION (port addition; router.rs, "Upstream
+        // non-termination"): after upstream would have looped forever
+        // merging a self-loop edge's node into itself, the port does not
+        // re-enter that node through the self-loop edge: upstream's
+        // traversal would write the node's other connectors once more for
+        // each of the edge's two entries in the node's edge list, tripling
+        // their routes on every transaction.
+        if self.upstream_self_merge_seen && next_node == prev_node {
+            return;
+        }
         self.node_write_edges_to_conns(router, next_node, Some(this), pass);
     }
 

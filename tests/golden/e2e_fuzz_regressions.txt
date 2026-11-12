@@ -233,3 +233,54 @@ D p1: 50 0
 D 
 D 
 #end
+#scene reg-improver-self-loop-route-growth
+router 1
+option 5 1
+rect 0 0 100 90 170
+rect 1347 30 120 60 140
+rect 3228 40 170 80 240
+pin 2 1 0.75 1 1 0 0
+pin 2 3 0 20 0 0 15
+junction 0 180 40 0
+conn 4452 J L P -20 70 15
+conn 0 P 30 140 8 J L
+conn 6024 J L P 130 -10 8
+conn 0 S 2 1 J L
+conn 7691 P 70 170 1 S 2 4
+conn 0 P 70 200 11 S 2 4
+conn 0 J L J 809
+cps 111 3 200 70 0 0 120 110 15 0 200 120 0 0
+process
+process
+conn 0 S 2 3 J 459
+delconn 15
+process
+fixexist 242
+process
+conn 0 S 2 4 S 2 1
+process
+pin 5 4 0.5 0.38100000000000001 1 5 0
+process
+settings
+process
+delshape 3
+process
+settings
+process
+settings
+process
+settings
+process
+settings
+process
+settings
+process
+settings
+process
+settings
+process
+settings
+process
+#out
+#exclude crash timeout (upstream never returns: HyperedgeImprover merges a self-loop tree edge's node into itself; the port must not re-enter the node through the self-loop when writing routes back, else a fixed connector's display route triples on every transaction)
+#end

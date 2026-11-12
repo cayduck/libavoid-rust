@@ -203,7 +203,15 @@
 //!   re-appends the same edge forever.  The port treats such an edge as
 //!   not mergeable (what upstream does when it terminates: both nodes are
 //!   junctions without major changes) and continues the traversal
-//!   (`reg-improver-self-loop-edge-splice`).
+//!   (`reg-improver-self-loop-edge-splice`).  When upstream would have
+//!   merged (major changes allowed, or a node without junction), writing
+//!   the tree back to the connectors does not re-enter the node through
+//!   the self-loop edge either: upstream's traversal (reached only when it
+//!   does not merge) writes the node's other connectors once more for each
+//!   of the edge's two entries in the node's edge list, so a fixed
+//!   connector's display route would triple on every transaction, until
+//!   routing takes exponential time and the recursion overflows the stack
+//!   (`reg-improver-self-loop-route-growth`).
 //! * `HyperedgeImprover::moveJunctionAlongCommonEdge()`, split case: when
 //!   two of the common edges lead to the same node (parallel edges, e.g.
 //!   from a connector with both ends on one junction),

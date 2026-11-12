@@ -632,7 +632,16 @@ impl HyperedgeImprover {
                 // only terminates here when it does not merge (both nodes
                 // junctions without major changes), i.e. it goes straight
                 // to the recursive call; the port does that for every such
-                // edge.
+                // edge, and records when upstream would not have returned
+                // (`upstream_self_merge_seen`, used when the tree is
+                // written back to the connectors).
+                if !self.m_tree.edge(edge).has_fixed_route
+                    && self.m_tree.edge_zero_length(edge)
+                    && self.m_tree.edge_follow_from(edge, this) == this
+                    && (self.m_tree.node(this).junction.is_none() || self.m_can_make_major_changes)
+                {
+                    self.m_tree.upstream_self_merge_seen = true;
+                }
                 if !self.m_tree.edge(edge).has_fixed_route
                     && self.m_tree.edge_zero_length(edge)
                     && self.m_tree.edge_follow_from(edge, this) != this
