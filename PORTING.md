@@ -68,6 +68,7 @@ tests. The pieces are:
 | `tests/fixtures_polyline.rs`, `fixtures_orthogonal.rs`, `fixtures_hyperedge.rs` | Hand translations of the smaller fixtures. |
 | `tests/*_oracle.rs` | Per-module differential tests against recorded C++ output: geometry, objects and router state, crossings, visibility and path search, orthogonal visibility graph, nudging, hyperedges, VPSC (in `src/avoid/vpsc.rs`). |
 | `tests/audit_scenes.rs` | 146 generated scenes covering router flags, every routing option and extreme parameter values, compared with the C++. |
+| `tests/e2e_fuzz.rs` | End-to-end fuzz scenes that mix every feature over long transaction sequences. Of the 1,000 committed scenes, the 865 on which upstream is well defined must match the C++ exactly; the other 135 (upstream crashes, undefined behaviour or runs out of memory) and a set of regression scenes must run without panicking. Debug builds check a tenth of the scenes. |
 | `tests/wasm_api_fixtures.rs`, `tests/wasm_api.rs`, `test/*.cjs` | The fixtures again through the string-id wrapper, wrapper API contracts, and the built WASM package from Node. |
 | `tests/robustness.rs`, `tests/core_findings.rs` | Misuse of the public API must not panic or hang. |
 | `tools/audit/inventory.py --check` | Every upstream item is accounted for, and every `// upstream:` comment names something that exists. |
@@ -80,7 +81,13 @@ tools/fixtures/run_all.sh            # status table for every fixture
 tools/fixtures/verify_roundtrip.sh   # prove the op scripts against the C++
 ORACLE_ALLOC=bump tools/oracle/build.sh   # rebuild upstream, regenerate tests/golden-bump
 python3 tools/audit/inventory.py     # regenerate docs/PORTING_INVENTORY.md
+tools/oracle/e2e_fuzz.sh --seed 42 --scenes 2000   # fuzz fresh scenes against the C++
 ```
+
+Beyond the committed fuzz scenes, 2,000 further scenes from two other seeds
+were run: 1,775 were comparable and all but one matched. The exception
+turned out to be undefined behaviour upstream (erasing the `std::set` element
+being iterated), which the fuzzer now detects and excludes.
 
 The oracle scripts need `g++` and the vendored upstream source, which is not
 checked in (`vendor/adaptagrams` is a checkout of the Adaptagrams repository
@@ -105,6 +112,12 @@ differences are confined to the following.
     containing a cycle, is skipped.
   - With transactions off, a `processTransaction()` nested inside another is
     a no-op.
+- **Infinite loops upstream.** Two loops in hyperedge improvement never
+  finish upstream when a connector has both ends on the same junction
+  (`HyperedgeTreeNode::spliceEdgesFrom` called on its own node). The port
+  detects that exact condition and carries on. The guards cannot fire on a run
+  that finishes upstream. See "Upstream non-termination" in
+  `src/avoid/router.rs`.
 - **Asserts.** `COLA_ASSERT` is `debug_assert!`, except for asserts that
   upstream itself violates on valid input; those are not ported, so that debug
   builds do not panic where upstream's release build works. Each site cites
@@ -114,3 +127,18 @@ differences are confined to the following.
   reports the connectors updated by the last transaction instead.
 - **Uncaught exceptions.** Where upstream's VPSC solver would throw an
   exception nothing catches, the port leaves that nudging region unchanged.
+
+## Known slow cases
+
+These are upstream's behaviour, reproduced faithfully, and can look like a
+hang in an interactive application.
+
+- **Hyperedge improvement that adds junctions.** With
+  `improveHyperedgeRoutesMovingAddingAndDeletingJunctions` on, some scenes gain
+  a junction and a connector on every `processTransaction()`, so each
+  transaction is slower than the last. On a truncated fuzz scene the C++ took
+  10.5 s and the port 10.6 s, with identical output.
+- **Nudging after undefined input.** On one fuzz scene where the C++ crashes
+  early, the port keeps going and spends more than ten minutes in the nudging
+  constraint loop of a single transaction. The loop was making progress when
+  stopped, but it was not run to completion.

@@ -143,12 +143,17 @@ Run everything with `npm test` (Rust tests, WASM build, Node tests).
 - **Differential oracles.** Each module has a test that replays generated
   scenes and compares the result with output recorded from the C++
   (`tests/*_oracle.rs`, `tests/audit_scenes.rs`).
+- **End-to-end fuzzing.** `tests/e2e_fuzz.rs` replays 1,000 generated scenes
+  that mix every feature over long transaction sequences. The 865 on which
+  the C++ is well defined must match it exactly; the rest must run without
+  panicking.
 - **Function inventory.** `docs/PORTING_INVENTORY.md` maps every upstream
   class, function and constant to its Rust counterpart or to the reason it is
   not ported (debug/SVG output and the like).
 
 `PORTING.md` describes how the port is organised, how the reference outputs
-are produced, and where the port deliberately differs from upstream.
+are produced, where the port deliberately differs from upstream, and which
+inputs are known to be slow.
 
 ## Not included
 
