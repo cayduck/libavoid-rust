@@ -45,6 +45,20 @@ capped as above (RSS default 4096 MB); no C++ process is started while
 less than E2E_MIN_FREE_GB (default 6) of memory is available.
 The ASan build runs on ASan's malloc with a 64 MB quarantine (the bump
 builds never free), so it only answers "does this scene hit UB".
+All C++ processes and Rust replay threads of a campaign share one budget of
+E2E_CORES (default 10) busy cores; the C++ run of the next batch fills the
+cores the current batch leaves idle.
+
+Campaign replays run under a watchdog (replay()): a scene that takes the
+port more than E2E_SCENE_LIMIT (default 20) seconds is stopped and logged
+as "slow" for separate triage, and a replay process that dies (abort,
+stack overflow) or exceeds E2E_RUST_RSS_MB has its in-flight scenes
+replayed one per process, so every scene gets its own verdict.  Every batch
+replays its excluded scenes for panic/abort/hang freedom; every 5th batch
+also replays all scenes with arena slot reuse disabled.  Each finished
+batch appends one JSON line to the campaign log (divergent, slow,
+excluded_findings, slot_reuse_diff); scenes with findings are saved under
+target/e2e_fuzz/campaign-S/findings-*.txt.  Progress: target/progress.log.
 """
 
 import argparse
@@ -96,7 +110,49 @@ def format_scenes(scenes):
     return "\n".join(parts) + "\n"
 
 
-def run_cpp(variant, args, env_extra=None):
+class CorePool:
+    """Busy-core budget shared by every C++ process and Rust replay of this
+    driver (E2E_CORES, default 10): each C++ process holds one core, a Rust
+    replay one per thread.  Work on the current batch (`hi`) is served
+    before the low-priority C++ prefetch of the next batch."""
+
+    def __init__(self, n):
+        import threading
+        self.n = n
+        self.free = n
+        self.hi_waiting = 0
+        self.cv = threading.Condition()
+
+    def acquire(self, k, hi=True):
+        k = min(k, self.n)
+        with self.cv:
+            if hi:
+                self.hi_waiting += 1
+            while self.free < k or (not hi and self.hi_waiting > 0):
+                self.cv.wait()
+            self.free -= k
+            if hi:
+                self.hi_waiting -= 1
+        return k
+
+    def release(self, k):
+        with self.cv:
+            self.free += k
+            self.cv.notify_all()
+
+
+CORES = CorePool(int(os.environ.get("E2E_CORES", "10")))
+
+
+def _asan_slots():
+    import threading
+    return threading.BoundedSemaphore(6)
+
+
+ASAN_SLOTS = _asan_slots()   # memory: at most 6 ASan processes at once
+
+
+def run_cpp(variant, args, env_extra=None, hi=True):
     env = dict(os.environ)
     env["E2E_TIMEOUT"] = str(TIMEOUTS[variant])
     env["ASAN_OPTIONS"] = ("detect_leaks=0:abort_on_error=0:allocator_may_return_null=1:"
@@ -106,8 +162,16 @@ def run_cpp(variant, args, env_extra=None):
     env["UBSAN_OPTIONS"] = "print_stacktrace=1:halt_on_error=1"
     if env_extra:
         env.update(env_extra)
-    wait_for_memory(quiet=True)
-    r = subprocess.run([exe(variant)] + args, capture_output=True, text=True, env=env)
+    if variant == "asan":
+        ASAN_SLOTS.acquire()
+    k = CORES.acquire(1, hi)
+    try:
+        wait_for_memory(quiet=True)
+        r = subprocess.run([exe(variant)] + args, capture_output=True, text=True, env=env)
+    finally:
+        CORES.release(k)
+        if variant == "asan":
+            ASAN_SLOTS.release()
     if r.returncode != 0:
         raise RuntimeError("%s %s failed: %s" % (variant, args, r.stderr[-2000:]))
     return r.stdout
@@ -128,22 +192,44 @@ def run_cpp_file_par(variant, scenes):
     if not scenes:
         return []
     jobs = max(1, min(JOBS, 6)) if variant == "asan" else max(1, JOBS)
-    k = max(1, (len(scenes) + jobs - 1) // jobs)
+    k = max(1, min((len(scenes) + jobs - 1) // jobs, int(os.environ.get("E2E_CHUNK", "4"))))
     chunks = [scenes[i:i + k] for i in range(0, len(scenes), k)]
-    with ThreadPoolExecutor(len(chunks)) as ex:
+    with ThreadPoolExecutor(min(jobs, len(chunks))) as ex:
         outs = list(ex.map(lambda c: run_cpp_file(variant, c), chunks))
     return [sc for o in outs for sc in o]
 
 
-def gen_variant(variant, seed, first, count):
+def classify_par(todo):
+    """{variant: {name: out}} of the assert and ASan builds on `todo`
+    ([(name, dsl, ndebug_out)]), one scene per process in one pool.  The
+    assert build is skipped where the NDEBUG build crashed (classify()
+    does not look at it then)."""
+    tasks = [("asan", sc) for sc in todo] + \
+        [("assert", sc) for sc in todo if not is_crash(sc[2])]
+    res = {"assert": {}, "asan": {}}
+    with ThreadPoolExecutor(max(1, min(JOBS, len(tasks) or 1))) as ex:
+        outs = list(ex.map(lambda t: (t[0], run_cpp_file(t[0], [t[1]])), tasks))
+    for v, o in outs:
+        for n, _, out in o:
+            res[v][n] = out
+    for n, _, _ in todo:
+        res["assert"].setdefault(n, [])
+    return res
+
+
+def gen_variant(variant, seed, first, count, jobs=None, hi=True):
     # The variants run one after the other, JOBS processes each (fewer for
     # the memory-hungry ASan build).
-    jobs = max(1, min(JOBS, 6)) if variant == "asan" else max(1, JOBS)
+    if jobs is None:
+        jobs = max(1, min(JOBS, 6)) if variant == "asan" else max(1, JOBS)
+    # Small chunks, handed out dynamically: scene run times vary by orders
+    # of magnitude, so large static chunks leave cores idle at the tail.
     chunk = max(1, (count + jobs - 1) // jobs)
-    chunk = min(chunk, 25)
+    chunk = min(chunk, int(os.environ.get("E2E_CHUNK", "4")))
     tasks = [(f, min(chunk, first + count - f)) for f in range(first, first + count, chunk)]
     with ThreadPoolExecutor(jobs) as ex:
-        outs = list(ex.map(lambda t: run_cpp(variant, ["gen", str(seed), str(t[0]), str(t[1])]), tasks))
+        outs = list(ex.map(lambda t: run_cpp(variant, ["gen", str(seed), str(t[0]), str(t[1])], hi=hi),
+                           tasks))
     res = []
     for o in outs:
         res.extend(parse_scenes(o))
@@ -262,6 +348,158 @@ def compare(golden_path, soft=False, scene=None, full=False, quiet=False, env_ex
     return status, r.stdout
 
 
+def sanitize(text):
+    """Text for the committed campaign log: no absolute local paths."""
+    text = text.replace(ROOT, "$PWD")
+    home = os.path.expanduser("~")
+    if home and home != "/":
+        text = text.replace(home, "~")
+    return text
+
+
+def _rss_mb(pid):
+    try:
+        for line in open("/proc/%d/status" % pid):
+            if line.startswith("VmRSS:"):
+                return int(line.split()[1]) / 1024.0
+    except OSError:
+        pass
+    return 0.0
+
+
+def _replay_once(env, limit, rss_cap):
+    """One Rust replay process under the watchdog: (killed, done, flying,
+    stderr tail); killed is None, ("slow", names) or ("memory", None)."""
+    import threading
+    import time
+    wait_for_memory(quiet=True)
+    p = subprocess.Popen([rust_bin(), "--nocapture", "--test-threads", "1"], env=env,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+                         errors="replace")
+    inflight, done, tail = {}, {}, []
+    lock = threading.Lock()
+
+    def reader():
+        for line in p.stderr:
+            line = line.rstrip("\n")
+            parts = line.split(" ", 4)
+            with lock:
+                if len(parts) == 2 and parts[0] == "start":
+                    inflight[parts[1]] = time.time()
+                elif len(parts) >= 4 and parts[0] == "done" and parts[3] == "ms":
+                    inflight.pop(parts[1], None)
+                    done[parts[1]] = parts[4] if len(parts) > 4 else ""
+                else:
+                    tail.append(line)
+                    del tail[:-20]
+    rt = threading.Thread(target=reader, daemon=True)
+    rt.start()
+    killed = None
+    while p.poll() is None:
+        time.sleep(0.25)
+        now = time.time()
+        with lock:
+            over = [n for n, t0 in inflight.items() if now - t0 > limit]
+        if over:
+            killed = ("slow", over)
+        elif _rss_mb(p.pid) > rss_cap:
+            killed = ("memory", None)
+        if killed:
+            p.kill()
+            p.wait()
+            break
+    rt.join()
+    with lock:
+        return killed, dict(done), list(inflight), list(tail)
+
+
+def replay(golden_path, names, soft=False, env_extra=None, threads=None, limit=None):
+    """Watchdog replay of the scenes `names` of a golden file through the
+    Rust port: returns {name: status}.  Every scene gets a status even when
+    the replay process dies (abort, stack overflow) or a scene runs long:
+      * a scene running longer than `limit` seconds (E2E_SCENE_LIMIT,
+        default 20) is stopped (the process is killed) and reported
+        "slow"; the other scenes of that process are replayed again;
+      * when the process dies or exceeds the RSS cap (E2E_RUST_RSS_MB,
+        default 4096) with several scenes in flight, each of them is
+        replayed alone in its own process, so the culprit is identified
+        and one abort cannot hide another ("died: ..." / "memory")."""
+    if limit is None:
+        limit = float(os.environ.get("E2E_SCENE_LIMIT", "20"))
+    rss_cap = float(os.environ.get("E2E_RUST_RSS_MB", "4096"))
+    if threads is None:
+        threads = int(os.environ.get("E2E_THREADS", "3"))
+    status = {}
+    queue = list(names)          # scenes still to replay together
+    solo = []                    # suspects, replayed one per process
+    tmpdir = tempfile.mkdtemp(prefix="e2e-replay-")
+    only_path = os.path.join(tmpdir, "only.txt")
+    while queue or solo:
+        if solo:
+            batch, nthreads, alone = [solo.pop(0)], 1, True
+        else:
+            batch, nthreads, alone = queue, max(1, min(threads, len(queue))), False
+            queue = []
+        with open(only_path, "w") as f:
+            f.write("\n".join(batch) + "\n")
+        env = dict(os.environ)
+        env.update({"E2E_GOLDEN": golden_path, "E2E_ONLY": only_path, "E2E_PROGRESS": "1",
+                    "RUST_MIN_STACK": str(64 * 1024 * 1024), "E2E_THREADS": str(nthreads)})
+        env.pop("E2E_REPORT", None)
+        env.pop("E2E_SCENE", None)
+        if soft:
+            env["E2E_SOFT"] = "1"
+        if env_extra:
+            env.update(env_extra)
+        before = len(status) + len(solo)
+        cores = CORES.acquire(nthreads)
+        try:
+            killed, done, flying, tail = _replay_once(env, limit, rss_cap)
+        finally:
+            CORES.release(cores)
+        status.update(done)
+        rest = [n for n in batch if n not in done and n not in flying]
+        if killed and killed[0] == "slow":
+            for n in killed[1]:
+                status[n] = "slow >%gs" % limit
+            queue.extend(n for n in flying if n not in killed[1])
+            queue.extend(rest)
+        elif killed or flying:
+            why = "memory" if killed else "died: " + sanitize(" | ".join(tail[-6:]))[-300:]
+            if alone or len(flying) == 1:
+                for n in flying:
+                    status[n] = why
+            else:
+                solo.extend(flying)
+            queue.extend(rest)
+        elif rest:
+            # Exited without starting these scenes (should not happen).
+            if alone or not done:
+                why = "died: " + sanitize(" | ".join(tail[-6:]))[-300:]
+                for n in rest:
+                    status[n] = why
+            else:
+                queue.extend(rest)
+        if len(status) + len(solo) == before:
+            # No scene finished or was isolated (e.g. killed for memory
+            # before any scene started): do not loop.
+            why = "died: no progress | " + sanitize(" | ".join(tail[-6:]))[-300:]
+            for n in batch:
+                if n not in status:
+                    status[n] = why
+            queue = [n for n in queue if n not in status]
+    try:
+        os.unlink(only_path)
+        os.rmdir(tmpdir)
+    except OSError:
+        pass
+    return status
+
+
+def golden_names(path):
+    return [n for n, _, _ in parse_scenes(open(path).read())]
+
+
 def summarize(scenes, status):
     counts = {}
     for name, _, out in scenes:
@@ -347,7 +585,7 @@ def gen_fast(seed, first, count, path, nd=None):
     with open(path, "w") as f:
         f.write(format_scenes([(n, d, o if not is_crash(o) else ["#exclude crash pending"])
                                for n, d, o in nd]))
-    status, _ = compare(path, quiet=True)
+    status = replay(path, [n for n, _, _ in nd])
     todo = [(n, d, o) for n, d, o in nd
             if is_crash(o) or not status.get(n, "").startswith("match")]
     if not todo:
@@ -355,7 +593,7 @@ def gen_fast(seed, first, count, path, nd=None):
                  ["#exclude pinset-unsorted"] + o[1:]) for n, d, o in nd], status
     progress("  batch %d: classifying %d crashing/divergent scenes (assert + asan builds)"
              % (first, len(todo)))
-    res = {v: {n: o for n, _, o in run_cpp_file_par(v, todo)} for v in ("assert", "asan")}
+    res = classify_par(todo)
     progress("  batch %d: classification done" % first)
     classified = {}
     for n, d, o in todo:
@@ -371,11 +609,11 @@ def gen_fast(seed, first, count, path, nd=None):
     # Re-compare the reclassified scenes (exclusions are skipped now).
     with open(path, "w") as f:
         f.write(format_scenes(scenes))
-    status, _ = compare(path, quiet=True)
+    status.update(replay(path, [n for n, _, _ in todo]))
     return scenes, status
 
 
-PROGRESS_LOG = os.path.join(ROOT, "target", "e2e_progress.log")
+PROGRESS_LOG = os.path.join(ROOT, "target", "progress.log")
 
 
 def progress(line):
@@ -400,17 +638,19 @@ def cmd_campaign(args):
             done[(e["seed"], e["first"], e["count"])] = e
     import time
     t_start = time.time()
-    # Campaign replays use all cores (the C++ prefetch of the next batch
-    # runs alongside); the slot-reuse and excluded-scene replays run on
-    # every 5th batch only.
-    os.environ["E2E_THREADS"] = os.environ.get("E2E_THREADS", "10")
+    # Core budget (CorePool, E2E_CORES): the C++ NDEBUG run of the next
+    # batch (low priority) fills whatever cores the Rust replays
+    # (E2E_THREADS threads, default 6) and the classification runs of the
+    # current batch leave idle.
+    os.environ["E2E_THREADS"] = os.environ.get("E2E_THREADS", "6")
+    pjobs = CORES.n
     batches = [(f, min(args.batch, args.first + args.scenes - f))
                for f in range(args.first, args.first + args.scenes, args.batch)
                if (args.seed, f, min(args.batch, args.first + args.scenes - f)) not in done]
     prefetch = ThreadPoolExecutor(1)
     pending = {}
     if batches and not args.full_classify:
-        pending[batches[0][0]] = prefetch.submit(gen_variant, "ndebug", args.seed, *batches[0])
+        pending[batches[0][0]] = prefetch.submit(gen_variant, "ndebug", args.seed, *batches[0], jobs=pjobs, hi=False)
     for bi, (first, count) in enumerate(batches):
         if args.max_minutes and time.time() - t_start > args.max_minutes * 60:
             progress("campaign seed %d: time budget of %d min reached before batch %d"
@@ -428,29 +668,41 @@ def cmd_campaign(args):
             if bi + 1 < len(batches) and not (args.max_minutes and
                                                time.time() - t_start > args.max_minutes * 60):
                 nf, nc = batches[bi + 1]
-                pending[nf] = prefetch.submit(gen_variant, "ndebug", args.seed, nf, nc)
+                pending[nf] = prefetch.submit(gen_variant, "ndebug", args.seed, nf, nc, jobs=pjobs, hi=False)
             scenes, status = gen_fast(args.seed, first, count, path, nd)
-        # The same replay with arena slot reuse disabled must give the same
-        # statuses (else a slot index leaks into behaviour).
+        names = [n for n, _, _ in scenes]
+        # Excluded scenes (every batch): the port must not panic, abort or
+        # hang where upstream is undefined.  The watchdog replay isolates
+        # every scene whose process dies, so one abort cannot hide another.
+        excl = [n for n, _, o in scenes if o and o[0].startswith("#exclude")]
+        excl_findings = []
+        if excl:
+            progress("  batch %d: excluded-scene replay (%d scenes)" % (first, len(excl)))
+            soft = replay(path, excl, soft=True)
+            excl_findings = sorted([n, st[:200]] for n, st in soft.items()
+                                   if st.startswith(("excluded-panic", "panic", "died", "slow",
+                                                     "memory")))
+        # Every 5th batch: the same replay with arena slot reuse disabled
+        # must give the same statuses (else a slot index leaks into
+        # behaviour).  Scenes over the time limit are not compared.
         slot_diff = []
         extra = (first // args.batch) % 5 == 0
         if extra:
-            status2, _ = compare(path, quiet=True, env_extra={"E2E_NO_SLOT_REUSE": "1"})
-            slot_diff = sorted(n for n in set(status) | set(status2) if status.get(n) != status2.get(n))
-            # Excluded scenes: the port must not panic (bounded time).
-            soft, _ = compare(path, quiet=True, soft=True)
-            for n, st in soft.items():
-                if st.startswith("panic") or st.startswith("died"):
-                    slot_diff.append(n + " (excluded scene: " + st[:80] + ")")
-        divergent = sorted((n, s) for n, s in status.items()
-                           if s.startswith(("differ", "panic", "died")))
-        keep = [sc for sc in scenes if status.get(sc[0], "").startswith(("differ", "panic"))]
-        if keep or divergent or slot_diff:
-            with open(os.path.join(outdir, "divergent-%06d.txt" % first), "w") as f:
+            progress("  batch %d: no-slot-reuse replay" % first)
+            status2 = replay(path, names, env_extra={"E2E_NO_SLOT_REUSE": "1"})
+            slot_diff = sorted(n for n in set(status) | set(status2)
+                               if status.get(n) != status2.get(n)
+                               and not (status.get(n, "") + status2.get(n, "")).count("slow"))
+        divergent = sorted([n, s] for n, s in status.items()
+                           if s.startswith(("differ", "panic", "died", "memory")))
+        slow = sorted(n for n, s in status.items() if s.startswith("slow"))
+        keep_names = set(n for n, _ in divergent) | set(slow) | set(slot_diff) | \
+            set(n for n, _ in excl_findings)
+        keep = [sc for sc in scenes if sc[0] in keep_names]
+        if keep:
+            with open(os.path.join(outdir, "findings-%06d.txt" % first), "w") as f:
                 f.write(format_scenes(keep))
-            os.rename(path, os.path.join(outdir, "batch-%06d-kept.txt" % first))
-        else:
-            os.unlink(path)
+        os.unlink(path)
         reasons = {}
         for r, names in exclusion_reasons(scenes).items():
             k = short_reason(r)
@@ -460,9 +712,11 @@ def cmd_campaign(args):
             rust[st.split()[0]] = rust.get(st.split()[0], 0) + 1
         entry = {"seed": args.seed, "first": first, "count": count,
                  "classes": summarize(scenes, status), "rust": rust,
-                 "reasons": reasons, "divergent": divergent, "slot_reuse_diff": slot_diff}
+                 "reasons": reasons, "divergent": divergent, "slot_reuse_diff": slot_diff,
+                 "slow": slow, "excluded_findings": excl_findings,
+                 "slot_reuse_checked": extra}
         with open(CAMPAIGN_LOG, "a") as f:
-            f.write(json.dumps(entry, sort_keys=True) + "\n")
+            f.write(sanitize(json.dumps(entry, sort_keys=True)) + "\n")
         done[(args.seed, first, count)] = entry
         tot_scenes = sum(e["count"] for (sd, _, _), e in done.items() if sd == args.seed)
         tot_div = sum(len(e["divergent"]) + len(e.get("slot_reuse_diff", []))
@@ -487,6 +741,7 @@ def cmd_campaign(args):
 
 def report(done, seed=None):
     total, rust, reasons, divergent, n = {}, {}, {}, [], 0
+    slow, excl = [], []
     for (s, first, count), e in sorted(done.items()):
         if seed is not None and s != seed:
             continue
@@ -499,6 +754,8 @@ def report(done, seed=None):
             reasons[k] = reasons.get(k, 0) + v
         divergent.extend(e["divergent"])
         divergent.extend([(n, "slot-reuse-dependent") for n in e.get("slot_reuse_diff", [])])
+        slow.extend(e.get("slow", []))
+        excl.extend(e.get("excluded_findings", []))
     print("\n== campaign%s: %d scenes ==" % ("" if seed is None else " seed %d" % seed, n))
     for k, v in sorted(total.items()):
         print("%6d %s" % (v, k))
@@ -508,6 +765,10 @@ def report(done, seed=None):
         print("%6d %s" % (c, r))
     print("divergent scenes: %d" % len(divergent))
     for d in divergent:
+        print("  %s\t%s" % tuple(d))
+    print("comparable scenes over the Rust time limit (slow): %d %s" % (len(slow), " ".join(slow)))
+    print("excluded scenes on which the port panics, dies or is slow: %d" % len(excl))
+    for d in excl:
         print("  %s\t%s" % tuple(d))
 
 
