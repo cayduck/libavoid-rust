@@ -1188,18 +1188,6 @@ static void installCrashHandlers(void)
     noCore.rlim_cur = 0;
     noCore.rlim_max = 0;
     setrlimit(RLIMIT_CORE, &noCore);
-    // A large stack (the main thread's stack grows up to RLIMIT_STACK):
-    // upstream recurses deeply in places, and ASan frames are big, so 8 MB
-    // overflows on scenes that are fine (an infinite recursion still
-    // overflows).
-    struct rlimit stack;
-    if (getrlimit(RLIMIT_STACK, &stack) == 0)
-    {
-        rlim_t want = (rlim_t) 1 << 30;
-        if (stack.rlim_max != RLIM_INFINITY && stack.rlim_max < want) want = stack.rlim_max;
-        stack.rlim_cur = want;
-        setrlimit(RLIMIT_STACK, &stack);
-    }
 #ifndef E2E_SANITIZE
     signal(SIGABRT, crashHandler);
     signal(SIGSEGV, crashHandler);
@@ -1253,13 +1241,14 @@ static std::string runSceneChild(const std::vector<std::string>& dsl)
     close(fds[1]);
     std::string result;
     char buf[65536];
+    bool memoryKilled = false;
     time_t start = time(nullptr);
     for (;;)
     {
         struct pollfd pfd;
         pfd.fd = fds[0];
         pfd.events = POLLIN;
-        int pr = poll(&pfd, 1, 1000);
+        int pr = poll(&pfd, 1, 200);
         if (pr > 0)
         {
             ssize_t n = read(fds[0], buf, sizeof(buf));
@@ -1269,6 +1258,28 @@ static std::string runSceneChild(const std::vector<std::string>& dsl)
         if (time(nullptr) - start > timeout + 5)
         {
             kill(pid, SIGKILL);
+        }
+        // RSS watchdog (all builds; the bump builds are also capped by
+        // their arena size): a child above E2E_RSS_MB (default 1536) is
+        // killed and the scene reported as "#crash memory".
+        {
+            char path[64];
+            snprintf(path, sizeof(path), "/proc/%d/statm", (int) pid);
+            FILE *fp = fopen(path, "r");
+            if (fp)
+            {
+                unsigned long sizePages = 0, rssPages = 0;
+                if (fscanf(fp, "%lu %lu", &sizePages, &rssPages) == 2)
+                {
+                    unsigned long capMb = getenv("E2E_RSS_MB") ? atol(getenv("E2E_RSS_MB")) : 1536;
+                    if (rssPages * (unsigned long) sysconf(_SC_PAGESIZE) > (capMb << 20))
+                    {
+                        memoryKilled = true;
+                        kill(pid, SIGKILL);
+                    }
+                }
+                fclose(fp);
+            }
         }
     }
     close(fds[0]);
@@ -1340,6 +1351,10 @@ static std::string runSceneChild(const std::vector<std::string>& dsl)
     if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
     {
         char b[128];
+        if (memoryKilled || (WIFEXITED(status) && WEXITSTATUS(status) == 9))
+        {
+            return "#crash memory\n";
+        }
         if (WIFEXITED(status))
         {
             snprintf(b, sizeof(b), "#crash exit=%d", WEXITSTATUS(status));
@@ -2144,8 +2159,8 @@ static std::vector<std::string> genScene(uint64_t seed, uint64_t index)
         g.txn = false;
     }
     g.inBatch = g.txn;
-    unsigned nShapes = (size < 6) ? 1 + rnd(5) : (size < 9 ? 4 + rnd(8) : 10 + rnd(10));
-    unsigned nConns = (size < 6) ? 1 + rnd(5) : (size < 9 ? 3 + rnd(10) : 8 + rnd(15));
+    unsigned nShapes = (size < 6) ? 1 + rnd(5) : (size < 9 ? 4 + rnd(8) : 10 + rnd(6));
+    unsigned nConns = (size < 6) ? 1 + rnd(5) : (size < 9 ? 3 + rnd(10) : 8 + rnd(8));
     unsigned nJuncs = chance(40) ? 1 + rnd(size < 6 ? 2 : 3) : 0;
     unsigned nClusters = (g.flags & 1) && chance(30) ? 1 + rnd(2) : 0;
     for (unsigned k = 0; k < nShapes; ++k) genShape(g);
@@ -2163,8 +2178,10 @@ static std::vector<std::string> genScene(uint64_t seed, uint64_t index)
     g.inBatch = false;
 
     // Transactions.
-    unsigned steps = 10 + rnd(31);
-    if (size == 9) steps = 10 + rnd(10);
+    // (the bump allocator never frees: memory grows with the number of
+    // transactions, so very long sequences are kept for small scenes)
+    unsigned steps = (size < 6) ? 10 + rnd(31) : 10 + rnd(16);
+    if (size == 9) steps = 10 + rnd(6);
     for (unsigned s = 0; s < steps; ++s)
     {
         if (chance(40))

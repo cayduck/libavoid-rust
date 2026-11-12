@@ -26,16 +26,24 @@ Classification of a scene (first output line of the golden):
   #exclude crash ...  the NDEBUG build crashes or times out
   #exclude ub ...     the ASan/UBSan build reports an error (message and
                       first libavoid frame follow)
-  #exclude heapdep    the sanitized build (same allocation order, different
-                      addresses/padding) produced different output
+  #exclude memory     a C++ build exceeded the memory cap (bump arena
+                      E2E_ARENA_MB, default 1024 MB, or RSS E2E_RSS_MB,
+                      default 1536 MB) -- not a verdict on upstream
   #exclude assertdiff the asserting build finished with different output
   #exclude pinset-unsorted
                       transformConnectionPinPositions() mutated the keys of a
                       shape's std::set of pins so that it is no longer sorted
                       (undefined behaviour; libstdc++ tree descent not
                       modelled by the port)
-For #exclude ub / heapdep / assertdiff the NDEBUG output follows the marker
-(E2E_SOFT=1 replays those too, without failing).
+For #exclude ub / memory (of the ASan build) / assertdiff the NDEBUG output
+follows the marker (E2E_SOFT=1 replays those too, without failing).
+
+Resources (shared workstation): the three builds run one after the other,
+at most E2E_JOBS (default 3) C++ processes at once (2 for ASan), each scene
+in its own process whose memory is capped as above; campaigns wait for
+>= E2E_MIN_FREE_GB (default 8) of available memory before every batch.
+The ASan build runs on ASan's malloc with a 64 MB quarantine (the bump
+builds never free), so it only answers "does this scene hit UB".
 """
 
 import argparse
@@ -48,11 +56,10 @@ from concurrent.futures import ThreadPoolExecutor
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 BUILD = os.environ.get("E2E_BUILD", os.path.join(ROOT, "target", "e2e_fuzz"))
-JOBS = int(os.environ.get("E2E_JOBS", str(os.cpu_count() or 4)))
+JOBS = int(os.environ.get("E2E_JOBS", "3"))
 VARIANTS = ("assert", "ndebug", "asan")
-# Per-scene limits (seconds).  Generous: scenes take ~0.1-3 s, but the
-# three builds run concurrently; spurious timeouts would exclude scenes.
-TIMEOUTS = {"assert": 120, "ndebug": 120, "asan": 600}
+# Per-scene limits (seconds); scenes take ~0.1-3 s (ASan ~5x).
+TIMEOUTS = {"assert": 60, "ndebug": 60, "asan": 300}
 
 
 def exe(variant):
@@ -91,7 +98,10 @@ def format_scenes(scenes):
 def run_cpp(variant, args, env_extra=None):
     env = dict(os.environ)
     env["E2E_TIMEOUT"] = str(TIMEOUTS[variant])
-    env["ASAN_OPTIONS"] = "detect_leaks=0:abort_on_error=0:allocator_may_return_null=1"
+    env["ASAN_OPTIONS"] = ("detect_leaks=0:abort_on_error=0:allocator_may_return_null=1:"
+                           "quarantine_size_mb=64:malloc_context_size=8")
+    env.setdefault("E2E_ARENA_MB", "1024")
+    env.setdefault("E2E_RSS_MB", "1536")
     env["UBSAN_OPTIONS"] = "print_stacktrace=1:halt_on_error=1"
     if env_extra:
         env.update(env_extra)
@@ -112,9 +122,9 @@ def run_cpp_file(variant, scenes, env_extra=None):
 
 
 def gen_variant(variant, seed, first, count):
-    # The three variants run concurrently: share the JOBS processes (the
-    # slow ASan build gets half of them).
-    jobs = max(1, JOBS // 2) if variant == "asan" else max(1, JOBS // 4)
+    # The variants run one after the other, JOBS processes each (fewer for
+    # the memory-hungry ASan build).
+    jobs = max(1, min(JOBS, 2)) if variant == "asan" else max(1, JOBS)
     chunk = max(1, (count + jobs - 1) // jobs)
     chunk = min(chunk, 25)
     tasks = [(f, min(chunk, first + count - f)) for f in range(first, first + count, chunk)]
@@ -132,16 +142,22 @@ def is_crash(out):
 
 def classify(a, n, z):
     """Golden output lines of one scene from assert / ndebug / asan outputs."""
+    if n and n[0] == "#crash memory":
+        return ["#exclude memory"]
     if is_crash(n):
         reason = z[0][len("#crash "):] if is_crash(z) else n[0][len("#crash "):]
         return ["#exclude crash " + reason]
+    if z and z[0] == "#crash memory":
+        return ["#exclude memory (asan)"] + [l for l in n if l != "#pinset-unsorted"]
     if is_crash(z):
-        return ["#exclude ub " + z[0][len("#crash "):]] + n
+        return ["#exclude ub " + z[0][len("#crash "):]] + [l for l in n if l != "#pinset-unsorted"]
     if n and n[0] == "#pinset-unsorted":
         # transformConnectionPinPositions() left a std::set unsorted (UB).
         return ["#exclude pinset-unsorted"] + n[1:]
-    if z != n:
-        return ["#exclude heapdep"] + n
+    # (The ASan build runs on a different allocator, so its output is not
+    # compared with the bump builds'.)
+    if a and a[0] == "#crash memory":
+        return n
     if is_crash(a):
         return ["#assert " + a[0][len("#crash "):]] + n
     if a != n:
@@ -151,10 +167,8 @@ def classify(a, n, z):
 
 def gen(seed, first, count):
     results = {}
-    with ThreadPoolExecutor(3) as ex:
-        futs = {v: ex.submit(gen_variant, v, seed, first, count) for v in VARIANTS}
-        for v in VARIANTS:
-            results[v] = futs[v].result()
+    for v in VARIANTS:
+        results[v] = gen_variant(v, seed, first, count)
     scenes = []
     for (na, da, a), (nn, dn, n), (nz, dz, z) in zip(results["assert"], results["ndebug"], results["asan"]):
         assert na == nn == nz and da == dn == dz
@@ -165,10 +179,8 @@ def gen(seed, first, count):
 def classify_scenes(scenes):
     """Runs DSL-only scenes on all builds and classifies them."""
     res = {}
-    with ThreadPoolExecutor(3) as ex:
-        futs = {v: ex.submit(run_cpp_file, v, scenes) for v in VARIANTS}
-        for v in VARIANTS:
-            res[v] = futs[v].result()
+    for v in VARIANTS:
+        res[v] = run_cpp_file(v, scenes)
     return [(n, d, classify(a, nn, z)) for (n, d, a), (_, _, nn), (_, _, z) in
             zip(res["assert"], res["ndebug"], res["asan"])]
 
@@ -206,6 +218,7 @@ def compare(golden_path, soft=False, scene=None, full=False, quiet=False, env_ex
     env["E2E_GOLDEN"] = golden_path
     env["E2E_REPORT"] = rep_path
     env["RUST_MIN_STACK"] = str(64 * 1024 * 1024)
+    env.setdefault("E2E_THREADS", "3")
     if soft:
         env["E2E_SOFT"] = "1"
     if scene:
@@ -287,6 +300,21 @@ def short_reason(r):
     return r[:160]
 
 
+def available_gb():
+    for line in open("/proc/meminfo"):
+        if line.startswith("MemAvailable:"):
+            return int(line.split()[1]) / (1 << 20)
+    return 0.0
+
+
+def wait_for_memory():
+    import time
+    need = float(os.environ.get("E2E_MIN_FREE_GB", "8"))
+    while available_gb() < need:
+        print("waiting: %.1f GB available (< %.1f)" % (available_gb(), need), flush=True)
+        time.sleep(60)
+
+
 def cmd_campaign(args):
     """Runs batches of scenes; every finished batch appends one JSON line to
     tools/oracle/e2e_fuzz_campaign.log, and batches already in the log are
@@ -305,6 +333,7 @@ def cmd_campaign(args):
         count = min(args.batch, args.first + args.scenes - first)
         if (args.seed, first, count) in done:
             continue
+        wait_for_memory()
         scenes = gen(args.seed, first, count)
         path = os.path.join(outdir, "batch-%06d.txt" % first)
         with open(path, "w") as f:
