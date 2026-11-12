@@ -182,7 +182,7 @@ conn 9346 P 60 30 8 J L
 src 612 J 405
 dst 756 J 838
 #out
-#exclude crash timeout (upstream never returns: HyperedgeTreeNode::spliceEdgesFrom(self) on a zero-length self-loop tree edge; port must terminate)
+#exclude crash [debug-assert] timeout (upstream never returns: HyperedgeTreeNode::spliceEdgesFrom(self) on a zero-length self-loop tree edge; port must terminate)
 #end
 #scene reg-improver-split-parallel-edges
 router 3
