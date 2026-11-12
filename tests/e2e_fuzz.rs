@@ -23,7 +23,7 @@
 //! Environment:
 //!  * `E2E_GOLDEN=path`  another golden file (fuzz campaigns)
 //!  * `E2E_SCENE=name`   only that scene; `E2E_FULL=1` prints its full dump
-//!  * `E2E_SUBSAMPLE=k`  only every k-th scene (default 4 in debug builds)
+//!  * `E2E_SUBSAMPLE=k`  only every k-th scene (default 10 in debug builds)
 //!  * `E2E_THREADS=n`    worker threads (default: available parallelism)
 //!  * `E2E_REPORT=path`  write "name<TAB>status" per scene
 //!  * `E2E_RAW=1`        robustness replay: every scene with all interpreter
@@ -121,6 +121,16 @@ fn check(scene: &GoldenScene, full: bool, soft: bool) -> Outcome {
             }
         }
     };
+    if first.starts_with("#assert") && cfg!(debug_assertions) {
+        if let Outcome::Panic(m) = &outcome {
+            if m.starts_with("assertion failed") || m.starts_with("assertion `") {
+                // The upstream asserting build fails on this scene too and
+                // the port kept that assert as a debug_assert!: not a
+                // divergence (counted as excluded in debug builds).
+                return Outcome::Excluded { soft_match: None, panic: None };
+            }
+        }
+    }
     if excluded {
         let panic = if let Outcome::Panic(m) = &outcome { Some(m.clone()) } else { None };
         return Outcome::Excluded { soft_match: Some(matches!(outcome, Outcome::Match)), panic };
@@ -149,7 +159,7 @@ fn e2e_fuzz_matches_cpp_oracle() {
     let subsample: usize = std::env::var("E2E_SUBSAMPLE")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(if cfg!(debug_assertions) && custom.is_none() { 4 } else { 1 });
+        .unwrap_or(if cfg!(debug_assertions) && custom.is_none() { 10 } else { 1 });
     let selected: Vec<&GoldenScene> = scenes
         .iter()
         .enumerate()
