@@ -586,26 +586,56 @@ impl ShapeConnectionPinSet {
 impl PinIdx {
     // upstream: connectionpin.cpp ShapeConnectionPin::setConnectionCost()
     pub fn set_connection_cost(self, router: &mut Router, cost: f64) {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.pins.contains(self) {
+            return;
+        }
         router.pins[self].set_connection_cost(cost);
     }
     // upstream: connectionpin.cpp ShapeConnectionPin::setExclusive()
     pub fn set_exclusive(self, router: &mut Router, exclusive: bool) {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.pins.contains(self) {
+            return;
+        }
         router.pins[self].set_exclusive(exclusive);
     }
     // upstream: connectionpin.cpp ShapeConnectionPin::isExclusive()
     pub fn is_exclusive(self, router: &Router) -> bool {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.pins.contains(self) {
+            return false;
+        }
         router.pins[self].is_exclusive()
     }
     // upstream: connectionpin.cpp ShapeConnectionPin::position()
     pub fn position(self, router: &Router) -> Point {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.pins.contains(self) {
+            return Point::default();
+        }
         router.pins[self].position(router, None)
     }
     // upstream: connectionpin.cpp ShapeConnectionPin::directions()
     pub fn directions(self, router: &Router) -> ConnDirFlags {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.pins.contains(self) {
+            return 0;
+        }
         router.pins[self].directions()
     }
     // upstream: connectionpin.cpp ShapeConnectionPin::ids()
     pub fn ids(self, router: &Router) -> ConnectionPinIds {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.pins.contains(self) {
+            return (0, 0);
+        }
         router.pins[self].ids(&router.obstacles)
     }
 }

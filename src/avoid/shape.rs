@@ -77,18 +77,33 @@ impl ShapeRef {
 
     // upstream: obstacle.cpp Obstacle::id()
     pub fn id(self, router: &Router) -> u32 {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.obstacles.contains(self.0) {
+            return 0;
+        }
         router.obstacles[self.0].m_id
     }
 
     /// Returns a reference to the polygon boundary of this shape.
     // upstream: shape.cpp ShapeRef::polygon()
     pub fn polygon(self, router: &Router) -> &Polygon {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.obstacles.contains(self.0) {
+            return &crate::avoid::geomtypes::EMPTY_POLYGON;
+        }
         &router.obstacles[self.0].m_polygon
     }
 
     /// Returns the centre of the shape's routing box.
     // upstream: shape.cpp ShapeRef::position()
     pub fn position(self, router: &Router) -> Point {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.obstacles.contains(self.0) {
+            return Point::default();
+        }
         let b_box = Obstacle::routing_box(router, self.0);
 
         let mut centre = Point::default();
@@ -101,26 +116,51 @@ impl ShapeRef {
 
     // upstream: obstacle.cpp Obstacle::routingBox()
     pub fn routing_box(self, router: &Router) -> Box {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.obstacles.contains(self.0) {
+            return Box::default();
+        }
         Obstacle::routing_box(router, self.0)
     }
 
     // upstream: obstacle.cpp Obstacle::routingPolygon()
     pub fn routing_polygon(self, router: &Router) -> Polygon {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.obstacles.contains(self.0) {
+            return Polygon::new();
+        }
         Obstacle::routing_polygon(router, self.0)
     }
 
     // upstream: obstacle.cpp Obstacle::attachedConnectors()
     pub fn attached_connectors(self, router: &Router) -> Vec<ConnIdx> {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.obstacles.contains(self.0) {
+            return Vec::new();
+        }
         Obstacle::attached_connectors(router, self.0)
     }
 
     /// The shape's connection pins in `ShapeConnectionPinSet` order.
     pub fn connection_pins(self, router: &Router) -> Vec<PinIdx> {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.obstacles.contains(self.0) {
+            return Vec::new();
+        }
         router.obstacles[self.0].m_connection_pins.iter().copied().collect()
     }
 
     // upstream: shape.cpp ShapeRef::moveAttachedConns()
     pub fn move_attached_conns(self, router: &mut Router, new_poly: &Polygon) {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.obstacles.contains(self.0) {
+            return;
+        }
         // Update positions of attached connector ends.
         // PTR-ORDER: iterates std::set<ConnEnd *>; the order determines the
         // order in which ConnChange actions are appended to the action list.
@@ -145,6 +185,11 @@ impl ShapeRef {
     /// directions for a given transformation type.
     // upstream: shape.cpp ShapeRef::transformConnectionPinPositions()
     pub fn transform_connection_pin_positions(self, router: &mut Router, transform: ShapeTransformationType) {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.obstacles.contains(self.0) {
+            return;
+        }
         use ShapeTransformationType::*;
         let pins: Vec<PinIdx> = router.obstacles[self.0].m_connection_pins.iter().copied().collect();
         for pin in pins {
@@ -294,6 +339,11 @@ impl ShapeRef {
 
     // upstream: shape.cpp ShapeRef::setCentrePos()
     pub fn set_centre_pos(self, router: &mut Router, new_centre: &Point) {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.obstacles.contains(self.0) {
+            return;
+        }
         let diff = *new_centre - self.position(router);
         router.obstacles[self.0].m_polygon.translate(diff.x, diff.y);
     }

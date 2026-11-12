@@ -383,6 +383,11 @@ fn unit_normal_for_edge(pt1: &Point, pt2: &Point) -> Point {
 /// `ts` and `checkpoints_on_route`); [`Polygon::from_interface`] is the
 /// upstream `Polygon(const PolygonInterface&)` constructor (copies only the
 /// id and points).
+/// An empty polygon, returned by reference-returning getters called on a
+/// handle of a freed object (port addition; see "Public-API misuse" in the
+/// `router.rs` module docs).
+pub static EMPTY_POLYGON: Polygon = Polygon { _id: 0, ps: Vec::new(), ts: Vec::new(), checkpoints_on_route: Vec::new() };
+
 // upstream: geomtypes.h class Polygon
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Polygon {

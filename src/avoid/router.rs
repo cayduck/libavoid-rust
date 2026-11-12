@@ -416,6 +416,9 @@ pub struct Router {
     pub m_callback_log: Vec<ConnIdx>,
     /// Override of the virtual `shouldContinueTransactionWithProgress()`.
     pub m_progress_callback: Option<ProgressCallback>,
+    /// True while `processActions()` runs (port addition; see
+    /// `process_transaction`).
+    pub m_in_process_actions: bool,
 }
 
 /// Transaction clock (stand-in for `clock()`).
@@ -832,6 +835,7 @@ impl Router {
             m_hyperedge_improver: HyperedgeImprover::new(),
             m_callback_log: Vec::new(),
             m_progress_callback: None,
+            m_in_process_actions: false,
         }
     }
 
@@ -1005,14 +1009,21 @@ impl Router {
     /// when the transaction is processed).
     // upstream: router.cpp Router::deleteShape()
     pub fn delete_shape(&mut self, shape: ShapeRef) {
+        // MISUSE: a handle of an already freed shape is ignored.
+        if !self.obstacles.contains(shape.0) {
+            return;
+        }
         // There shouldn't be add events events for the same shape already
         // in the action list.
         // XXX: Possibly we could handle this by ordering them intelligently.
-        debug_assert!(find_action(
-            &self.action_list,
-            &ActionInfo::new_shape(self, ActionType::ShapeAdd, shape)
-        )
-        .is_none());
+        // (Upstream asserts here and, in release builds, later erases an
+        // uninitialised list iterator.  MISUSE: the queued add is
+        // cancelled instead; processActions() frees the never-activated
+        // shape.)
+        let add = ActionInfo::new_shape(self, ActionType::ShapeAdd, shape);
+        if let Some(found) = find_action(&self.action_list, &add) {
+            self.action_list.remove(found);
+        }
 
         // Delete any ShapeMove entries for this shape in the action list.
         let mv = ActionInfo::new_shape(self, ActionType::ShapeMove, shape);
@@ -1034,6 +1045,10 @@ impl Router {
     /// Remove a connector from the router scene (immediately).
     // upstream: router.cpp Router::deleteConnector()
     pub fn delete_connector(&mut self, connector: ConnIdx) {
+        // MISUSE: a handle of an already freed connector is ignored.
+        if !self.conns.contains(connector) {
+            return;
+        }
         self.m_currently_calling_destructors = true;
         ConnRef::delete(self, connector);
         self.m_currently_calling_destructors = false;
@@ -1042,6 +1057,10 @@ impl Router {
     /// Move or resize an existing shape by a relative offset.
     // upstream: router.cpp Router::moveShape(ShapeRef *, const double, const double)
     pub fn move_shape_by(&mut self, shape: ShapeRef, x_diff: f64, y_diff: f64) {
+        // MISUSE: a handle of an already freed shape is ignored.
+        if !self.obstacles.contains(shape.0) {
+            return;
+        }
         let move_info = ActionInfo::new_shape_move(self, ActionType::ShapeMove, shape, &Polygon::new(), false);
 
         let mut new_poly = match find_action(&self.action_list, &move_info) {
@@ -1071,14 +1090,19 @@ impl Router {
     /// `first_move` is false.
     // upstream: router.cpp Router::moveShape(ShapeRef *, const Polygon&, const bool)
     pub fn move_shape(&mut self, shape: ShapeRef, new_poly: &Polygon, first_move: bool) {
+        // MISUSE: a handle of an already freed shape is ignored.
+        if !self.obstacles.contains(shape.0) {
+            return;
+        }
         // There shouldn't be remove events or add events for the same shape
         // already in the action list.
         // XXX: Possibly we could handle this by ordering them intelligently.
-        debug_assert!(find_action(
-            &self.action_list,
-            &ActionInfo::new_shape(self, ActionType::ShapeRemove, shape)
-        )
-        .is_none());
+        // (Upstream asserts; in release builds the shape is moved after
+        // being freed.  MISUSE: moving a shape queued for deletion is
+        // ignored.)
+        if find_action(&self.action_list, &ActionInfo::new_shape(self, ActionType::ShapeRemove, shape)).is_some() {
+            return;
+        }
 
         let add = ActionInfo::new_shape(self, ActionType::ShapeAdd, shape);
         if let Some(found) = find_action(&self.action_list, &add) {
@@ -1166,6 +1190,7 @@ impl Router {
         self.m_transaction_start_time = clock_now();
         self.m_abort_transaction = false;
 
+        self.m_in_process_actions = true;
         let mut deleted_obstacles: Vec<u32> = Vec::new();
         // actionList.sort()
         let list = std::mem::take(&mut self.action_list);
@@ -1196,6 +1221,18 @@ impl Router {
             let new_position = act_inf.new_position;
 
             let pid = self.obstacles[obstacle].m_id;
+
+            if !self.obstacles[obstacle].m_active {
+                // MISUSE (port addition): an obstacle deleted in the same
+                // transaction that created it (deleteShape() cancelled its
+                // queued add) was never activated: just free it.
+                debug_assert!(!is_move);
+                self.m_currently_calling_destructors = true;
+                deleted_obstacles.push(pid);
+                Obstacle::delete(self, obstacle);
+                self.m_currently_calling_destructors = false;
+                continue;
+            }
 
             // o  Remove entries related to this shape's vertices
             Obstacle::remove_from_graph(self, obstacle);
@@ -1322,12 +1359,26 @@ impl Router {
         }
         // Clear the actionList.
         self.action_list.clear();
+        self.m_in_process_actions = false;
     }
 
     /// Finishes the current transaction and processes all the queued
     /// object changes efficiently.  Returns whether any changes were made.
     // upstream: router.cpp Router::processTransaction()
     pub fn process_transaction(&mut self) -> bool {
+        // MISUSE / upstream bug (port addition): with transactions off,
+        // processActions() itself queues actions whose queueing calls
+        // processTransaction() again -- moving a shape or junction with
+        // attached connectors (moveAttachedConns -> modifyConnector)
+        // recurses until the stack overflows upstream, and deleting an
+        // obstacle with connection pins (~Obstacle -> pin removal ->
+        // modifyConnectionPin) re-processes the half-deleted obstacle
+        // (null dereference).  A nested call is a no-op here: the action
+        // just queued is appended to the list being processed and handled
+        // by the running processActions() exactly as in transaction mode.
+        if self.m_in_process_actions {
+            return false;
+        }
         // If SimpleRouting, then don't update here.
         if (self.action_list.is_empty()
             && (self.m_hyperedge_rerouter.count() == 0)
@@ -1376,14 +1427,19 @@ impl Router {
     /// Remove a junction from the router scene (queued).
     // upstream: router.cpp Router::deleteJunction()
     pub fn delete_junction(&mut self, junction: JunctionRef) {
+        // MISUSE: a handle of an already freed junction is ignored.
+        if !self.obstacles.contains(junction.0) {
+            return;
+        }
         // There shouldn't be add events events for the same junction already
         // in the action list.
         // XXX: Possibly we could handle this by ordering them intelligently.
-        debug_assert!(find_action(
-            &self.action_list,
-            &ActionInfo::new_junction(self, ActionType::JunctionAdd, junction)
-        )
-        .is_none());
+        // (Upstream asserts.  MISUSE: the queued add is cancelled instead,
+        // as in deleteShape().)
+        let add = ActionInfo::new_junction(self, ActionType::JunctionAdd, junction);
+        if let Some(found) = find_action(&self.action_list, &add) {
+            self.action_list.remove(found);
+        }
 
         // Delete any ShapeMove entries for this shape in the action list.
         let mv = ActionInfo::new_junction(self, ActionType::JunctionMove, junction);
@@ -1405,6 +1461,10 @@ impl Router {
     /// Move an existing junction by a relative offset.
     // upstream: router.cpp Router::moveJunction(JunctionRef *, const double, const double)
     pub fn move_junction_by(&mut self, junction: JunctionRef, x_diff: f64, y_diff: f64) {
+        // MISUSE: a handle of an already freed junction is ignored.
+        if !self.obstacles.contains(junction.0) {
+            return;
+        }
         let move_info = ActionInfo::new_junction_move(self, ActionType::JunctionMove, junction, &Point::default());
 
         let mut new_position = match find_action(&self.action_list, &move_info) {
@@ -1422,14 +1482,19 @@ impl Router {
     /// Move an existing junction to a new position.
     // upstream: router.cpp Router::moveJunction(JunctionRef *, const Point&)
     pub fn move_junction(&mut self, junction: JunctionRef, new_position: &Point) {
+        // MISUSE: a handle of an already freed junction is ignored.
+        if !self.obstacles.contains(junction.0) {
+            return;
+        }
         // There shouldn't be remove events or add events for the same junction
         // already in the action list.
         // XXX: Possibly we could handle this by ordering them intelligently.
-        debug_assert!(find_action(
-            &self.action_list,
-            &ActionInfo::new_junction(self, ActionType::JunctionRemove, junction)
-        )
-        .is_none());
+        // (MISUSE: moving a junction queued for deletion is ignored.)
+        if find_action(&self.action_list, &ActionInfo::new_junction(self, ActionType::JunctionRemove, junction))
+            .is_some()
+        {
+            return;
+        }
 
         let add = ActionInfo::new_junction(self, ActionType::JunctionAdd, junction);
         if let Some(found) = find_action(&self.action_list, &add) {
@@ -1474,6 +1539,11 @@ impl Router {
     /// `ClusterRef` itself is not freed.)
     // upstream: router.cpp Router::deleteCluster()
     pub fn delete_cluster(&mut self, cluster: ClusterIdx) {
+        // MISUSE: deleting a cluster that is not in the scene (deleted
+        // already) is ignored; upstream erases an invalid list iterator.
+        if !self.clusters.get(cluster).is_some_and(|c| c.m_active) {
+            return;
+        }
         ClusterRef::make_inactive(self, cluster);
 
         let pid = self.clusters[cluster].m_id;

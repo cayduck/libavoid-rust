@@ -489,26 +489,56 @@ impl Obstacle {
 impl ObstacleIdx {
     // upstream: obstacle.cpp Obstacle::id()
     pub fn id(self, router: &Router) -> u32 {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.obstacles.contains(self) {
+            return 0;
+        }
         router.obstacles[self].m_id
     }
     // upstream: obstacle.cpp Obstacle::polygon()
     pub fn polygon(self, router: &Router) -> &Polygon {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.obstacles.contains(self) {
+            return &crate::avoid::geomtypes::EMPTY_POLYGON;
+        }
         &router.obstacles[self].m_polygon
     }
     // upstream: Obstacle::position() (virtual)
     pub fn position(self, router: &Router) -> Point {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.obstacles.contains(self) {
+            return Point::default();
+        }
         Obstacle::position(router, self)
     }
     // upstream: obstacle.cpp Obstacle::routingBox()
     pub fn routing_box(self, router: &Router) -> Box {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.obstacles.contains(self) {
+            return Box::default();
+        }
         Obstacle::routing_box(router, self)
     }
     // upstream: obstacle.cpp Obstacle::routingPolygon()
     pub fn routing_polygon(self, router: &Router) -> Polygon {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.obstacles.contains(self) {
+            return Polygon::new();
+        }
         Obstacle::routing_polygon(router, self)
     }
     // upstream: obstacle.cpp Obstacle::attachedConnectors()
     pub fn attached_connectors(self, router: &Router) -> Vec<ConnIdx> {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.obstacles.contains(self) {
+            return Vec::new();
+        }
         Obstacle::attached_connectors(router, self)
     }
 }
