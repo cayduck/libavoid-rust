@@ -31,12 +31,17 @@
 //! is not named.
 //!
 //! # Error convention
-//! Nothing a JS caller passes can panic: mutators return `false` and
-//! queries return `null` (raw layer: `"null"` JSON / `undefined`) for
+//! Nothing a JS caller passes is meant to panic: mutators return `false`
+//! and queries return `null` (raw layer: `"null"` JSON / `undefined`) for
 //! unknown ids, duplicate ids, non-finite numbers, out-of-range enum
 //! values and violated upstream preconditions.  The constructor throws.
-//! (`index.cjs` additionally throws `TypeError` for structurally malformed
-//! arguments such as a non-array where an array is expected.)
+//! (`lib/adapter.cjs` additionally throws `TypeError` for structurally
+//! malformed arguments such as a non-array where an array is expected.)
+//! A panic that happens anyway traps the instance; `crate::wasm_failure`
+//! records its message for the adapter, which reports it as an
+//! `AvoidInternalError` and poisons the instance.  The id maps are not
+//! kept consistent across a trap (nothing is used after one), but every
+//! refused call leaves them unchanged (`check_consistency`).
 
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};

@@ -127,6 +127,13 @@ differences are confined to the following.
   reports the connectors updated by the last transaction instead.
 - **Uncaught exceptions.** Where upstream's VPSC solver would throw an
   exception nothing catches, the port leaves that nudging region unchanged.
+- **Cancelled transactions (JavaScript API).** Upstream's
+  `shouldContinueTransactionWithProgress()` is exposed unchanged, so a stop
+  request only skips the rest of the crossing improvement. Upstream then
+  leaves connectors whose crossing reroute was cut short without a route,
+  and `processTransaction()` does nothing until another change is queued.
+  The wrapper makes the next `processTransaction()` run the rerouting phase
+  again, which finishes that work.
 
 ## Known slow cases
 
@@ -142,3 +149,8 @@ hang in an interactive application.
   early, the port keeps going and spends more than ten minutes in the nudging
   constraint loop of a single transaction. The loop was making progress when
   stopped, but it was not run to completion.
+
+A transaction time limit or progress callback (JavaScript API) does not
+shorten either case: upstream polls its continuation hook during nudging and
+route search but acts on a stop request only during crossing improvement.
+Run such scenes in a worker if the thread must stay responsive.

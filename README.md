@@ -81,12 +81,42 @@ Things to know, all documented in detail at the top of `index.d.ts`:
   reproduce it exactly.
 - **Errors.** Malformed arguments throw a `TypeError`; otherwise mutators
   return `false` and queries return `null` for unknown ids or invalid values.
+  An internal failure (a bug) throws an `AvoidInternalError`; see below.
 - **Callbacks.** Instead of per-connector callbacks,
   `lastTransactionUpdatedConnectorIds()` lists the connectors whose routes
   changed in the last transaction.
 
 The package also exports `WasmAvoidRouter`, the raw `wasm-bindgen` class,
 which returns JSON strings for structured results.
+
+### Failure containment
+
+The core is a port of a C++ library that crashes on some inputs. Every such
+input found so far is handled, but an input not yet found could still hit a
+Rust panic. The WebAssembly is built with `panic = "abort"`, so a panic, a
+failed allocation or a stack overflow stops the WebAssembly instance. The
+package turns that into a contained, reportable error:
+
+- The failing call throws an `AvoidInternalError` with the method name, the
+  Rust panic message and source location (`src/...rs:line:column`), or the
+  failed allocation size; `cause` is the original `WebAssembly.RuntimeError`.
+- The instance's state is unknown afterwards, so *every* router created on it
+  is poisoned: each later call throws `AvoidInternalError` ("router is
+  unusable after an internal error: ...") without running any WebAssembly.
+  `router.isPoisoned()` and `internalError()` report this.
+- `reset()` (in the browser `await reset()`, or `await init()` again)
+  creates a fresh instance. Routers created afterwards work normally; the
+  scene has to be rebuilt on them.
+
+A transaction can also take a long time (see "Known slow cases" in
+`PORTING.md`). `setTransactionTimeLimit(ms)` and
+`setTransactionProgressCallback(fn)` use upstream's
+`shouldContinueTransactionWithProgress()` hook. Upstream only acts on a stop
+request in its crossing-improvement phases, which run only with a
+`crossingPenalty` or `fixedSharedPathPenalty`. Route search, nudging and
+hyperedge improvement always run to completion. After a cancelled
+transaction the next `processTransaction()` finishes the remaining work.
+`index.d.ts` documents both features in detail.
 
 ### In the browser
 

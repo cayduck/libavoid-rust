@@ -318,7 +318,7 @@ export class AvoidInternalError extends Error {
   /** Crate-relative source location of the panic, "src/file.rs:line:column". */
   readonly location: string | null;
   /** The WebAssembly.RuntimeError of the trap, or for "poisoned" the first AvoidInternalError. */
-  readonly cause?: unknown;
+  cause?: unknown;
 }
 
 /** The AvoidInternalError that poisoned the current wasm instance, or null. */
