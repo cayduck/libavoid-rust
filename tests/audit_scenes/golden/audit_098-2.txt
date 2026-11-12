@@ -1,0 +1,57 @@
+rect
+id=6
+x=200
+y=150
+width=50
+height=30
+
+rect
+id=5
+x=0
+y=25
+width=50
+height=30
+
+rect
+id=4
+x=125
+y=25
+width=60
+height=20
+
+rect
+id=3
+x=250
+y=250
+width=30
+height=30
+
+rect
+id=2
+x=100
+y=200
+width=25
+height=30
+
+rect
+id=1
+x=225
+y=200
+width=30
+height=60
+
+junction
+id=7
+x=212
+y=87
+
+path
+id=8
+p0: 125 25 
+p1: 125 97.5 
+p2: 330 97.5 
+p3: 330 257 
+p4: 250 257 
+p5: 230 275 
+
+

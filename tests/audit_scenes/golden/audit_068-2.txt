@@ -1,0 +1,35 @@
+rect
+id=4
+x=250
+y=175
+width=60
+height=60
+
+rect
+id=3
+x=25
+y=0
+width=25
+height=50
+
+rect
+id=2
+x=300
+y=175
+width=60
+height=50
+
+rect
+id=1
+x=0
+y=125
+width=60
+height=60
+
+path
+id=5
+p0: 125 157 
+p1: 125 207 
+p2: 80 207 
+
+

@@ -1,0 +1,8 @@
+rect
+id=1
+x=37.5
+y=35
+width=25
+height=30
+
+

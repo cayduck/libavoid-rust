@@ -218,11 +218,19 @@ impl ConnRef {
         let c = router.conns.alloc(blank);
         router.conns[c].m_route.clear();
 
-        // Set endpoint values.
-        ConnRef::set_endpoints(router, c, src, dst);
-
+        // Upstream registers the reroute flag *after* setEndpoints().  With
+        // transactions off, setEndpoints() routes the connector at once,
+        // with a null m_reroute_flag_ptr: generatePath() asserts on it and,
+        // for poly-line routing with InvisibilityGrph, stores the null
+        // pointer in visibility edges, which EdgeInf::alertConns() later
+        // dereferences (crash).  The flag is registered first here; the
+        // flag list is append-only and only ever scanned to set booleans,
+        // so the order is otherwise unobservable.
         let flag = router.m_conn_reroute_flags.add_conn(c);
         router.conns[c].m_reroute_flag_ptr = Some(flag);
+
+        // Set endpoint values.
+        ConnRef::set_endpoints(router, c, src, dst);
         c
     }
 
@@ -306,7 +314,9 @@ impl ConnRef {
 
     // upstream: connector.cpp ConnRef::setRoutingCheckpoints()
     pub fn set_routing_checkpoints(router: &mut Router, c: ConnIdx, checkpoints: &[Checkpoint]) {
-        router.conns[c].m_checkpoints = checkpoints.to_vec();
+        // MISUSE (port addition): checkpoints with non-finite coordinates
+        // are dropped.
+        router.conns[c].m_checkpoints = checkpoints.iter().filter(|cp| cp.point.is_finite()).cloned().collect();
 
         // Clear previous checkpoint vertices.
         let old = std::mem::take(&mut router.conns[c].m_checkpoint_vertices);
@@ -339,6 +349,9 @@ impl ConnRef {
 
     // upstream: connector.cpp ConnRef::common_updateEndPoint()
     pub fn common_update_end_point(router: &mut Router, c: ConnIdx, type_: u32, mut conn_end: ConnEnd) {
+        // MISUSE (port addition): the queued ConnEnd may refer to objects
+        // freed since it was made (see ConnEnd::forget_dead_refs).
+        conn_end.forget_dead_refs(router);
         let point = conn_end.position(router);
         debug_assert!((type_ == VertID::SRC as u32) || (type_ == VertID::TAR as u32));
 
@@ -638,7 +651,10 @@ impl ConnRef {
 
     // upstream: connector.cpp ConnRef::setFixedExistingRoute()
     pub fn set_fixed_existing_route(router: &mut Router, c: ConnIdx) {
-        debug_assert!(router.conns[c].m_route.size() >= 2);
+        // Upstream: COLA_ASSERT(m_route.size() >= 2).  Not ported (assert
+        // policy): the NDEBUG build fixes the (short) route, exactly what
+        // the accepted setFixedRoute(PolyLine) with fewer than two points
+        // does (tests/robustness.rs fixed_routes).
         router.conns[c].m_has_fixed_route = true;
         router.register_settings_change();
     }
@@ -720,6 +736,11 @@ impl ConnRef {
         let mut new_conn = None;
         let mut new_junction = None;
 
+        // MISUSE: upstream reads m_display_route.at(segmentN - 1), which
+        // throws std::out_of_range for segmentN == 0 (size_t wrap).  Ignored.
+        if segment_n == 0 {
+            return (None, None);
+        }
         if router.conns[c].m_display_route.size() > segment_n {
             // Position the junction at the midpoint of the desired segment.
             let (a, b) = {
@@ -737,10 +758,16 @@ impl ConnRef {
             // Create a new connection routing from the junction to the original
             // connector's endpoint.
             let new_conn_src = ConnEnd::from_junction(router, nj);
-            let new_conn_dst = router.conns[c]
-                .m_dst_connend
-                .clone()
-                .expect("ConnRef::splitAtSegment(): destination is not a pin connection");
+            // Upstream copies *m_dst_connend, which is null when the
+            // destination is a free point (null dereference).  The port uses
+            // a point end at the destination vertex instead.
+            let new_conn_dst = match router.conns[c].m_dst_connend.clone() {
+                Some(ce) => ce,
+                None => match router.conns[c].m_dst_vert {
+                    Some(v) => ConnEnd::from_point_dirs(router.vert_infs[v].point, router.vert_infs[v].vis_directions),
+                    None => ConnEnd::from_point(b),
+                },
+            };
             new_conn = Some(ConnRef::new_with_ends(router, &new_conn_src, &new_conn_dst, 0));
 
             // Reroute the endpoint of the original connector to attach to the
@@ -826,7 +853,7 @@ impl ConnRef {
             VertInf::remove_from_graph(router, sv, true);
             if connect {
                 let ce = router.conns[c].m_src_connend.clone().unwrap();
-                let dv = router.conns[c].m_dst_vert.expect("no dst vertex");
+                let dv = router.conns[c].m_dst_vert;
                 ce.assign_pin_visibility_to(router, sv, dv);
             }
         }
@@ -836,7 +863,7 @@ impl ConnRef {
             VertInf::remove_from_graph(router, dv, true);
             if connect {
                 let ce = router.conns[c].m_dst_connend.clone().unwrap();
-                let sv = router.conns[c].m_src_vert.expect("no src vertex");
+                let sv = router.conns[c].m_src_vert;
                 ce.assign_pin_visibility_to(router, dv, sv);
             }
         }
@@ -915,7 +942,7 @@ impl ConnRef {
             }
 
             let vertex = vertices[i];
-            if let Some(pn) = router.vert_infs[vertex].path_next {
+            if let Some(pn) = VertInf::live_path_next(router, vertex) {
                 if router.vert_infs[pn].point == router.vert_infs[vertex].point {
                     if !(router.vert_infs[pn].id.is_conn_pt()) && !(router.vert_infs[vertex].id.is_conn_pt()) {
                         // Check for consecutive points on opposite
@@ -1082,8 +1109,12 @@ impl ConnRef {
                     let pnt = curr_route.at(existing_path_start);
                     let v_id = VertID::new(pnt.id, pnt.vn, 0);
 
-                    router.conns[c].m_start_vert = router.vertices.get_vertex_by_id(&router.vert_infs, &v_id);
-                    debug_assert!(router.conns[c].m_start_vert.is_some());
+                    // (Port addition: upstream asserts the vertex exists and later
+                    // dereferences it; a route point without a vertex -- e.g.
+                    // a fixed route through arbitrary points -- restarts the
+                    // search from the source instead.)
+                    router.conns[c].m_start_vert =
+                        router.vertices.get_vertex_by_id(&router.vert_infs, &v_id).or(Some(src_vert));
                 }
             }
         }
@@ -1102,18 +1133,25 @@ impl ConnRef {
                 let props: VertIDProps = if existing_path_start > 0 { 0 } else { VertID::PROP_CONN_POINT };
                 let v_id = VertID::new(pnt.id, pnt.vn, props);
 
-                router.conns[c].m_start_vert = router.vertices.get_vertex_by_id(&router.vert_infs, &v_id);
-                debug_assert!(router.conns[c].m_start_vert.is_some());
+                // (Port addition: upstream asserts the vertex exists and later
+                // dereferences it; a route point without a vertex -- e.g.
+                // a fixed route through arbitrary points -- restarts the
+                // search from the source instead.)
+                router.conns[c].m_start_vert =
+                    router.vertices.get_vertex_by_id(&router.vert_infs, &v_id).or(Some(src_vert));
             } else if router.rubber_band_routing {
                 // found.
                 let mut unwind = false;
 
                 let mut prior: Option<VertIdx> = None;
-                let stop = router.vert_infs[router.conns[c].m_start_vert.unwrap()].path_next;
+                // Stale-pathNext policy (router.rs module docs): links to
+                // deleted vertices read as null, consistently for `stop`
+                // and for the walk.
+                let stop = VertInf::live_path_next(router, router.conns[c].m_start_vert.unwrap());
                 let mut curr = Some(tar);
                 while curr != stop {
                     let cv = curr.unwrap();
-                    let pn = router.vert_infs[cv].path_next;
+                    let pn = VertInf::live_path_next(router, cv);
                     if !validate_bend_point(router, pn, cv, prior) {
                         unwind = true;
                         break;
@@ -1130,8 +1168,12 @@ impl ConnRef {
                     let props: VertIDProps = if existing_path_start > 0 { 0 } else { VertID::PROP_CONN_POINT };
                     let v_id = VertID::new(pnt.id, pnt.vn, props);
 
-                    router.conns[c].m_start_vert = router.vertices.get_vertex_by_id(&router.vert_infs, &v_id);
-                    debug_assert!(router.conns[c].m_start_vert.is_some());
+                    // (Port addition: upstream asserts the vertex exists and later
+                    // dereferences it; a route point without a vertex -- e.g.
+                    // a fixed route through arbitrary points -- restarts the
+                    // search from the source instead.)
+                    router.conns[c].m_start_vert =
+                        router.vertices.get_vertex_by_id(&router.vert_infs, &v_id).or(Some(src_vert));
 
                     pathlen = 0;
                 }
@@ -1217,14 +1259,9 @@ pub fn validate_bend_point(
         _ => return bend_okay,
     };
 
-    let d_inf = b_v.sh_prev.expect("validateBendPoint: no shPrev");
-    let e_inf = b_v.sh_next.expect("validateBendPoint: no shNext");
-
     let a = &verts[a_inf].point;
     let b = &b_v.point;
     let c = &verts[c_inf].point;
-    let d = &verts[d_inf].point;
-    let e = &verts[e_inf].point;
 
     if (a == b) || (b == c) {
         return bend_okay;
@@ -1241,6 +1278,17 @@ pub fn validate_bend_point(
         bend_okay = true;
     } else {
         // (abc != 0)
+        // Upstream binds `d`/`e` (b's shape neighbours) up front but only
+        // reads them here.  A vertex that is not a shape corner (e.g. a
+        // free connector end reached through a stale pathNext) has none:
+        // upstream dereferences null.  It is not a corner, so no zigzag
+        // test applies and the bend is accepted.
+        let (d_inf, e_inf) = match (b_v.sh_prev, b_v.sh_next) {
+            (Some(d), Some(e)) => (d, e),
+            _ => return true,
+        };
+        let d = &verts[d_inf].point;
+        let e = &verts[e_inf].point;
         debug_assert!(vec_dir(d, b, e, 0.0) > 0);
         let abe = vec_dir(a, b, e, 0.0);
         let abd = vec_dir(a, b, d, 0.0);
@@ -1266,34 +1314,74 @@ pub fn validate_bend_point(
 impl ConnIdx {
     // upstream: connector.cpp ConnRef::setEndpoints()
     pub fn set_endpoints(self, router: &mut Router, src_point: &ConnEnd, dst_point: &ConnEnd) {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.conns.contains(self) {
+            return;
+        }
         ConnRef::set_endpoints(router, self, src_point, dst_point)
     }
     // upstream: connector.cpp ConnRef::setSourceEndpoint()
     pub fn set_source_endpoint(self, router: &mut Router, src_point: &ConnEnd) {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.conns.contains(self) {
+            return;
+        }
         ConnRef::set_source_endpoint(router, self, src_point)
     }
     // upstream: connector.cpp ConnRef::setDestEndpoint()
     pub fn set_dest_endpoint(self, router: &mut Router, dst_point: &ConnEnd) {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.conns.contains(self) {
+            return;
+        }
         ConnRef::set_dest_endpoint(router, self, dst_point)
     }
     // upstream: connector.cpp ConnRef::setEndpoint(const unsigned int, const ConnEnd&)
     pub fn set_endpoint(self, router: &mut Router, type_: u32, conn_end: &ConnEnd) {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.conns.contains(self) {
+            return;
+        }
         ConnRef::set_endpoint(router, self, type_, conn_end)
     }
     // upstream: connector.cpp ConnRef::id()
     pub fn id(self, router: &Router) -> u32 {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.conns.contains(self) {
+            return 0;
+        }
         router.conns[self].m_id
     }
     // upstream: connector.cpp ConnRef::needsRepaint()
     pub fn needs_repaint(self, router: &Router) -> bool {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.conns.contains(self) {
+            return false;
+        }
         router.conns[self].needs_repaint()
     }
     // upstream: connector.cpp ConnRef::route()
     pub fn route(self, router: &Router) -> &PolyLine {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.conns.contains(self) {
+            return &crate::avoid::geomtypes::EMPTY_POLYGON;
+        }
         router.conns[self].route()
     }
     // upstream: connector.cpp ConnRef::displayRoute()
     pub fn display_route(self, router: &mut Router) -> &Polygon {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.conns.contains(self) {
+            return &crate::avoid::geomtypes::EMPTY_POLYGON;
+        }
         router.conns[self].display_route()
     }
     // upstream: connector.cpp ConnRef::setCallback()
@@ -1302,66 +1390,146 @@ impl ConnIdx {
     }
     // upstream: connector.cpp ConnRef::routingType()
     pub fn routing_type(self, router: &Router) -> ConnType {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.conns.contains(self) {
+            return ConnType::ConnTypeNone;
+        }
         router.conns[self].routing_type()
     }
     // upstream: connector.cpp ConnRef::setRoutingType()
     pub fn set_routing_type(self, router: &mut Router, type_: ConnType) {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.conns.contains(self) {
+            return;
+        }
         ConnRef::set_routing_type(router, self, type_)
     }
     // upstream: connector.cpp ConnRef::splitAtSegment()
     pub fn split_at_segment(self, router: &mut Router, segment_n: usize) -> (Option<JunctionRef>, Option<ConnIdx>) {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.conns.contains(self) {
+            return (None, None);
+        }
         ConnRef::split_at_segment(router, self, segment_n)
     }
     // upstream: connector.cpp ConnRef::setRoutingCheckpoints()
     pub fn set_routing_checkpoints(self, router: &mut Router, checkpoints: &[Checkpoint]) {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.conns.contains(self) {
+            return;
+        }
         ConnRef::set_routing_checkpoints(router, self, checkpoints)
     }
     // upstream: connector.cpp ConnRef::routingCheckpoints()
     pub fn routing_checkpoints(self, router: &Router) -> Vec<Checkpoint> {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.conns.contains(self) {
+            return Vec::new();
+        }
         router.conns[self].routing_checkpoints()
     }
     // upstream: connector.cpp ConnRef::endpointConnEnds()
     pub fn endpoint_conn_ends(self, router: &Router) -> (ConnEnd, ConnEnd) {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.conns.contains(self) {
+            return (ConnEnd::new(), ConnEnd::new());
+        }
         router.conns[self].endpoint_conn_ends(router)
     }
     // upstream: connector.cpp ConnRef::src()
     pub fn src(self, router: &Router) -> Option<VertIdx> {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.conns.contains(self) {
+            return None;
+        }
         router.conns[self].src()
     }
     // upstream: connector.cpp ConnRef::dst()
     pub fn dst(self, router: &Router) -> Option<VertIdx> {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.conns.contains(self) {
+            return None;
+        }
         router.conns[self].dst()
     }
     // upstream: connector.cpp ConnRef::setFixedRoute()
     pub fn set_fixed_route(self, router: &mut Router, route: &PolyLine) {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.conns.contains(self) {
+            return;
+        }
         ConnRef::set_fixed_route(router, self, route)
     }
     // upstream: connector.cpp ConnRef::setFixedExistingRoute()
     pub fn set_fixed_existing_route(self, router: &mut Router) {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.conns.contains(self) {
+            return;
+        }
         ConnRef::set_fixed_existing_route(router, self)
     }
     // upstream: connector.cpp ConnRef::hasFixedRoute()
     pub fn has_fixed_route(self, router: &Router) -> bool {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.conns.contains(self) {
+            return false;
+        }
         router.conns[self].has_fixed_route()
     }
     // upstream: connector.cpp ConnRef::clearFixedRoute()
     pub fn clear_fixed_route(self, router: &mut Router) {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.conns.contains(self) {
+            return;
+        }
         ConnRef::clear_fixed_route(router, self)
     }
     // upstream: connector.cpp ConnRef::setHateCrossings()
     pub fn set_hate_crossings(self, router: &mut Router, value: bool) {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.conns.contains(self) {
+            return;
+        }
         router.conns[self].set_hate_crossings(value)
     }
     // upstream: connector.cpp ConnRef::doesHateCrossings()
     pub fn does_hate_crossings(self, router: &Router) -> bool {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.conns.contains(self) {
+            return false;
+        }
         router.conns[self].does_hate_crossings()
     }
     // upstream: connector.cpp ConnRef::possibleDstPinPoints()
     pub fn possible_dst_pin_points(self, router: &Router) -> Vec<Point> {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.conns.contains(self) {
+            return Vec::new();
+        }
         router.conns[self].possible_dst_pin_points(router)
     }
     // upstream: connector.cpp ConnRef::setEndpoint(const unsigned int, const VertID&, Point *)
     pub fn set_endpoint_vertex(self, router: &mut Router, type_: u32, point_id: &VertID, sugg: Option<&Point>) -> bool {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.conns.contains(self) {
+            return false;
+        }
         ConnRef::set_endpoint_vertex(router, self, type_, point_id, sugg)
     }
 }
@@ -1620,7 +1788,11 @@ fn mid_vertex_number(p0: &Point, p1: &Point, c: &Point) -> u16 {
         }
         return vn_mid + 4;
     }
-    debug_assert!((p0.x == p1.x) || (p0.y == p1.y));
+    // Upstream: COLA_ASSERT((p0.x == p1.x) || (p0.y == p1.y)).  Not ported
+    // (assert policy, router.rs module docs): the asserting upstream build
+    // fails it on valid input (audit scene tests/audit_scenes/audit_149.ops:
+    // crossing counting between poly-line and orthogonal connectors); the
+    // NDEBUG build continues, as here (the scene matches its golden).
     if p0.vn != K_UNASSIGNED_VERTEX_NUMBER {
         if p0.x == p1.x {
             if (p0.vn == 2) || (p0.vn == 3) {

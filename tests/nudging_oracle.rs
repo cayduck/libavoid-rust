@@ -13,9 +13,10 @@
 //!
 //! The golden is the output of the C++ built with `-DNDEBUG`.  Scenes in
 //! which the asserting C++ build fails an upstream `COLA_ASSERT` start with
-//! an `#assert` line; they are checked only in release builds (`cargo test
-//! --release`), where `debug_assert!` is off just like `COLA_ASSERT` under
-//! NDEBUG, and skipped in debug builds.  Scenes the NDEBUG C++ could not
+//! an `#assert` line.  They are checked in debug builds too: the port does
+//! not port asserts that upstream itself violates on valid input (assert
+//! policy, `src/avoid/router.rs` module docs), so debug builds must not
+//! panic where upstream's release build works.  Scenes the NDEBUG C++ could not
 //! finish (crash / >20 s) would be marked `#crash` and skipped.  Set `ORACLE_SCENE=name` to run a single scene and
 //! `ORACLE_FULL=1` to print full traces (compare with the oracle run with
 //! the same variable).
@@ -348,7 +349,6 @@ fn nudging_matches_cpp_oracle() {
     let mut regions = 0;
     let mut skipped = 0;
     let mut checked = 0;
-    let mut skipped_assert = 0;
     let mut assert_scenes = 0;
     for scene in scenes.iter() {
         if let Some(o) = only.as_ref() {
@@ -363,12 +363,8 @@ fn nudging_matches_cpp_oracle() {
         let mut expected: &[String] = &scene.out;
         if scene.out.first().map(|l| l.starts_with("#assert")).unwrap_or(false) {
             // The asserting C++ build fails a COLA_ASSERT here; the
-            // expected output is the NDEBUG build's.  Check only when
-            // debug_assert! is off, like COLA_ASSERT under NDEBUG.
-            if cfg!(debug_assertions) {
-                skipped_assert += 1;
-                continue;
-            }
+            // expected output is the NDEBUG build's.  (Checked in debug
+            // builds too, see the module docs.)
             assert_scenes += 1;
             expected = &scene.out[1..];
         }
@@ -400,11 +396,10 @@ fn nudging_matches_cpp_oracle() {
     }
     if !full {
         println!(
-            "{} scenes ({} checked, of which {} fail a C++ assertion; {} #assert scenes skipped in this debug build; {} skipped as #crash), {} process stages, {} fully printed nudging regions",
+            "{} scenes ({} checked, of which {} fail a C++ assertion; {} skipped as #crash), {} process stages, {} fully printed nudging regions",
             scenes.len(),
             checked,
             assert_scenes,
-            skipped_assert,
             skipped,
             stages,
             regions

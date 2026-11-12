@@ -402,17 +402,11 @@ fn cost(
                 continue;
             }
             debug_assert!(c_boundary.ps[0] != c_boundary.ps[c_boundary.size() - 1]);
-            for j in 0..c_boundary.size() {
-                // Non-orthogonal cluster boundary points should correspond to
-                // shape vertices and hence already be in the list of vertices.
-                debug_assert!(
-                    is_orthogonal
-                        || router
-                            .vertices
-                            .get_vertex_by_pos(&router.vert_infs, &c_boundary.ps[j])
-                            .is_some()
-                );
-            }
+            // Upstream also asserts that every non-orthogonal cluster
+            // boundary point is a router vertex ("should correspond to shape
+            // vertices").  Not ported (assert policy): ClusterRef accepts any
+            // polygon, the check has no effect on the result and the NDEBUG
+            // build works (tests/robustness.rs clusters).
 
             let is_conn = false;
             let mut dynamic_conn_route = conn_route.clone();
@@ -742,7 +736,10 @@ fn estimated_cost_specific(
         // Orthogonal
         // Really doesn't make sense to route orthogonal paths without
         // a segment penalty.
-        debug_assert!(router.routing_parameter(RoutingParameter::SegmentPenalty) > 0.0);
+        // (Upstream asserts segmentPenalty > 0.  Not ported (assert
+        // policy): setRoutingParameter(segmentPenalty, 0) is accepted API
+        // and the NDEBUG build routes; tests/robustness.rs
+        // extreme_penalties.)
 
         let dist = manhattan_dist(curr, &cost_tar_point);
 
@@ -978,7 +975,31 @@ impl AStarPathPrivate {
         let mut b_node_found: bool; // Flag if node is found in container
         let mut timestamp: i32 = 1;
 
-        if router.rubber_band_routing && (start != src) {
+        // Port addition (robustness): upstream walks the current route from
+        // its first point until it reaches `start`, dereferencing every
+        // vertex looked up by id.  If a route point has no vertex (e.g. a
+        // fixed route through arbitrary points) or `start` is not on the
+        // route, upstream dereferences null / reads past the route.  That
+        // walk is checked first (read-only); if it would fail, the search
+        // starts afresh from `src` as for a non-rubber-band search.
+        let rubber_band_walk_ok = router.rubber_band_routing && (start != src) && {
+            let curr_route = router.conns[line_ref].route();
+            let mut ok = false;
+            for r_indx in 0..curr_route.size() {
+                let pnt = curr_route.at(r_indx);
+                let props: VertIDProps = if r_indx > 0 { 0 } else { VertID::PROP_CONN_POINT };
+                match router.vertices.get_vertex_by_id(&router.vert_infs, &VertID::new(pnt.id, pnt.vn, props)) {
+                    None => break,
+                    Some(v) if v == start => {
+                        ok = true;
+                        break;
+                    }
+                    Some(_) => {}
+                }
+            }
+            ok
+        };
+        if rubber_band_walk_ok {
             debug_assert!(router.ignore_regions);
 
             let curr_route = router.conns[line_ref].route().clone();
@@ -1047,7 +1068,9 @@ impl AStarPathPrivate {
                 last = Some(curr);
             }
         } else {
-            if let Some(start_next) = router.vert_infs[start].path_next {
+            // Stale-pathNext policy: a link to a deleted vertex reads as
+            // null (VertInf::live_path_next; router.rs module docs).
+            if let Some(start_next) = VertInf::live_path_next(router, start) {
                 // If we are doing checkpoint routing and have already done one
                 // path, then we have an existing segment to consider for the
                 // cost of the  choice from the start node, so we add a dummy

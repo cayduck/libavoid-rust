@@ -1,0 +1,77 @@
+rect
+id=6
+x=175
+y=225
+width=20
+height=60
+
+rect
+id=5
+x=50
+y=125
+width=60
+height=20
+
+rect
+id=4
+x=100
+y=0
+width=60
+height=30
+
+rect
+id=3
+x=250
+y=250
+width=50
+height=50
+
+rect
+id=2
+x=125
+y=275
+width=25
+height=60
+
+rect
+id=1
+x=50
+y=150
+width=10
+height=20
+
+junction
+id=7
+x=262
+y=212
+
+path
+id=12
+p0: 0 7 
+p1: 0 220 
+p2: 75 385 
+p3: 200 385 
+p4: 300 275 
+
+path
+id=11
+p0: 80 82 
+p1: 160 30 
+
+path
+id=10
+p0: 55 307 
+p1: 75 385 
+p2: 200 385 
+p3: 350 350 
+p4: 350 200 
+p5: 325 157 
+
+path
+id=9
+p0: 25 32 
+p1: 25 75 
+p2: 0 75 
+p3: 0 0 
+
+

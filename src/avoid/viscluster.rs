@@ -130,14 +130,29 @@ impl ClusterRef {
 impl ClusterIdx {
     // upstream: viscluster.cpp ClusterRef::id()
     pub fn id(self, router: &Router) -> u32 {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.clusters.contains(self) {
+            return 0;
+        }
         router.clusters[self].m_id
     }
     // upstream: viscluster.cpp ClusterRef::setNewPoly()
     pub fn set_new_poly(self, router: &mut Router, poly: &Polygon) {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.clusters.contains(self) {
+            return;
+        }
         ClusterRef::set_new_poly(router, self, poly)
     }
     // upstream: viscluster.cpp ClusterRef::rectangularPolygon()
     pub fn rectangular_polygon(self, router: &Router) -> &Polygon {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.clusters.contains(self) {
+            return &crate::avoid::geomtypes::EMPTY_POLYGON;
+        }
         &router.clusters[self].m_rectangular_polygon
     }
 }

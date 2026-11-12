@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use libavoid_rust::avoid::actioninfo::{ActionObj, ActionType};
-use libavoid_rust::avoid::arena::{ClusterIdx, ConnIdx, ObstacleIdx, PinIdx};
+use libavoid_rust::avoid::arena::{ArenaIndex, ClusterIdx, ConnIdx, ObstacleIdx, PinIdx};
 use libavoid_rust::avoid::connectionpin::ShapeConnectionPin;
 use libavoid_rust::avoid::connector::{Checkpoint, ConnRef, ConnType};
 use libavoid_rust::avoid::connend::{ConnEnd, ConnEndType, CONN_DIR_ALL};
@@ -58,10 +58,16 @@ pub fn fnv(lines: &[String]) -> u64 {
 /// Whole-scene outputs up to this many lines are stored in full.
 pub const FULL_SCENE_LIMIT: usize = 400;
 
+/// (slot index, generation) of a handle: generation-checked handles name
+/// one object forever, so this is a stable key.
+fn hk<I: ArenaIndex>(h: I) -> (usize, u32) {
+    (h.index(), h.generation())
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Key {
-    Conn(u32),
-    Junc(u32),
+    Conn((usize, u32)),
+    Junc((usize, u32)),
 }
 
 struct Scene {
@@ -170,12 +176,12 @@ impl Scene {
         let r = self.router.as_ref().unwrap();
         match k {
             Key::Conn(h) => {
-                if let Some(&(c, _)) = self.conns.iter().find(|(c, _)| c.0 == h) {
+                if let Some(&(c, _)) = self.conns.iter().find(|(c, _)| hk(*c) == h) {
                     return r.conns[c].id().to_string();
                 }
             }
             Key::Junc(h) => {
-                if let Some(&(j, _)) = self.juncs.iter().find(|(j, _)| j.0 .0 == h) {
+                if let Some(&(j, _)) = self.juncs.iter().find(|(j, _)| hk(j.0) == h) {
                     return j.id(r).to_string();
                 }
             }
@@ -245,8 +251,8 @@ impl Scene {
         if count != self.reroute_count {
             self.reroute_count = count;
             let r = self.router.as_ref().unwrap();
-            let keys_j = |l: &[JunctionRef]| -> Vec<Key> { l.iter().map(|j| Key::Junc(j.0 .0)).collect() };
-            let keys_c = |l: &[ConnIdx]| -> Vec<Key> { l.iter().map(|c| Key::Conn(c.0)).collect() };
+            let keys_j = |l: &[JunctionRef]| -> Vec<Key> { l.iter().map(|j| Key::Junc(hk(j.0))).collect() };
+            let keys_c = |l: &[ConnIdx]| -> Vec<Key> { l.iter().map(|c| Key::Conn(hk(*c))).collect() };
             if r.routing_option(RoutingOption::ImproveHyperedgeRoutesMovingJunctions)
                 || r.routing_option(RoutingOption::ImproveHyperedgeRoutesMovingAddingAndDeletingJunctions)
             {
@@ -278,10 +284,10 @@ impl Scene {
         let r = self.router.as_ref().unwrap();
         self.known.clear();
         for &(c, s) in self.conns.iter() {
-            self.known.insert(Key::Conn(c.0), (s, r.conns[c].id()));
+            self.known.insert(Key::Conn(hk(c)), (s, r.conns[c].id()));
         }
         for &(j, s) in self.juncs.iter() {
-            self.known.insert(Key::Junc(j.0 .0), (s, j.id(r)));
+            self.known.insert(Key::Junc(hk(j.0)), (s, j.id(r)));
         }
     }
 

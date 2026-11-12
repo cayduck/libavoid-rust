@@ -93,6 +93,13 @@ impl Default for Point {
 }
 
 impl Point {
+    /// Port addition: both coordinates finite (see "Public-API misuse"
+    /// in the router.rs module docs: non-finite input is rejected).
+    #[inline]
+    pub fn is_finite(&self) -> bool {
+        self.x.is_finite() && self.y.is_finite()
+    }
+
     // upstream: geomtypes.cpp Point::Point(const double xv, const double yv)
     #[inline]
     pub const fn new(xv: f64, yv: f64) -> Point {
@@ -383,6 +390,11 @@ fn unit_normal_for_edge(pt1: &Point, pt2: &Point) -> Point {
 /// `ts` and `checkpoints_on_route`); [`Polygon::from_interface`] is the
 /// upstream `Polygon(const PolygonInterface&)` constructor (copies only the
 /// id and points).
+/// An empty polygon, returned by reference-returning getters called on a
+/// handle of a freed object (port addition; see "Public-API misuse" in the
+/// `router.rs` module docs).
+pub static EMPTY_POLYGON: Polygon = Polygon { _id: 0, ps: Vec::new(), ts: Vec::new(), checkpoints_on_route: Vec::new() };
+
 // upstream: geomtypes.h class Polygon
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Polygon {
@@ -979,7 +991,7 @@ mod tests {
         p.vn = 2;
         cluster.ps.push(p);
         cluster.ps.push(Point::new(50.0, 50.0)); // id 0: copied by value
-        let rp = ReferencingPolygon::from_polygon(&cluster, vec![(7u32, ObstacleIdx(0))]);
+        let rp = ReferencingPolygon::from_polygon(&cluster, vec![(7u32, ObstacleIdx::dangling())]);
         let mut lookup = OneObstacle(shape);
         assert_eq!(rp.at(0, &lookup), Point::new(0.0, 10.0));
         assert_eq!(rp.at(1, &lookup), Point::new(50.0, 50.0));

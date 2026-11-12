@@ -607,7 +607,12 @@ impl EdgeInf {
         debug_assert!(router.vert_infs[j].id != DUMMY_ORTHOG_ID);
 
         let edge = if known_new {
-            debug_assert!(EdgeInf::existing_edge(router, i, j).is_none());
+            // Upstream: COLA_ASSERT(existingEdge(i, j) == nullptr).  Not
+            // ported (assert policy, router.rs module docs): the asserting
+            // upstream build fails it on valid input (audit scene
+            // tests/audit_scenes/audit_000.ops: mixed poly-line/orthogonal
+            // router, transactions off); the NDEBUG build creates the
+            // duplicate edge, as here (the scene matches its golden).
             EdgeInf::new(router, i, j, false)
         } else {
             match EdgeInf::existing_edge(router, i, j) {
@@ -892,7 +897,7 @@ mod tests {
         // Reroute flags are raised by alertConns.
         let flag = r
             .m_conn_reroute_flags
-            .add_conn(crate::avoid::arena::ConnIdx(0));
+            .add_conn(crate::avoid::arena::ConnIdx::dangling());
         r.edge_infs[e2].add_conn(flag);
         EdgeInf::alert_conns(&mut r, e2);
         assert!(*r.m_conn_reroute_flags.flag_mut(flag));
@@ -995,7 +1000,7 @@ mod tests {
         let e_old = EdgeInf::new(&mut r, centre, n2, true); // slot 1, older
         EdgeInf::delete(&mut r, filler_e); // frees slot 0
         let e_new = EdgeInf::new(&mut r, centre, n1, true); // slot 0, newer
-        assert!(e_new.0 < e_old.0);
+        assert!(e_new.slot() < e_old.slot());
         assert!(r.edge_infs[e_old].serial < r.edge_infs[e_new].serial);
         assert!(cmp_vis_edge_rotation(&r, None, e_old, e_new));
         assert!(!cmp_vis_edge_rotation(&r, None, e_new, e_old));
