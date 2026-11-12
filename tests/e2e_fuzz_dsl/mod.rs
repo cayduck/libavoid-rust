@@ -736,6 +736,14 @@ impl Scene {
             "invalid" => {
                 let i = refr!(self.conns.len());
                 let c = self.conns[i].0;
+                // (The connector list is synchronised after transactions; a
+                // connector freed since -- e.g. merged away by a split or a
+                // junction merge in the same transaction -- is a dead handle
+                // here, a use-after-free in the C++ driver: no-op, as for
+                // the core's handle methods.)
+                if !self.router.as_ref().unwrap().conns.contains(c) {
+                    return;
+                }
                 self.r().conns[c].make_path_invalid();
             }
             "delconn" => {
@@ -766,7 +774,8 @@ impl Scene {
             "fixexist" => {
                 let i = refr!(self.conns.len());
                 let c = self.conns[i].0;
-                if self.r().conns[c].route().ps.len() >= 2 {
+                // (dead handle: no-op, see "invalid")
+                if self.router.as_ref().unwrap().conns.contains(c) && self.r().conns[c].route().ps.len() >= 2 {
                     c.set_fixed_existing_route(self.r());
                 }
             }
@@ -779,6 +788,10 @@ impl Scene {
                 let i = refr!(self.conns.len());
                 let seg = t.unum() as usize;
                 let c = self.conns[i].0;
+                // (dead handle: no-op, see "invalid")
+                if !self.router.as_ref().unwrap().conns.contains(c) {
+                    return;
+                }
                 // (as the C++ driver: skip splits that would dereference a
                 // null m_dst_connend upstream)
                 let conn = &self.router.as_ref().unwrap().conns[c];

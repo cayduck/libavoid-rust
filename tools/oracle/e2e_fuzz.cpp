@@ -259,6 +259,22 @@ static bool inConnRefs(Router *r, const ConnRef *c)
     return false;
 }
 
+// The driver's connector list is synchronised after transactions; a
+// connector freed since (e.g. by the transaction that immediate mode runs
+// before the next command) is a stale pointer there.  Using it is a
+// use-after-free in the driver, which the ASan build only sees when its own
+// pointer order leads to the same deletion: it is reported in every build
+// (the scene is classified "#exclude crash").  The Rust interpreter treats
+// such a handle as a no-op.
+static void staleConnCheck(Scene& sc, ConnRef *c)
+{
+    if (!inConnRefs(sc.r, c) && !isPendingAction(sc.r, ConnChange, c))
+    {
+        fprintf(stderr, "ERROR: stale connector handle (driver use of a freed ConnRef)\n");
+        abort();
+    }
+}
+
 static bool junctionLive(Router *r, JunctionRef *j)
 {
     if (isPendingAction(r, JunctionRemove, j))
@@ -910,6 +926,7 @@ static void runCommandInner(Scene& sc, const std::string& line)
     else if (cmd == "src" || cmd == "dst")
     {
         if (!ref(in, sc.conns.size(), i)) return;
+        staleConnCheck(sc, sc.conns[i]);
         ConnRef *c = sc.conns[i];
         ConnEnd end = readEnd(sc, in);
         if (cmd == "src") c->setSourceEndpoint(end);
@@ -918,21 +935,25 @@ static void runCommandInner(Scene& sc, const std::string& line)
     else if (cmd == "type")
     {
         if (!ref(in, sc.conns.size(), i)) return;
+        staleConnCheck(sc, sc.conns[i]);
         sc.conns[i]->setRoutingType((ConnType) unum(in));
     }
     else if (cmd == "hate")
     {
         if (!ref(in, sc.conns.size(), i)) return;
+        staleConnCheck(sc, sc.conns[i]);
         sc.conns[i]->setHateCrossings(unum(in) != 0);
     }
     else if (cmd == "invalid")
     {
         if (!ref(in, sc.conns.size(), i)) return;
+        staleConnCheck(sc, sc.conns[i]);
         sc.conns[i]->makePathInvalid();
     }
     else if (cmd == "delconn")
     {
         if (!ref(in, sc.conns.size(), i)) return;
+        staleConnCheck(sc, sc.conns[i]);
         ConnRef *c = sc.conns[i];
         sc.conns.erase(sc.conns.begin() + i);
         r->deleteConnector(c);
@@ -940,6 +961,7 @@ static void runCommandInner(Scene& sc, const std::string& line)
     else if (cmd == "cps")
     {
         if (!ref(in, sc.conns.size(), i)) return;
+        staleConnCheck(sc, sc.conns[i]);
         unsigned n = unum(in);
         std::vector<Checkpoint> cps;
         for (unsigned k = 0; k < n; ++k)
@@ -955,12 +977,14 @@ static void runCommandInner(Scene& sc, const std::string& line)
     else if (cmd == "fixroute")
     {
         if (!ref(in, sc.conns.size(), i)) return;
+        staleConnCheck(sc, sc.conns[i]);
         PolyLine route = readPoly(in);
         sc.conns[i]->setFixedRoute(route);
     }
     else if (cmd == "fixexist")
     {
         if (!ref(in, sc.conns.size(), i)) return;
+        staleConnCheck(sc, sc.conns[i]);
         if (sc.conns[i]->route().size() >= 2)
         {
             sc.conns[i]->setFixedExistingRoute();
@@ -969,11 +993,13 @@ static void runCommandInner(Scene& sc, const std::string& line)
     else if (cmd == "clearfix")
     {
         if (!ref(in, sc.conns.size(), i)) return;
+        staleConnCheck(sc, sc.conns[i]);
         sc.conns[i]->clearFixedRoute();
     }
     else if (cmd == "split")
     {
         if (!ref(in, sc.conns.size(), i)) return;
+        staleConnCheck(sc, sc.conns[i]);
         unsigned seg = unum(in);
         ConnRef *c = sc.conns[i];
         // Upstream dereferences m_dst_connend, which is null when the
