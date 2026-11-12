@@ -60,7 +60,7 @@ BUILD = os.environ.get("E2E_BUILD", os.path.join(ROOT, "target", "e2e_fuzz"))
 JOBS = int(os.environ.get("E2E_JOBS", "8"))
 VARIANTS = ("assert", "ndebug", "asan")
 # Per-scene limits (seconds); scenes take ~0.1-3 s (ASan ~5x).
-TIMEOUTS = {"assert": 60, "ndebug": 60, "asan": 300}
+TIMEOUTS = {"assert": 60, "ndebug": 60, "asan": 120}
 
 
 def exe(variant):
@@ -121,6 +121,18 @@ def run_cpp_file(variant, scenes, env_extra=None):
         return parse_scenes(run_cpp(variant, ["run", path], env_extra))
     finally:
         os.unlink(path)
+
+
+def run_cpp_file_par(variant, scenes):
+    """run_cpp_file over JOBS parallel processes (scene order kept)."""
+    if not scenes:
+        return []
+    jobs = max(1, min(JOBS, 6)) if variant == "asan" else max(1, JOBS)
+    k = max(1, (len(scenes) + jobs - 1) // jobs)
+    chunks = [scenes[i:i + k] for i in range(0, len(scenes), k)]
+    with ThreadPoolExecutor(len(chunks)) as ex:
+        outs = list(ex.map(lambda c: run_cpp_file(variant, c), chunks))
+    return [sc for o in outs for sc in o]
 
 
 def gen_variant(variant, seed, first, count):
@@ -331,6 +343,7 @@ def gen_fast(seed, first, count, path, nd=None):
     classified scenes and the Rust statuses."""
     if nd is None:
         nd = gen_variant("ndebug", seed, first, count)
+    progress("  batch %d: C++ NDEBUG done, Rust replay" % first)
     with open(path, "w") as f:
         f.write(format_scenes([(n, d, o if not is_crash(o) else ["#exclude crash pending"])
                                for n, d, o in nd]))
@@ -340,7 +353,10 @@ def gen_fast(seed, first, count, path, nd=None):
     if not todo:
         return [(n, d, o if not o or o[0] != "#pinset-unsorted" else
                  ["#exclude pinset-unsorted"] + o[1:]) for n, d, o in nd], status
-    res = {v: {n: o for n, _, o in run_cpp_file(v, todo)} for v in ("assert", "asan")}
+    progress("  batch %d: classifying %d crashing/divergent scenes (assert + asan builds)"
+             % (first, len(todo)))
+    res = {v: {n: o for n, _, o in run_cpp_file_par(v, todo)} for v in ("assert", "asan")}
+    progress("  batch %d: classification done" % first)
     classified = {}
     for n, d, o in todo:
         classified[n] = (n, d, classify(res["assert"][n], o, res["asan"][n]))
