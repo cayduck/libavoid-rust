@@ -547,7 +547,16 @@ impl Scene {
                         let v = t.num();
                         p.set_connection_cost(self.r(), v);
                     }
-                    _ => ShapeConnectionPin::delete(self.r(), p),
+                    _ => {
+                        // (as the C++ driver: keep the last pin of a class)
+                        let r = self.router.as_ref().unwrap();
+                        let cls = r.pins[p].m_class_id;
+                        let same = s.connection_pins(r).iter().filter(|&&q| r.pins[q].m_class_id == cls).count();
+                        if same < 2 {
+                            return;
+                        }
+                        ShapeConnectionPin::delete(self.r(), p)
+                    }
                 }
             }
             "transform" => {

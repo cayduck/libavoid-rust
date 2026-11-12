@@ -751,6 +751,15 @@ static void runCommand(Scene& sc, const std::string& line)
         }
         else
         {
+            // Keep the last pin of a class: a ConnEnd naming a class without
+            // pins dereferences a null vertex upstream (connend.cpp:292).
+            unsigned same = 0;
+            for (ShapeConnectionPinSet::iterator p = sc.shapes[i]->m_connection_pins.begin();
+                    p != sc.shapes[i]->m_connection_pins.end(); ++p)
+            {
+                if ((*p)->m_class_id == pin->m_class_id) ++same;
+            }
+            if (same < 2) return;
             delete pin;
         }
     }
@@ -1552,7 +1561,9 @@ static void genJunction(Gen& g)
     unsigned k = 2 + rnd(5);
     for (unsigned c = 0; c < k; ++c)
     {
-        std::string other = genEnd(g, chance(15));
+        // (no junction ends here: a connector from a junction to itself
+        // makes upstream hyperedge rerouting use freed memory)
+        std::string other = genEnd(g, false);
         if (chance(50))
         {
             g.L.push_back("conn " + newId(g) + " J L " + other);
@@ -1865,7 +1876,7 @@ static std::vector<std::string> genScene(uint64_t seed, uint64_t index)
     g.nC = 0;
     g.nK = 0;
     g.nextId = 0;
-    g.txn = false;
+    g.txn = true;    // Router's default (m_consolidate_actions = true)
     g.inBatch = false;
     unsigned fk = rnd(10);
     g.flags = (fk < 4) ? 2 : (fk < 6 ? 1 : 3);
@@ -1886,12 +1897,12 @@ static std::vector<std::string> genScene(uint64_t seed, uint64_t index)
 
     // Initial scene, in a transaction or immediate mode.
     bool initTxn = chance(70);
-    if (initTxn)
+    if (!initTxn)
     {
-        L.push_back("txn 1");
-        g.txn = true;
-        g.inBatch = true;
+        L.push_back("txn 0");
+        g.txn = false;
     }
+    g.inBatch = g.txn;
     unsigned nShapes = (size < 6) ? 1 + rnd(5) : (size < 9 ? 4 + rnd(8) : 10 + rnd(10));
     unsigned nConns = (size < 6) ? 1 + rnd(5) : (size < 9 ? 3 + rnd(10) : 8 + rnd(15));
     unsigned nJuncs = chance(40) ? 1 + rnd(size < 6 ? 2 : 3) : 0;
