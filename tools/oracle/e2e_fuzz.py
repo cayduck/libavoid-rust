@@ -193,7 +193,7 @@ def rust_bin():
     return _rust_bin
 
 
-def compare(golden_path, soft=False, scene=None, full=False, quiet=False):
+def compare(golden_path, soft=False, scene=None, full=False, quiet=False, env_extra=None):
     """Returns {name: status} from the Rust replay of a golden file."""
     with tempfile.NamedTemporaryFile("r", suffix=".tsv", delete=False) as rep:
         rep_path = rep.name
@@ -207,6 +207,8 @@ def compare(golden_path, soft=False, scene=None, full=False, quiet=False):
         env["E2E_SCENE"] = scene
     if full:
         env["E2E_FULL"] = "1"
+    if env_extra:
+        env.update(env_extra)
     r = subprocess.run([rust_bin(), "--nocapture", "--test-threads", "1"], capture_output=True,
                        text=True, env=env)
     status = {}
@@ -303,10 +305,14 @@ def cmd_campaign(args):
         with open(path, "w") as f:
             f.write(format_scenes(scenes))
         status, _ = compare(path, quiet=True)
+        # The same replay with arena slot reuse disabled must give the same
+        # statuses (else a slot index leaks into behaviour).
+        status2, _ = compare(path, quiet=True, env_extra={"E2E_NO_SLOT_REUSE": "1"})
+        slot_diff = sorted(n for n in set(status) | set(status2) if status.get(n) != status2.get(n))
         divergent = sorted((n, s) for n, s in status.items()
                            if s.startswith(("differ", "panic", "died")))
         keep = [sc for sc in scenes if status.get(sc[0], "").startswith(("differ", "panic"))]
-        if keep or divergent:
+        if keep or divergent or slot_diff:
             with open(os.path.join(outdir, "divergent-%06d.txt" % first), "w") as f:
                 f.write(format_scenes(keep))
             os.rename(path, os.path.join(outdir, "batch-%06d-kept.txt" % first))
@@ -321,7 +327,7 @@ def cmd_campaign(args):
             rust[st.split()[0]] = rust.get(st.split()[0], 0) + 1
         entry = {"seed": args.seed, "first": first, "count": count,
                  "classes": summarize(scenes, status), "rust": rust,
-                 "reasons": reasons, "divergent": divergent}
+                 "reasons": reasons, "divergent": divergent, "slot_reuse_diff": slot_diff}
         with open(CAMPAIGN_LOG, "a") as f:
             f.write(json.dumps(entry, sort_keys=True) + "\n")
         done[(args.seed, first, count)] = entry
@@ -344,6 +350,7 @@ def report(done, seed=None):
         for k, v in e["reasons"].items():
             reasons[k] = reasons.get(k, 0) + v
         divergent.extend(e["divergent"])
+        divergent.extend([(n, "slot-reuse-dependent") for n in e.get("slot_reuse_diff", [])])
     print("\n== campaign%s: %d scenes ==" % ("" if seed is None else " seed %d" % seed, n))
     for k, v in sorted(total.items()):
         print("%6d %s" % (v, k))
