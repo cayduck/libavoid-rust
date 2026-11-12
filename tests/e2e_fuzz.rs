@@ -30,6 +30,7 @@
 //!    guards against upstream API misuse off (raw immediate mode, missing
 //!    pin classes, cyclic / two-terminal hyperedges, deleting objects with
 //!    queued actions, ...); must not panic (no comparison)
+//!  * `E2E_PROGRESS=1`   print "start NAME" / "done NAME ms" to stderr
 //!  * `E2E_NO_SLOT_REUSE=1` arenas never reuse freed slots (results must
 //!    not change: a difference means a slot index leaks into behaviour)
 
@@ -143,6 +144,7 @@ fn e2e_fuzz_matches_cpp_oracle() {
     let full = std::env::var("E2E_FULL").is_ok();
     let soft = std::env::var("E2E_SOFT").is_ok();
     let raw = std::env::var("E2E_RAW").is_ok();
+    let progress = std::env::var("E2E_PROGRESS").is_ok();
     let max_ms = std::sync::atomic::AtomicU64::new(0);
     let subsample: usize = std::env::var("E2E_SUBSAMPLE")
         .ok()
@@ -177,9 +179,15 @@ fn e2e_fuzz_matches_cpp_oracle() {
                     break;
                 }
                 let t0 = std::time::Instant::now();
+                if progress {
+                    eprintln!("start {}", selected[i].name);
+                }
                 let o = if raw { check_raw(selected[i]) } else { check(selected[i], full, soft) };
                 let ms = t0.elapsed().as_millis() as u64;
                 max_ms.fetch_max(ms, Ordering::SeqCst);
+                if progress {
+                    eprintln!("done {} {} ms", selected[i].name, ms);
+                }
                 results.lock().unwrap().push((i, o));
             });
         }
@@ -253,11 +261,14 @@ fn e2e_fuzz_regressions() {
     let scenes = parse_golden(&std::fs::read_to_string(path).expect("regression golden"));
     let mut failures = Vec::new();
     for scene in scenes.iter() {
-        match check(scene, false, false) {
-            Outcome::Match => {}
+        // (soft: "#exclude crash" scenes -- upstream crashes or never
+        // returns -- must run to completion without panicking)
+        match check(scene, false, true) {
+            Outcome::Match | Outcome::Excluded { soft_match: None | Some(true), panic: None } => {}
             Outcome::Differ(m) => failures.push(format!("{}: {}", scene.name, m)),
             Outcome::Panic(m) => failures.push(format!("{}: panicked: {}", scene.name, m)),
-            Outcome::Excluded { .. } => failures.push(format!("{}: unexpectedly excluded", scene.name)),
+            Outcome::Excluded { panic: Some(m), .. } => failures.push(format!("{}: panicked: {}", scene.name, m)),
+            Outcome::Excluded { .. } => failures.push(format!("{}: differs", scene.name)),
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
