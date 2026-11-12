@@ -511,8 +511,11 @@ pub fn rotational_angle(p: &Point) -> f64 {
     } else if p.y < 0.0 {
         ang += 360.0;
     }
-    debug_assert!(ang >= 0.0);
-    debug_assert!(ang <= 360.0);
+    // Upstream: COLA_ASSERT(ang >= 0) and COLA_ASSERT(ang <= 360).  Not
+    // ported (assert policy): upstream's asserting build fails the first on
+    // two `#assert` scenes of the committed e2e fuzz golden (s1-182,
+    // s1-557; an angle that fails it can only be NaN, which fails both),
+    // whose NDEBUG output the port reproduces.
 
     ang
 }

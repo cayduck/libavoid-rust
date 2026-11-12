@@ -14,7 +14,8 @@
 //! Scene markers (first output line):
 //!  * `#assert <msg>`: the asserting C++ build fails an upstream
 //!    `COLA_ASSERT`; the expected output is the NDEBUG build's, checked
-//!    only when `debug_assert!` is off (release builds).
+//!    in debug builds too (the port does not keep asserts that upstream
+//!    violates on valid input; see "Asserts" in `src/avoid/router.rs`).
 //!  * `#exclude <reason>`: upstream crashes / has undefined behaviour /
 //!    times out on this scene (see `tools/oracle/e2e_fuzz.sh`); skipped.
 //!    `E2E_SOFT=1` also replays these and reports (without failing) how
@@ -123,16 +124,6 @@ fn check(scene: &GoldenScene, full: bool, soft: bool) -> Outcome {
             }
         }
     };
-    if first.starts_with("#assert") && cfg!(debug_assertions) {
-        if let Outcome::Panic(m) = &outcome {
-            if m.starts_with("assertion failed") || m.starts_with("assertion `") {
-                // The upstream asserting build fails on this scene too and
-                // the port kept that assert as a debug_assert!: not a
-                // divergence (counted as excluded in debug builds).
-                return Outcome::Excluded { soft_match: None, panic: None };
-            }
-        }
-    }
     if excluded {
         let panic = if let Outcome::Panic(m) = &outcome { Some(m.clone()) } else { None };
         return Outcome::Excluded { soft_match: Some(matches!(outcome, Outcome::Match)), panic };
@@ -279,17 +270,10 @@ fn e2e_fuzz_regressions() {
     let mut failures = Vec::new();
     for scene in scenes.iter() {
         // (soft: "#exclude crash" scenes -- upstream crashes or never
-        // returns -- must run to completion without panicking)
-        // A scene marked "[debug-assert]" reaches a kept debug_assert!
-        // (MTST / hyperedge-tree invariants) on its misuse input in debug
-        // builds; upstream's asserting build fails on it too (assert or
-        // crash).  Release builds must still run it without panicking.
-        let debug_assert_ok = cfg!(debug_assertions)
-            && scene.out.first().is_some_and(|l| l.contains("[debug-assert]"));
+        // returns -- must run to completion without panicking, in debug
+        // builds too)
         match check(scene, false, true) {
             Outcome::Match | Outcome::Excluded { soft_match: None | Some(true), panic: None } => {}
-            Outcome::Excluded { panic: Some(m), .. }
-                if debug_assert_ok && (m.starts_with("assertion failed") || m.starts_with("assertion `")) => {}
             Outcome::Differ(m) => failures.push(format!("{}: {}", scene.name, m)),
             Outcome::Panic(m) => failures.push(format!("{}: panicked: {}", scene.name, m)),
             Outcome::Excluded { panic: Some(m), .. } => failures.push(format!("{}: panicked: {}", scene.name, m)),

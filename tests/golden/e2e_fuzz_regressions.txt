@@ -132,7 +132,7 @@ conn 18507 P 95 265 3 J L
 conn 0 J L P 305 230 15
 regj 37
 #out
-#exclude crash [debug-assert] stack-overflow (MTST tree of a registered hyperedge contains a cycle: upstream's recursive addConns() overflows the stack; port skips the hyperedge, must not overflow or panic)
+#exclude crash stack-overflow (MTST tree of a registered hyperedge contains a cycle: upstream's recursive addConns() overflows the stack; port skips the hyperedge, must not overflow or panic)
 #end
 #scene reg-improver-edge-without-end-node
 router 2
@@ -145,7 +145,7 @@ fixroute 234 2 200 130 200 155
 option 5 1
 src 438 J 762
 #out
-#exclude crash [debug-assert] null HyperedgeTreeNode (hyperedge tree edge whose ends are both the node it is entered from: upstream dereferences null in HyperedgeTreeEdge::updateConnEnds; port must not panic)
+#exclude crash null HyperedgeTreeNode (hyperedge tree edge whose ends are both the node it is entered from: upstream dereferences null in HyperedgeTreeEdge::updateConnEnds; port must not panic)
 #end
 #scene reg-hyperedge-terminal-shape-freed
 router 2
@@ -182,7 +182,7 @@ conn 9346 P 60 30 8 J L
 src 612 J 405
 dst 756 J 838
 #out
-#exclude crash [debug-assert] timeout (upstream never returns: HyperedgeTreeNode::spliceEdgesFrom(self) on a zero-length self-loop tree edge; port must terminate)
+#exclude crash timeout (upstream never returns: HyperedgeTreeNode::spliceEdgesFrom(self) on a zero-length self-loop tree edge; port must terminate)
 #end
 #scene reg-improver-split-parallel-edges
 router 3
@@ -200,4 +200,36 @@ cps 47 3 191.358 57.928312499999997 15 15 57.506750000000004 177.66666666666666 
 option 5 1
 #out
 #exclude crash timeout (upstream never returns: moveJunctionAlongCommonEdge split case calls spliceEdgesFrom(targetNode) on itself; port must terminate)
+#end
+#scene reg-assert-endpoint-direction
+router 2
+junction 1 50 0 0
+conn 2 P 0 0 15 J 0
+conn 3 J 0 P 100 0 15
+process
+#out
+#assert exit=134 libavoid/makepath.cpp:938: Assertion `orthogonalDirectionsCount(thisDirs) > 0' failed (upstream asserting build on valid input; not ported, NDEBUG output compared in debug builds too)
+T 0 ret=1
+cb 3 2
+H nj=[] nc=[] dj=[] dc=[] cc=[]
+J 1 50,0 f=0
+C 3 t=2 f=0 src=J50,0 dst=P100,0
+  raw 2: 50,0 100,0
+  disp 2: 50,0 100,0
+C 2 t=2 f=0 src=P0,0 dst=J50,0
+  raw 2: 0,0 50,0
+  disp 2: 0,0 50,0
+Q ovl=00 fovl=00 touch=0 cross=0,0 invalid=0
+A 1 [2][] [3][] [3 2][]
+D path
+D id=3
+D p0: 50 0 
+D p1: 100 0 
+D 
+D path
+D id=2
+D p0: 0 0 
+D p1: 50 0 
+D 
+D 
 #end
