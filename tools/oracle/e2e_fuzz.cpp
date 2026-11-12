@@ -1069,20 +1069,21 @@ static void runCommandInner(Scene& sc, const std::string& line)
 //    removal of the junctions it replaces) and processed in immediate mode
 //    re-enter processTransaction() from ~Obstacle (pin removal) on the
 //    same action list; so before any command in immediate mode, queued
-//    actions are first processed in a transaction (no dump).
-// In immediate mode the interpreter therefore runs them as a one-command
-// transaction (setTransactionUse(true); command; processTransaction();
-// setTransactionUse(false)), which is what immediate mode means.
+//    actions are first processed in a transaction (no dump);
+//  * any transaction in which hyperedge improvement runs: the improver
+//    creates JunctionRefs, whose pin creation (addConnectionPin ->
+//    modifyConnectionPin) or deletion runs a nested processTransaction()
+//    inside rerouteAndCallbackConnectors(), which improves again, ... --
+//    upstream recurses until memory or stack are exhausted (seen as
+//    "#exclude memory" / stack overflows before this rule).
+// In immediate mode the interpreter therefore runs every command as a
+// one-command transaction (setTransactionUse(true); command;
+// processTransaction(); setTransactionUse(false)), which is what immediate
+// mode means; "nowrap" scenes keep upstream's raw behaviour.
 static bool unsafeImmediate(const std::string& cmd)
 {
-    static const char *cmds[] = { "moveby", "moveto", "delshape", "movejby",
-        "movejto", "deljunc", "mergej", "markmoved", "conn", "split", "pin",
-        nullptr };
-    for (const char **c = cmds; *c; ++c)
-    {
-        if (cmd == *c) return true;
-    }
-    return false;
+    return cmd != "txn" && cmd != "router" && cmd != "nowrap" && !cmd.empty() &&
+            cmd[0] != '#';
 }
 
 static void runCommand(Scene& sc, const std::string& line)

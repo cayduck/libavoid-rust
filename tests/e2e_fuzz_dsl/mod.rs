@@ -485,20 +485,8 @@ impl Scene {
         }
         let wrap = !self.no_wrap
             && self.router.as_ref().is_some_and(|r| !r.transaction_use())
-            && matches!(
-                cmd,
-                "moveby"
-                    | "moveto"
-                    | "delshape"
-                    | "movejby"
-                    | "movejto"
-                    | "deljunc"
-                    | "mergej"
-                    | "markmoved"
-                    | "conn"
-                    | "split"
-                    | "pin"
-            );
+            && !matches!(cmd, "txn" | "router" | "nowrap" | "")
+            && !cmd.starts_with('#');
         if wrap {
             self.r().set_transaction_use(true);
         }
