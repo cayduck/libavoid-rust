@@ -1236,9 +1236,12 @@ static std::string newId(Gen& g)
 
 static unsigned randDirs()
 {
+    // ConnDirNone on a free point gives it no visibility at all; rare,
+    // because hyperedge rerouting with such an (unreachable) terminal
+    // dereferences a null MTST root upstream (hyperedge.cpp:337).
+    if (rnd(50) == 0) return 0;
     unsigned k = rnd(10);
-    if (k < 3) return 15;
-    if (k < 4) return 0;
+    if (k < 4) return 15;
     if (k < 8) return 1u << rnd(4);
     return rnd(16);
 }
@@ -1809,26 +1812,26 @@ static void genOp(Gen& g)
     {
         // Hyperedge rerouting is orthogonal only (MTST over the orthogonal
         // visibility graph).
-        // Distinct terminals (upstream dereferences a null tree root when
-        // terminals coincide): free points, or pins of distinct shapes.
-        unsigned n = 3 + rnd(3);
-        std::vector<std::string> ends;
-        std::set<unsigned> usedShapes;
+        // Terminals are pins of distinct shapes, as upstream uses this API
+        // (hyperedge02.cpp): free-point terminals get a vertex without
+        // orthogonal visibility (added after the graph is built), the MTST
+        // cannot reach them and upstream dereferences a null tree root
+        // (hyperedge.cpp:337); coincident terminals do the same.
+        std::vector<unsigned> withPins;
+        for (unsigned k = 0; k < g.shapes.size(); ++k)
+        {
+            if (!g.shapes[k].classes.empty()) withPins.push_back(k);
+        }
+        if (withPins.size() < 2) return;
+        unsigned n = std::min((unsigned) withPins.size(), 2 + rnd(4));
+        std::string s = "regends " + std::to_string(n);
         for (unsigned k = 0; k < n; ++k)
         {
-            std::string e = genEnd(g, false);
-            if (e[0] == 'S')
-            {
-                unsigned si = (unsigned) atoi(e.c_str() + 2);
-                if (usedShapes.count(si)) e = genPointEnd(g);
-                else usedShapes.insert(si);
-            }
-            if (std::find(ends.begin(), ends.end(), e) == ends.end()) ends.push_back(e);
-        }
-        std::string s = "regends " + std::to_string(ends.size());
-        for (size_t k = 0; k < ends.size(); ++k)
-        {
-            s += " " + ends[k];
+            unsigned pick = k + rnd((unsigned) withPins.size() - k);
+            std::swap(withPins[k], withPins[pick]);
+            const GShape& sh = g.shapes[withPins[k]];
+            s += " S " + std::to_string(withPins[k]) + " " +
+                    std::to_string(sh.classes[rnd((unsigned) sh.classes.size())]);
         }
         g.L.push_back(s);
     }
