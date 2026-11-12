@@ -273,8 +273,16 @@ fn e2e_fuzz_regressions() {
     for scene in scenes.iter() {
         // (soft: "#exclude crash" scenes -- upstream crashes or never
         // returns -- must run to completion without panicking)
+        // A scene marked "[debug-assert]" reaches a kept debug_assert!
+        // (MTST / hyperedge-tree invariants) on its misuse input in debug
+        // builds; upstream's asserting build fails on it too (assert or
+        // crash).  Release builds must still run it without panicking.
+        let debug_assert_ok = cfg!(debug_assertions)
+            && scene.out.first().is_some_and(|l| l.contains("[debug-assert]"));
         match check(scene, false, true) {
             Outcome::Match | Outcome::Excluded { soft_match: None | Some(true), panic: None } => {}
+            Outcome::Excluded { panic: Some(m), .. }
+                if debug_assert_ok && (m.starts_with("assertion failed") || m.starts_with("assertion `")) => {}
             Outcome::Differ(m) => failures.push(format!("{}: {}", scene.name, m)),
             Outcome::Panic(m) => failures.push(format!("{}: panicked: {}", scene.name, m)),
             Outcome::Excluded { panic: Some(m), .. } => failures.push(format!("{}: panicked: {}", scene.name, m)),
