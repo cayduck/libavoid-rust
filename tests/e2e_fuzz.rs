@@ -137,8 +137,11 @@ fn e2e_fuzz_matches_cpp_oracle() {
         .and_then(|s| s.parse().ok())
         .unwrap_or_else(|| std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4));
     // Silence the default panic message spam of caught panics.
+    // (kept for single-scene runs, where the backtrace is useful)
     let prev_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|_| {}));
+    if only.is_none() {
+        std::panic::set_hook(Box::new(|_| {}));
+    }
     let next = AtomicUsize::new(0);
     let results: Mutex<Vec<(usize, Outcome)>> = Mutex::new(Vec::new());
     std::thread::scope(|s| {

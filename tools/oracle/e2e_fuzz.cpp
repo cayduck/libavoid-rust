@@ -174,6 +174,15 @@ static bool g_full = false;
 
 static std::vector<unsigned> g_callbacks;
 
+// Set when a shape's ShapeConnectionPinSet is no longer sorted by its own
+// comparator.  ShapeRef::transformConnectionPinPositions() mutates the
+// keys (offsets, directions) of std::set elements in place, which violates
+// the container's ordering requirement (undefined behaviour); libstdc++'s
+// red-black tree then erases/finds by a descent the Rust port's sorted
+// vector does not model (later pin/shape deletion erases the wrong number
+// of elements).  Such scenes are excluded ("#exclude pinset-unsorted").
+static bool g_pinsetUnsorted = false;
+
 static void connCallback(void *ptr)
 {
     g_callbacks.push_back((unsigned) (uintptr_t) ptr);
@@ -807,6 +816,13 @@ static void runCommandInner(Scene& sc, const std::string& line)
         if (!ref(in, sc.shapes.size(), i)) return;
         sc.shapes[i]->transformConnectionPinPositions(
                 (ShapeTransformationType) unum(in));
+        const ShapeConnectionPinSet& set = sc.shapes[i]->m_connection_pins;
+        ShapeConnectionPinSet::const_iterator prev = set.begin();
+        for (ShapeConnectionPinSet::const_iterator it = set.begin(); it != set.end(); ++it)
+        {
+            if (it != prev && **it < **prev) g_pinsetUnsorted = true;
+            prev = it;
+        }
     }
     else if (cmd == "junction")
     {
@@ -1072,6 +1088,7 @@ static std::vector<std::string> execScene(const std::vector<std::string>& dsl)
     sc.stage = 0;
     sc.rerouteCount = e2eRerouteCount;
     g_callbacks.clear();
+    g_pinsetUnsorted = false;
     for (size_t i = 0; i < dsl.size(); ++i)
     {
         runCommand(sc, dsl[i]);
@@ -1091,6 +1108,10 @@ static std::vector<std::string> execScene(const std::vector<std::string>& dsl)
         total += sc.stages[i].size();
     }
     std::vector<std::string> res;
+    if (g_pinsetUnsorted)
+    {
+        res.push_back("#pinset-unsorted");
+    }
     for (size_t i = 0; i < sc.stages.size(); ++i)
     {
         const std::vector<std::string>& st = sc.stages[i];

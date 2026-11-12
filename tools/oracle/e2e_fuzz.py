@@ -29,6 +29,11 @@ Classification of a scene (first output line of the golden):
   #exclude heapdep    the sanitized build (same allocation order, different
                       addresses/padding) produced different output
   #exclude assertdiff the asserting build finished with different output
+  #exclude pinset-unsorted
+                      transformConnectionPinPositions() mutated the keys of a
+                      shape's std::set of pins so that it is no longer sorted
+                      (undefined behaviour; libstdc++ tree descent not
+                      modelled by the port)
 For #exclude ub / heapdep / assertdiff the NDEBUG output follows the marker
 (E2E_SOFT=1 replays those too, without failing).
 """
@@ -127,6 +132,9 @@ def classify(a, n, z):
         return ["#exclude crash " + reason]
     if is_crash(z):
         return ["#exclude ub " + z[0][len("#crash "):]] + n
+    if n and n[0] == "#pinset-unsorted":
+        # transformConnectionPinPositions() left a std::set unsorted (UB).
+        return ["#exclude pinset-unsorted"] + n[1:]
     if z != n:
         return ["#exclude heapdep"] + n
     if is_crash(a):
