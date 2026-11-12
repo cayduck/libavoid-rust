@@ -1,7 +1,7 @@
 {
   "name": "libavoid-rust",
   "version": "0.1.0",
-  "description": "Rust/WASM orthogonal connector routing inspired by libavoid",
+  "description": "Rust/WASM port of the libavoid connector-routing library (adaptagrams) with a JavaScript API",
   "main": "index.cjs",
   "types": "index.d.ts",
   "files": [

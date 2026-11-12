@@ -2,7 +2,7 @@
 name = "libavoid-rust"
 version = "0.1.0"
 edition = "2021"
-description = "Rust/WASM orthogonal connector routing inspired by libavoid"
+description = "Rust/WASM port of the libavoid connector-routing library (adaptagrams) with a JavaScript API"
 license = "LGPL-2.1-or-later"
 repository = "https://github.com/cayduck/libavoid-rust"
 
