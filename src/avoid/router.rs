@@ -203,6 +203,22 @@
 //!   not mergeable (what upstream does when it terminates: both nodes are
 //!   junctions without major changes) and continues the traversal
 //!   (`reg-improver-self-loop-edge-splice`).
+//! * The same loop, for a self-loop edge present when the tree is built:
+//!   a connector with both ends on one junction and a two-point display
+//!   route (e.g. left by the iterator-erased case above, or by a checkpoint)
+//!   becomes a tree edge from the junction node to itself.  With major
+//!   changes allowed, upstream's `removeZeroLengthEdges()` reaches every
+//!   edge of the tree and merges the junction node into itself on it
+//!   (unless the edge has a fixed route, which it skips): `spliceEdgesFrom`
+//!   then never returns, or, when the self-loop was the node's only edge,
+//!   the traversal continues on the freed node.  `HyperedgeImprover::execute()` skips such a
+//!   hyperedge, like a cyclic one.  Continuing with the self-loop in place
+//!   (as the guard above does for self-loops created during improvement)
+//!   is not stable: `writeEdgesToConns()` re-enters the junction node
+//!   through the self-loop and writes the node's other branches again, so
+//!   their display routes tripled on every transaction, and nudging the
+//!   resulting overlapping segments took hours
+//!   (`reg-improver-junction-self-loop-rewrite`, from fuzz scene s1-123).
 //! * `HyperedgeImprover::moveJunctionAlongCommonEdge()`, split case: when
 //!   two of the common edges lead to the same node (parallel edges, e.g.
 //!   from a connector with both ends on one junction),
