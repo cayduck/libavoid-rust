@@ -308,6 +308,11 @@ impl HyperedgeRerouter {
             // corresponding terminals
             let terminals = router.m_hyperedge_rerouter.m_terminals_vector[i].clone();
             for it in terminals.iter() {
+                // MISUSE: a terminal whose shape/junction was freed since
+                // registration is a point end (upstream: use-after-free in
+                // ConnEnd::getHyperedgeVertex(); ConnEnd::forget_dead_refs).
+                let mut it = it.clone();
+                it.forget_dead_refs(router);
                 let maybe_new_vertex = it.get_hyperedge_vertex(router);
                 let key = vert_key(router, maybe_new_vertex.1);
                 router.m_hyperedge_rerouter.m_terminal_vertices_vector[i].insert(key);

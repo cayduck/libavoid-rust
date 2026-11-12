@@ -147,3 +147,17 @@ src 438 J 762
 #out
 #exclude crash null HyperedgeTreeNode (hyperedge tree edge whose ends are both the node it is entered from: upstream dereferences null in HyperedgeTreeEdge::updateConnEnds; port must not panic)
 #end
+#scene reg-hyperedge-terminal-shape-freed
+router 2
+rect 0 7 54.9230625 38.305440000000004 73.828382500000004
+pin 0 3 0.25 0.25 1 0 15
+rect 1558 -44.810857984319995 73.828382500000004 40.072422015680004 90.943182500000006
+pin 1 4 1 0 1 0 15
+poly 10375 3 212.1584105267639 171.52223555825213 238.21564730131357 155.08058591018425 242.19190217192255 182.19705103156366
+pin 2 2 1 0.060999999999999999 1 0 15
+process
+regends 3 S 1 4 S 0 3 S 2 2
+delshape 0
+#out
+#exclude crash heap-use-after-free (hyperedge registered by ConnEnd list, terminal shape deleted before the transaction: upstream reads the freed shape in ConnEnd::getHyperedgeVertex; port must not panic)
+#end
