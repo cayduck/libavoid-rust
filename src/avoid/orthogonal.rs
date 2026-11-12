@@ -32,6 +32,7 @@
 //!   edges) decide the processing order and thus the vertex creation order.
 //!   Upstream computes `(int)(ea->v - eb->v)` on unrelated `Node*`s, whose
 //!   sign is only meaningful if the nodes lie in one array.
+//!
 //! Both are modelled as creation order (serial / node index), which is what
 //! upstream computes with a monotonic allocator; with glibc malloc the
 //! upstream result depends on the heap history (see

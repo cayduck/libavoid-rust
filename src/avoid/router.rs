@@ -1149,7 +1149,7 @@ impl Router {
     pub fn move_shape(&mut self, shape: ShapeRef, new_poly: &Polygon, first_move: bool) {
         // MISUSE: a handle of an already freed shape is ignored, and so is
         // an inert shape (empty polygon, see ShapeRef::new).
-        if !self.obstacles.get(shape.0).is_some_and(|o| o.m_first_vert.is_some()) {
+        if self.obstacles.get(shape.0).is_none_or(|o| o.m_first_vert.is_none()) {
             return;
         }
         // MISUSE: the new polygon must have as many points as the old one
