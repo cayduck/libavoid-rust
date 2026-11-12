@@ -21,6 +21,12 @@
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut};
 
+/// Test hook (not upstream): when set, arenas never reuse freed slots.
+/// Behaviour must not depend on it (slot indices carry no meaning); the
+/// end-to-end fuzzer (`tests/e2e_fuzz.rs`, `E2E_NO_SLOT_REUSE=1`) replays
+/// scenes both ways to catch slot indices leaking into behaviour.
+pub static NO_SLOT_REUSE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Conversion between a typed handle and a (slot index, generation) pair.
 ///
 /// Handles are generation-checked in all builds: freeing a slot bumps its
@@ -199,7 +205,8 @@ impl<I: ArenaIndex, T> Arena<I, T> {
     /// Stores `value` and returns its handle (upstream `new T(...)`).
     pub fn alloc(&mut self, value: T) -> I {
         self.live += 1;
-        if let Some(slot) = self.free.pop() {
+        let reuse = !NO_SLOT_REUSE.load(std::sync::atomic::Ordering::Relaxed);
+        if let Some(slot) = if reuse { self.free.pop() } else { None } {
             let s = &mut self.slots[slot as usize];
             debug_assert!(s.1.is_none());
             s.1 = Some(value);

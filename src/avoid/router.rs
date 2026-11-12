@@ -222,6 +222,19 @@ use crate::avoid::vertices::{
 use crate::avoid::viscluster::{ClusterArena, ClusterRef};
 use crate::avoid::visibility::{compute_visibility_naive, compute_visibility_sweep};
 
+thread_local! {
+    static E2E_REROUTE_COUNT: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Test hook (not upstream): number of `rerouteAndCallbackConnectors()`
+/// runs on this thread.  Used by the end-to-end fuzzer
+/// (`tests/e2e_fuzz_dsl`), whose C++ driver counts the same calls in a
+/// patched copy of router.cpp, to know when the hyperedge rerouter /
+/// improver object lists have been regenerated.
+pub fn e2e_reroute_count() -> u64 {
+    E2E_REROUTE_COUNT.with(|c| c.get())
+}
+
 /// Arena of all connectors of a router.
 pub type ConnArena = Arena<ConnIdx, ConnRef>;
 
@@ -481,6 +494,9 @@ pub struct Router {
     /// True while `processActions()` runs (port addition; see
     /// `process_transaction`).
     pub m_in_process_actions: bool,
+    /// Nesting depth of `processTransaction()` reroutes (port addition;
+    /// see `process_transaction`).
+    pub m_transaction_reroute_depth: u32,
 }
 
 /// Transaction clock (stand-in for `clock()`).
@@ -898,6 +914,7 @@ impl Router {
             m_callback_log: Vec::new(),
             m_progress_callback: None,
             m_in_process_actions: false,
+            m_transaction_reroute_depth: 0,
         }
     }
 
@@ -1462,7 +1479,20 @@ impl Router {
         // (null dereference).  A nested call is a no-op here: the action
         // just queued is appended to the list being processed and handled
         // by the running processActions() exactly as in transaction mode.
-        if self.m_in_process_actions {
+        //
+        // Likewise for a call nested in the rerouting phase.  With
+        // transactions off, hyperedge rerouting / improvement creates and
+        // deletes junctions (JunctionRef ctor / deleteJunction ->
+        // processTransaction) from inside rerouteAndCallbackConnectors();
+        // upstream then runs a whole nested transaction, which regenerates
+        // the orthogonal visibility graph and frees vertices the outer
+        // reroute is still using, and can re-delete forever (found by the
+        // e2e fuzzer: tests/golden/e2e_fuzz_regressions.txt,
+        // reg-nested-reroute -- upstream never returns; the port used freed
+        // handles or overflowed its stack).  MISUSE (port addition): the
+        // nested call is a no-op; the queued action waits for the next
+        // transaction, as in transaction mode.
+        if self.m_in_process_actions || self.m_transaction_reroute_depth > 0 {
             return false;
         }
         // If SimpleRouting, then don't update here.
@@ -1478,7 +1508,9 @@ impl Router {
         self.process_actions();
 
         self.m_static_orthogonal_graph_invalidated = true;
+        self.m_transaction_reroute_depth += 1;
         self.reroute_and_callback_connectors();
+        self.m_transaction_reroute_depth -= 1;
 
         true
     }
@@ -1745,6 +1777,7 @@ impl Router {
     /// rerouted connectors (via a callback) that they need to be redrawn.
     // upstream: router.cpp Router::rerouteAndCallbackConnectors()
     pub fn reroute_and_callback_connectors(&mut self) {
+        E2E_REROUTE_COUNT.with(|c| c.set(c.get() + 1));
         let mut rerouted_conns: Vec<ConnIdx> = Vec::new();
         self.m_callback_log.clear();
 

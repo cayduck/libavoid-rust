@@ -1,0 +1,91 @@
+# e2e fuzz regression scenes (minimised divergences; C++ NDEBUG output). See tests/e2e_fuzz.rs.
+#scene reg-pin-without-vertex
+router 1
+nowrap
+rect 1 265 170 315 240
+pin 0 2 0.5 0 1 0 0
+conn 2 S 0 2 P 135 235 15
+process
+txn 0
+pin 0 3 0 0 1 0 15
+process
+#out
+T 0 ret=1
+cb 2
+H nj=[] nc=[] dj=[] dc=[] cc=[]
+S 1 4: 315,170 315,240 265,240 265,170
+  pin c=2 290,170 d=1 x=1 $=0
+C 2 t=1 f=0 src=S290,170 dst=P135,235
+  raw 3: 290,170 265,170 135,235
+  disp 3: 290,170 265,170 135,235
+Q ovl=00 fovl=00 touch=0 cross=0,0 invalid=0
+A 1 [][] [2][] [2][]
+D rect
+D id=1
+D x=265
+D y=170
+D width=50
+D height=70
+D 
+D path
+D id=2
+D p0: 290 170 
+D p1: 265 170 
+D p2: 135 235 
+D 
+D 
+T 1 ret=0
+cb 2
+H nj=[] nc=[] dj=[] dc=[] cc=[]
+S 1 4: 315,170 315,240 265,240 265,170
+  pin c=2 290,170 d=1 x=1 $=0
+  pin c=3 265,170 d=15 x=0 $=0
+C 2 t=1 f=0 src=S290,170 dst=P135,235
+  raw 3: 290,170 265,170 135,235
+  disp 3: 290,170 265,170 135,235
+Q ovl=00 fovl=00 touch=0 cross=0,0 invalid=0
+A 1 [][] [2][] [2][]
+D rect
+D id=1
+D x=265
+D y=170
+D width=50
+D height=70
+D 
+D path
+D id=2
+D p0: 290 170 
+D p1: 265 170 
+D p2: 135 235 
+D 
+D 
+#end
+#scene reg-nested-reroute
+router 2
+nowrap
+option 5 1
+junction 4082 67.658999999999992 144.7468125 0
+conn 5394 P 160.31862999999998 140.77822749999999 4 J L
+conn 7167 P 32.090539999999997 70.333333333333329 4 J L
+junction 0 212.60275000000001 42.253124999999997 0
+conn 0 J L J 384
+conn 11190 J 372 P 39.599670000000003 49.564082499999998 15
+txn 0
+process
+#out
+#exclude crash timeout (upstream never returns: nested processTransaction from hyperedge improvement in immediate mode)
+#end
+#scene reg-unsorted-pinset-delete
+router 2
+rect 0 440 65 465 75
+pin 0 2 0.75 0.25 1 0 4
+pin 0 2 0.75 0.25 1 0 8
+process
+transform 0 1
+delpin 0 0
+process
+delshape 0
+process
+#out
+#exclude crash pinset-unsorted (transformConnectionPinPositions breaks std::set order: UB; port must not panic)
+#end
