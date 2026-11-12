@@ -129,6 +129,19 @@ use crate::avoid::vertices::{
 use crate::avoid::viscluster::{ClusterArena, ClusterRef};
 use crate::avoid::visibility::{compute_visibility_naive, compute_visibility_sweep};
 
+thread_local! {
+    static E2E_REROUTE_COUNT: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Test hook (not upstream): number of `rerouteAndCallbackConnectors()`
+/// runs on this thread.  Used by the end-to-end fuzzer
+/// (`tests/e2e_fuzz_dsl`), whose C++ driver counts the same calls in a
+/// patched copy of router.cpp, to know when the hyperedge rerouter /
+/// improver object lists have been regenerated.
+pub fn e2e_reroute_count() -> u64 {
+    E2E_REROUTE_COUNT.with(|c| c.get())
+}
+
 /// Arena of all connectors of a router.
 pub type ConnArena = Arena<ConnIdx, ConnRef>;
 
@@ -1553,6 +1566,7 @@ impl Router {
     /// rerouted connectors (via a callback) that they need to be redrawn.
     // upstream: router.cpp Router::rerouteAndCallbackConnectors()
     pub fn reroute_and_callback_connectors(&mut self) {
+        E2E_REROUTE_COUNT.with(|c| c.set(c.get() + 1));
         let mut rerouted_conns: Vec<ConnIdx> = Vec::new();
         self.m_callback_log.clear();
 
