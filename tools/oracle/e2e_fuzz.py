@@ -355,6 +355,15 @@ def gen_fast(seed, first, count, path):
     return scenes, status
 
 
+PROGRESS_LOG = os.path.join(ROOT, "target", "e2e_progress.log")
+
+
+def progress(line):
+    import time
+    with open(PROGRESS_LOG, "a") as f:
+        f.write("%s %s\n" % (time.strftime("%H:%M"), line))
+
+
 def cmd_campaign(args):
     """Runs batches of scenes; every finished batch appends one JSON line to
     tools/oracle/e2e_fuzz_campaign.log, and batches already in the log are
@@ -369,10 +378,16 @@ def cmd_campaign(args):
             except ValueError:
                 continue
             done[(e["seed"], e["first"], e["count"])] = e
+    import time
+    t_start = time.time()
     for first in range(args.first, args.first + args.scenes, args.batch):
         count = min(args.batch, args.first + args.scenes - first)
         if (args.seed, first, count) in done:
             continue
+        if args.max_minutes and time.time() - t_start > args.max_minutes * 60:
+            progress("campaign seed %d: time budget of %d min reached before batch %d"
+                     % (args.seed, args.max_minutes, first))
+            break
         wait_for_memory()
         path = os.path.join(outdir, "batch-%06d.txt" % first)
         if args.full_classify:
@@ -408,6 +423,18 @@ def cmd_campaign(args):
         with open(CAMPAIGN_LOG, "a") as f:
             f.write(json.dumps(entry, sort_keys=True) + "\n")
         done[(args.seed, first, count)] = entry
+        tot_scenes = sum(e["count"] for (sd, _, _), e in done.items() if sd == args.seed)
+        tot_div = sum(len(e["divergent"]) + len(e.get("slot_reuse_diff", []))
+                      for (sd, _, _), e in done.items() if sd == args.seed)
+        tot_cls = {}
+        for (sd, _, _), e in done.items():
+            if sd == args.seed:
+                for k, v in e["classes"].items():
+                    tot_cls[k] = tot_cls.get(k, 0) + v
+        el = time.time() - t_start
+        progress("campaign seed %d: %d scenes done (batch %d..%d); classes %s; divergent %d; "
+                 "elapsed %.0f min" % (args.seed, tot_scenes, first, first + count - 1,
+                                       sorted(tot_cls.items()), tot_div, el / 60))
         print("batch seed %d %d..%d: %s | rust: %s | divergent: %d" % (
             args.seed, first, first + count - 1, sorted(entry["classes"].items()),
             sorted(rust.items()), len(divergent)), flush=True)
@@ -570,6 +597,8 @@ def main():
     s.add_argument("--scenes", type=int, required=True)
     s.add_argument("--first", type=int, default=0)
     s.add_argument("--batch", type=int, default=500)
+    s.add_argument("--max-minutes", type=float, default=0,
+                   help="stop starting new batches after this wall-clock time")
     s.add_argument("--full-classify", action="store_true",
                    help="run all three builds on every scene (slow)")
     s.set_defaults(fn=cmd_campaign)
