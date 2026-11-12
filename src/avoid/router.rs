@@ -189,6 +189,29 @@
 //! fuzzer's bump-allocator C++ builds run out of memory on long such
 //! scenes ("#exclude memory", e.g. s1-80, which takes the port ~280 s).
 //!
+//! ## Upstream non-termination
+//! Loops that never finish upstream on some input (no UB involved, the
+//! e2e fuzzer sees them as "#crash timeout" or bump-arena "memory") must
+//! terminate here.  Each guard fires only on executions that provably
+//! never finish upstream, so terminating runs stay bit-identical; sites
+//! are marked `UPSTREAM NON-TERMINATION`.
+//! * `HyperedgeImprover::removeZeroLengthEdges()`: a zero-length tree edge
+//!   whose both ends are the same node (left by a connector with both ends
+//!   on one junction) makes upstream merge a node into itself;
+//!   `HyperedgeTreeNode::spliceEdgesFrom(self)` then disconnects and
+//!   re-appends the same edge forever.  The port treats such an edge as
+//!   not mergeable (what upstream does when it terminates: both nodes are
+//!   junctions without major changes) and continues the traversal
+//!   (`reg-improver-self-loop-edge-splice`).
+//! * `HyperedgeImprover::moveJunctionAlongCommonEdge()`, split case: when
+//!   two of the common edges lead to the same node (parallel edges, e.g.
+//!   from a connector with both ends on one junction),
+//!   `targetNode->spliceEdgesFrom(targetNode)` never returns.  The port
+//!   treats the split case as not applicable for such a junction
+//!   (`reg-improver-split-parallel-edges`).  `spliceEdgesFrom()` itself is
+//!   a no-op for oldNode == this (upstream loops forever unless the node
+//!   has no edges).
+//!
 //! ## Asserts
 //! `COLA_ASSERT` becomes `debug_assert!`, with one exception: an assert
 //! that upstream itself violates on valid input (or whose violation

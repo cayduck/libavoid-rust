@@ -597,6 +597,14 @@ impl HyperedgeTreeStore {
     // upstream: hyperedgetree.cpp HyperedgeTreeNode::spliceEdgesFrom()
     pub fn node_splice_edges_from(&mut self, this: HeNodeIdx, old_node: HeNodeIdx) {
         debug_assert!(old_node != this);
+        // UPSTREAM NON-TERMINATION (port addition; router.rs, "Upstream
+        // non-termination"): with oldNode == this every iteration
+        // disconnects the first edge and appends it to the same list, so
+        // upstream never returns unless the list is empty.  The callers
+        // avoid this case; should another path reach it, it is a no-op.
+        if old_node == this {
+            return;
+        }
         while let Some(&curr) = self.nodes[old_node.0].edges.first() {
             self.edge_replace_node(curr, old_node, this);
         }
