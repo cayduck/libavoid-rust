@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>libavoid-rust demo</title>
+<meta name="description" content="Interactive connector routing in the browser with libavoid-rust, a Rust/WebAssembly port of the libavoid library from Adaptagrams.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="masthead-text">
+    <h1>libavoid-rust</h1>
+    <p class="intro">Object-avoiding connector routing, live in your browser: the <a href="{{repository}}">Rust/WebAssembly port</a> of the <a href="https://www.adaptagrams.org/documentation/libavoid.html">libavoid</a> library from <a href="https://github.com/mjwybrow/adaptagrams">Adaptagrams</a>. Drag a box to see connectors re-route.</p>
+  </div>
+  <a class="repo-link" href="{{repository}}">Source and docs on GitHub</a>
+</header>
+
+<main class="workspace">
+  <section class="stage" aria-label="Diagram editor">
+    <div class="toolbar" role="toolbar" aria-label="Tools">
+      <div class="tools" role="group" aria-label="Edit tool">
+        <button type="button" data-tool="move" aria-pressed="true" aria-keyshortcuts="V" title="Move and select (V)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 3l10 6.5-4.6.9 2.6 5-1.9 1-2.6-5L5 15z"/></svg><span>Move</span></button>
+        <button type="button" data-tool="box" aria-pressed="false" aria-keyshortcuts="B" title="Add a box (B)"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3.5" y="5.5" width="13" height="9" rx="1.5"/></svg><span>Box</span></button>
+        <button type="button" data-tool="connect" aria-pressed="false" aria-keyshortcuts="C" title="Connect: drag from a pin, box, junction or empty space (C)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 15h5V5h9" fill="none"/><circle cx="3" cy="15" r="1.8"/><circle cx="17" cy="5" r="1.8"/></svg><span>Connect</span></button>
+        <button type="button" data-tool="junction" aria-pressed="false" aria-keyshortcuts="J" title="Add a junction, or click a connector to split it (J)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2 10h16M10 10v8" fill="none"/><circle cx="10" cy="10" r="2.6"/></svg><span>Junction</span></button>
+        <button type="button" data-tool="checkpoint" aria-pressed="false" aria-keyshortcuts="K" title="Click a connector to add a checkpoint, or a checkpoint to remove it (K)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2 16h6V4h10" fill="none"/><path d="M8 6.5l2.5 2.5L8 11.5 5.5 9z"/></svg><span>Checkpoint</span></button>
+        <button type="button" data-tool="delete" aria-pressed="false" aria-keyshortcuts="X" title="Click an object to delete it (X)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15" fill="none"/></svg><span>Delete</span></button>
+      </div>
+      <div class="zoom" role="group" aria-label="View">
+        <button type="button" data-zoom="out" title="Zoom out (-)" aria-label="Zoom out"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 10h10" fill="none"/></svg></button>
+        <button type="button" data-zoom="in" title="Zoom in (+)" aria-label="Zoom in"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 10h10M10 5v10" fill="none"/></svg></button>
+        <button type="button" data-zoom="fit" title="Fit diagram (0)" aria-label="Fit diagram"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 7V3h4M13 3h4v4M17 13v4h-4M7 17H3v-4" fill="none"/></svg></button>
+      </div>
+    </div>
+
+    <div class="canvas-wrap">
+      <svg id="canvas" class="tool-move" tabindex="-1" role="application" aria-label="Diagram canvas. Tab to a box or junction, then use the arrow keys to move it." aria-describedby="tool-hint">
+        <defs id="defs"></defs>
+        <rect id="backdrop" fill="url(#grid)" />
+        <g id="layer-clusters"></g>
+        <g id="layer-buffers"></g>
+        <g id="layer-raw"></g>
+        <g id="layer-connectors"></g>
+        <g id="layer-shapes"></g>
+        <g id="layer-handles"></g>
+        <path id="preview" d="" />
+      </svg>
+      <div id="boot" class="boot" role="status">Loading the router…</div>
+    </div>
+
+    <div class="status">
+      <dl class="timing" aria-label="Routing time">
+        <div><dt>Last transaction</dt><dd id="t-last">–</dd></div>
+        <div><dt>Median</dt><dd id="t-median">–</dd></div>
+        <div><dt>Rerouted</dt><dd id="t-updated">–</dd></div>
+      </dl>
+      <p id="tool-hint" class="hint">Drag boxes, junctions, free ends and checkpoints. Drag empty space to pan.</p>
+    </div>
+  </section>
+
+  <aside class="inspector" aria-label="Settings">
+    <section class="panel">
+      <label class="field-label" for="scene">Scene</label>
+      <select id="scene"></select>
+      <p id="scene-blurb" class="blurb"></p>
+      <div id="scene-actions" class="actions"></div>
+    </section>
+
+    <section class="panel">
+      <h2 id="mode-label">Routing</h2>
+      <div class="segmented" role="radiogroup" aria-labelledby="mode-label">
+        <label><input type="radio" name="mode" value="orthogonal" checked><span>Orthogonal</span></label>
+        <label><input type="radio" name="mode" value="polyline"><span>Poly-line</span></label>
+      </div>
+    </section>
+
+    <section id="selection" class="panel selection" hidden aria-live="polite">
+      <h2>Selection</h2>
+      <p id="selection-text" class="blurb"></p>
+      <div id="selection-actions" class="actions"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Parameters</h2>
+      <div id="params" class="params"></div>
+      <button type="button" id="reset-params" class="text-button">Reset to scene defaults</button>
+    </section>
+
+    <section class="panel">
+      <h2>Options</h2>
+      <div id="options" class="checks"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Display</h2>
+      <div class="checks">
+        <label><input type="checkbox" id="show-buffers" checked> Shape buffers</label>
+        <label><input type="checkbox" id="show-raw"> Raw routes (before nudging and simplification)</label>
+        <label><input type="checkbox" id="show-curved"> Rounded corners</label>
+      </div>
+    </section>
+
+    <footer class="colophon">
+      <p>An independent port, not affiliated with the Adaptagrams project. libavoid is by Michael Wybrow; both are licensed LGPL-2.1-or-later. Version {{version}}.</p>
+    </footer>
+  </aside>
+</main>
+
+<div id="announce" class="visually-hidden" aria-live="polite"></div>
+
+<script nomodule>
+  document.getElementById("boot").textContent = "This demo needs a browser with JavaScript modules and WebAssembly.";
+</script>
+<script>
+  // If app.js never starts (blocked or failed to load), say so instead of spinning.
+  setTimeout(function () {
+    if (!document.documentElement.dataset.state) {
+      var boot = document.getElementById("boot");
+      boot.classList.add("error");
+      boot.textContent = "The demo did not start. Check that JavaScript is enabled and reload the page.";
+    }
+  }, 15000);
+</script>
+<script type="module" src="app.js"></script>
+</body>
+</html>

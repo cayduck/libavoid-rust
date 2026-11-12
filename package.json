@@ -57,7 +57,7 @@
     "test": "cargo test && npm run build && npm run test:node",
     "test:rust": "cargo test",
     "test:node": "node test/api-sync.cjs && node test/esm-entry.mjs && node test/node-smoke.cjs",
-    "test:demo": "node test/demo-browser.cjs",
+    "test:demo": "npm run build:demo && node test/demo-browser.cjs",
     "prepack": "npm run build"
   },
   "keywords": [

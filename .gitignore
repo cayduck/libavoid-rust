@@ -9,6 +9,7 @@
 
 # Assembled demo site (npm run build:demo) and its smoke-test screenshots
 /demo-dist/
+/test-output/
 
 # Upstream source copy used only as a reference
 /vendor/adaptagrams/
