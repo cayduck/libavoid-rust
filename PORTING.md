@@ -12,7 +12,8 @@ is ported from it function by function.
 | --- | --- |
 | `src/avoid/<name>.rs` | Port of upstream `libavoid/<name>.{h,cpp}`. Every function carries an `// upstream: file.cpp Class::method()` comment. |
 | `src/avoid/arena.rs` | Arenas and `Copy` handles that stand in for upstream pointers. |
-| `src/wasm_api.rs`, `index.cjs`, `index.d.ts` | The JavaScript-facing `AvoidRouter`, a string-id adapter over the core with no routing logic of its own. |
+| `src/wasm_api.rs`, `lib/adapter.cjs`, `index.cjs`, `index.mjs`, `index.d.ts` | The JavaScript-facing `AvoidRouter`, a string-id adapter over the core with no routing logic of its own. `index.cjs` (Node) and `index.mjs` (browsers) apply the one adapter to the `nodejs` and `web` wasm-pack builds. |
+| `demo/` | The interactive demo page (see the README). |
 | `docs/PORTING_INVENTORY.md` | Generated function-level inventory: every upstream class, function and constant, mapped to its Rust counterpart or to the reason it is not ported. |
 | `tests/` | Upstream fixtures, differential oracles, robustness tests and API tests. |
 | `tools/oracle/` | C++ drivers and scripts that build upstream libavoid and record reference output. |

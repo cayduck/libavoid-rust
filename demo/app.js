@@ -15,21 +15,26 @@ async function boot() {
   const root = document.documentElement;
   const bootEl = $("boot");
   root.dataset.state = "loading";
+  const fail = (text) => {
+    root.dataset.state = "error";
+    bootEl.classList.add("error");
+    bootEl.textContent = text;
+  };
+  if (typeof WebAssembly !== "object") {
+    fail("This demo needs WebAssembly, which this browser does not support or has disabled.");
+    return;
+  }
   let api;
   try {
-    if (typeof WebAssembly !== "object") {
-      throw new Error("this browser does not support WebAssembly");
-    }
     api = await import("./libavoid-rust/index.mjs");
     await api.default();
   } catch (error) {
-    root.dataset.state = "error";
-    bootEl.classList.add("error");
-    bootEl.textContent = `The router could not be loaded (${error.message}). Reload the page to try again; the demo needs WebAssembly enabled.`;
+    fail(`Could not load the router (${error.message}). Check your connection and reload the page.`);
     return;
   }
   const app = new App(api);
   app.start();
+  for (const el of document.querySelectorAll("[inert]")) el.inert = false;
   bootEl.hidden = true;
   root.dataset.state = "ready";
   // For the browser smoke test and for poking at the router from the console.
@@ -48,19 +53,20 @@ function pathData(points, closed = false) {
   return points.map((p, i) => `${i ? "L" : "M"}${p.x} ${p.y}`).join("") + (closed ? "Z" : "");
 }
 
+// curvedPolyline() gives one command per point: "M"/"L" points, and each
+// cubic as three consecutive "C" points (two controls and the end point).
 function curvedPathData({ points, commands }) {
   let d = "";
-  let i = 0;
-  for (const c of commands) {
-    if (c === "C") {
+  for (let i = 0; i < points.length; i++) {
+    const c = commands[i];
+    if (c === "C" && i + 2 < points.length) {
       const [a, b, e] = points.slice(i, i + 3);
       d += `C${a.x} ${a.y} ${b.x} ${b.y} ${e.x} ${e.y}`;
-      i += 3;
+      i += 2;
     } else if (c === "Z") {
       d += "Z";
     } else {
-      d += `${c}${points[i].x} ${points[i].y}`;
-      i += 1;
+      d += `${c === "M" ? "M" : "L"}${points[i].x} ${points[i].y}`;
     }
   }
   return d;
@@ -346,8 +352,8 @@ class App {
     const r = ed.router;
     const u = this.unit();
     for (const m of this.markers) {
-      m.setAttribute("markerWidth", 9 * u);
-      m.setAttribute("markerHeight", 9 * u);
+      m.setAttribute("markerWidth", 10 * u);
+      m.setAttribute("markerHeight", 10 * u);
     }
 
     // clusters
@@ -665,7 +671,7 @@ class App {
           this.drag = { type: "shape", id: hit.id, last: p };
         } else if (hit.kind === "junction") {
           this.select(hit.id);
-          const j = ed.router.junctionPosition(hit.id);
+          const j = ed.junctionGeometry(hit.id);
           this.drag = { type: "junction", id: hit.id, offset: { x: j.x - p.x, y: j.y - p.y } };
         } else if (hit.kind === "endpoint") {
           this.select(hit.id);
@@ -890,7 +896,7 @@ class App {
         const id = t.dataset.id;
         if (this.editor.kindOf(id) === "shape") this.editor.moveShapeBy(id, dx, dy);
         else {
-          const j = this.editor.router.junctionPosition(id);
+          const j = this.editor.junctionGeometry(id);
           this.editor.moveJunction(id, j.x + dx, j.y + dy);
         }
         this.afterEdit();

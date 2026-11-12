@@ -20,7 +20,7 @@
 
 <main class="workspace">
   <section class="stage" aria-label="Diagram editor">
-    <div class="toolbar" role="toolbar" aria-label="Tools">
+    <div class="toolbar" role="toolbar" aria-label="Tools" inert>
       <div class="tools" role="group" aria-label="Edit tool">
         <button type="button" data-tool="move" aria-pressed="true" aria-keyshortcuts="V" title="Move and select (V)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 3l10 6.5-4.6.9 2.6 5-1.9 1-2.6-5L5 15z"/></svg><span>Move</span></button>
         <button type="button" data-tool="box" aria-pressed="false" aria-keyshortcuts="B" title="Add a box (B)"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3.5" y="5.5" width="13" height="9" rx="1.5"/></svg><span>Box</span></button>
@@ -61,7 +61,7 @@
     </div>
   </section>
 
-  <aside class="inspector" aria-label="Settings">
+  <aside class="inspector" aria-label="Settings" inert>
     <section class="panel">
       <label class="field-label" for="scene">Scene</label>
       <select id="scene"></select>

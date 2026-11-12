@@ -119,14 +119,31 @@ export class Editor {
 
   /** Runs `fn` (queued edits), processes the transaction and times it. */
   transact(fn) {
+    const r = this.router;
     const before = this.structureKey();
     const result = fn ? fn() : undefined;
-    const t0 = performance.now();
-    this.router.processTransaction();
-    const ms = performance.now() - t0;
-    const updated = this.router.lastTransactionUpdatedConnectorIds();
-    const total = this.router.connectorIds().length;
-    this.last = { ms, updated, total, structural: before !== this.structureKey() };
+    let t0 = performance.now();
+    r.processTransaction();
+    let ms = performance.now() - t0;
+    const updated = new Set(r.lastTransactionUpdatedConnectorIds());
+    const structural = before !== this.structureKey();
+    // Connectors the router created (hyperedge rerouting / improvement) get
+    // its default type, poly-line under both routing flags: give them the
+    // current mode and route them again (which may create more of them).
+    for (let round = 0; structural && round < 4; round++) {
+      const type = this.connType();
+      const wrong = r.connectorIds().filter((id) => r.connectorRoutingType(id) !== type);
+      if (!wrong.length) break;
+      {
+        for (const id of wrong) r.setConnectorRoutingType(id, type);
+        t0 = performance.now();
+        r.processTransaction();
+        ms += performance.now() - t0;
+        for (const id of r.lastTransactionUpdatedConnectorIds()) updated.add(id);
+      }
+    }
+    const total = r.connectorIds().length;
+    this.last = { ms, updated: [...updated], total, structural };
     this.timings.push(ms);
     if (this.timings.length > HISTORY) this.timings.shift();
     return result;
@@ -353,7 +370,9 @@ export class Editor {
    */
   rerouteHyperedge(junctionId) {
     const result = this.transact(() => this.router.registerHyperedgeForReroutingJunction(junctionId));
+    const first = this.last;
     this.transact();
+    this.last = { ...this.last, ms: first.ms + this.last.ms, structural: true, updated: [...new Set([...first.updated, ...this.last.updated])] };
     return result;
   }
 
@@ -385,8 +404,14 @@ export class Editor {
     };
   }
 
+  /**
+   * Where the junction is drawn: its recommendedPosition(), which is where
+   * the routes meet.  Hyperedge improvement moves junctions only there
+   * (upstream leaves position() as the caller set it).
+   */
   junctionGeometry(id) {
-    return { id, ...this.router.junctionPosition(id), fixed: this.router.junctionPositionFixed(id) };
+    const r = this.router;
+    return { id, ...(r.junctionRecommendedPosition(id) ?? r.junctionPosition(id)), fixed: r.junctionPositionFixed(id) };
   }
 
   clusterGeometry(id) {

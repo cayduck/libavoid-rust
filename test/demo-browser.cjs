@@ -180,6 +180,22 @@ async function desktop(browser, base) {
   assert.equal(await page.$$eval(".cluster", (cs) => cs.length), 2);
   await page.screenshot({ path: path.join(shots, "desktop-clusters.png") });
 
+  // Stress scene: a drag re-routes every connector within a sane time.
+  await page.selectOption("#scene", "stress");
+  paths = await connectorPaths(page);
+  assert.equal(Object.keys(paths).length, 45);
+  await mouseDrag(page, await centreOf(page, "#layer-shapes .shape:nth-child(8) .body"), 30, 30);
+  assert.ok(changed(paths, await connectorPaths(page)).length >= 1, "stress drag re-routes");
+  const median = await page.evaluate(() => window.demo.editor.stats().median);
+  console.log(`  stress scene: median transaction ${median.toFixed(1)} ms`);
+  assert.ok(median < 1000, `stress transactions take ${median} ms`);
+
+  // Rounded corners draw curves.
+  await page.check("#show-curved");
+  assert.ok(Object.values(await connectorPaths(page)).some((d) => d.includes("C")), "rounded corners use curves");
+  await page.screenshot({ path: path.join(shots, "desktop-stress-curved.png") });
+  await page.uncheck("#show-curved");
+
   // Keyboard: focus a box and move it with the arrow keys; Delete removes it.
   await page.selectOption("#scene", "basics");
   paths = await connectorPaths(page);
@@ -251,7 +267,8 @@ async function loadFailure(browser, base) {
   await page.goto(base);
   await page.waitForFunction(() => document.documentElement.dataset.state === "error");
   const text = await page.textContent("#boot");
-  assert.match(text, /router could not be loaded/i);
+  assert.match(text, /could not load the router/i);
+  assert.equal(await page.$eval(".inspector", (el) => el.inert), true, "controls stay inert without a router");
   assert.equal(await page.isVisible("#boot"), true);
   await page.screenshot({ path: path.join(shots, "load-failure.png") });
   await context.close();

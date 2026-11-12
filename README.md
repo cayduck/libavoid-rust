@@ -21,8 +21,9 @@ npm install libavoid-rust
 
 ```sh
 npm install
+npm run build        # both targets: build:node (pkg/) and build:web (pkg-web/)
 npm run build:node   # Node.js package in pkg/
-npm run build        # web target
+npm run build:web    # browser package in pkg-web/
 ```
 
 Requires Rust with the `wasm32-unknown-unknown` target and `wasm-pack`.
@@ -86,6 +87,43 @@ Things to know, all documented in detail at the top of `index.d.ts`:
 
 The package also exports `WasmAvoidRouter`, the raw `wasm-bindgen` class,
 which returns JSON strings for structured results.
+
+### In the browser
+
+Browsers and bundlers get an ES-module entry (`index.mjs`, via the
+`browser` / `import` export conditions or `libavoid-rust/web`) with the same
+API. It loads the WebAssembly asynchronously, so await `init()` first:
+
+```js
+import init, { AvoidRouter, RouterFlag } from "libavoid-rust";
+
+await init(); // fetches pkg-web/libavoid_rust_bg.wasm next to the module
+const router = new AvoidRouter(RouterFlag.OrthogonalRouting);
+```
+
+Node's `require()` and `import` keep using the synchronous CommonJS entry.
+Both entries share one adapter, `lib/adapter.cjs`.
+
+## Demo
+
+`demo/` is an interactive page that runs the browser entry: drag shapes and
+watch connectors re-route, switch between orthogonal and poly-line routing,
+tune the routing parameters and options, and try presets for nudging, pins
+and junctions, hyperedges and clusters. It is plain HTML, CSS and ES
+modules with no dependencies.
+
+```sh
+npm run build:demo   # build pkg-web/ and assemble the site in demo-dist/
+npm run demo         # serve demo-dist/ at http://127.0.0.1:8080/
+npm run test:demo    # browser smoke test (needs Playwright with Chromium)
+```
+
+`.github/workflows/pages.yml` builds and publishes the same site with GitHub
+Pages on every push to `main`, and can also be run by hand. It needs a
+one-time repository setting: **Settings → Pages → Build and deployment →
+Source: GitHub Actions**. The demo is then served at
+`https://<owner>.github.io/<repository>/`, for this repository
+<https://cayduck.github.io/libavoid-rust/>.
 
 ## Rust usage
 
