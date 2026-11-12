@@ -116,3 +116,21 @@ regj 944
 #out
 #exclude crash null VertInf (registered hyperedge with a connector whose endpoint vertex is null: upstream dereferences null; port treats the hyperedge as invalid, must not panic)
 #end
+#scene reg-hyperedge-cyclic-mtst-tree
+router 3
+rect 0 215 120 225 165
+poly 1899 6 420 300 415 315 410 315 405 300 410 280 415 280
+rect 0 135 290 195 355
+poly 2911 5 170 380 140 400 95 390 95 365 140 355
+poly 4619 6 390 130 370 150 325 150 305 130 325 105 370 105
+rect 6102 395 270 445 320
+rect 0 305 215 330 240
+pin 6 4 0 0.25 1 0 15
+junction 0 20 180 0
+conn 14180 J L S 6 4
+conn 18507 P 95 265 3 J L
+conn 0 J L P 305 230 15
+regj 37
+#out
+#exclude crash stack-overflow (MTST tree of a registered hyperedge contains a cycle: upstream's recursive addConns() overflows the stack; port skips the hyperedge, must not overflow or panic)
+#end

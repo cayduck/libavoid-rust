@@ -364,6 +364,16 @@ impl HyperedgeRerouter {
                 mtst.destruct();
                 continue;
             };
+            // MISUSE / upstream bug (port addition): the tree built by the
+            // MTST can contain a cycle (seen with registered hyperedges
+            // whose terminals share pins/vertices); upstream's recursive
+            // addConns() then never terminates (stack overflow, ASan:
+            // stack-overflow in Obstacle::addFollowingConnEnd).  Such a
+            // hyperedge is skipped like one without a junction (the tree
+            // is dropped with `mtst`: destruct() would recurse forever too).
+            if mtst.tree.contains_cycle_from(tree_root) {
+                continue;
+            }
 
             // Fill in connector information and join them to junctions of endpoints
             // of original connectors.

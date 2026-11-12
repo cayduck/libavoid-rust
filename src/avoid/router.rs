@@ -146,7 +146,9 @@
 //!   than three distinct terminals, unreachable terminals) is skipped; one
 //!   that contains a cycle (upstream recurses forever) or a connector
 //!   without an endpoint vertex (upstream dereferences null) is treated
-//!   as invalid; a freed root junction is ignored.
+//!   as invalid; a freed root junction is ignored; one whose MTST tree
+//!   contains a cycle is skipped (upstream's recursive `addConns()`
+//!   overflows the stack).
 //! * `splitAtSegment(0)` is a no-op; splitting a connector whose
 //!   destination is a free point uses a point end for the new connector.
 //! * `removeJunctionAndMergeConnectors()` on a junction holding both ends
