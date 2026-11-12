@@ -80,7 +80,7 @@ fn check(scene: &GoldenScene, full: bool, soft: bool) -> Outcome {
         }
         excluded = true;
         expected = &scene.out[1..];
-        if first.starts_with("#exclude crash") {
+        if first.starts_with("#exclude crash") || first == "#exclude memory" {
             // No C++ output: crash/hang-freedom check only.
             let dsl = scene.dsl.clone();
             let panic = std::panic::catch_unwind(move || run_scene(&dsl, false)).err().map(panic_msg);
