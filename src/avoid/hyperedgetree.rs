@@ -409,6 +409,37 @@ impl HyperedgeTreeStore {
         }
     }
 
+    /// Port addition (MISUSE guard, see `HyperedgeRerouter::perform_rerouting`):
+    /// whether the graph reachable from `root` contains a cycle, i.e. a node
+    /// reached a second time when every edge is followed once away from the
+    /// node it was entered from (the traversal of `addConns()` and the
+    /// other recursive methods, which never terminates on such a graph).
+    /// Iterative; does not touch `visited`.
+    pub fn contains_cycle_from(&self, root: HeNodeIdx) -> bool {
+        let mut seen = vec![false; self.nodes.len()];
+        let mut stack: Vec<(HeNodeIdx, Option<HeEdgeIdx>)> = vec![(root, None)];
+        seen[root.0] = true;
+        while let Some((node, from)) = stack.pop() {
+            for &e in self.nodes[node.0].edges.iter() {
+                if Some(e) == from {
+                    continue;
+                }
+                let (a, b) = self.edges[e.0].ends;
+                for other in [a, b].into_iter().flatten() {
+                    if other == node {
+                        continue;
+                    }
+                    if seen[other.0] {
+                        return true;
+                    }
+                    seen[other.0] = true;
+                    stack.push((other, Some(e)));
+                }
+            }
+        }
+        false
+    }
+
     // This method traverses the hyperedge tree and creates connectors for each
     // segment bridging junction and/or terminals.  It also sets the
     // appropriate ConnEnds for each connector.
@@ -807,7 +838,13 @@ impl HyperedgeTreeStore {
             self.node_update_conn_ends(router, second.unwrap(), Some(this), forward, changed_conns);
         }
 
-        let end_node = end_node.expect("HyperedgeTreeEdge::updateConnEnds(): no end node");
+        // MISUSE / upstream bug (port addition): an edge whose both ends
+        // are the node it was entered from (seen with a connector that has
+        // both ends on one junction) has no end node; upstream dereferences null (UBSan:
+        // hyperedgetree.cpp:638).  Nothing to update for it.
+        let Some(end_node) = end_node else {
+            return;
+        };
         if let Some(end_junction) = self.nodes[end_node.0].junction {
             // We've reached a junction at the end of this connector, and it's
             // not an endpoint of the hyperedge.  So  the connector ConnEnd to

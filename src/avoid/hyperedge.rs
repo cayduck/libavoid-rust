@@ -67,7 +67,8 @@ pub struct HyperedgeRerouter {
     pub m_terminal_vertices_vector: VertexSetVector,
     pub m_added_vertices: VertexList,
     /// Port addition: set by `find_attached_objects_*` when the registered
-    /// hyperedge contains a cycle (see there).
+    /// hyperedge contains a cycle or a connector without an endpoint
+    /// vertex (see there).
     pub m_cycle_detected: bool,
 }
 
@@ -169,9 +170,17 @@ impl HyperedgeRerouter {
             }
         } else {
             // If its an endpoint, then record the vertex for this endpoint.
-            let v = router.conns[connector].m_src_vert.expect("findAttachedObjects(): null m_src_vert");
-            let key = vert_key(router, v);
-            router.m_hyperedge_rerouter.m_terminal_vertices_vector[index].insert(key);
+            // MISUSE / upstream bug (port addition): the vertex can be
+            // null here (a connector whose endpoints were never set up);
+            // upstream dereferences null (ASan: null VertInf in
+            // ConnEnd::assignPinVisibilityTo()).  The hyperedge is treated
+            // as invalid.
+            if let Some(v) = router.conns[connector].m_src_vert {
+                let key = vert_key(router, v);
+                router.m_hyperedge_rerouter.m_terminal_vertices_vector[index].insert(key);
+            } else {
+                router.m_hyperedge_rerouter.m_cycle_detected = true;
+            }
         }
 
         if let Some(j_second) = j_second {
@@ -187,9 +196,17 @@ impl HyperedgeRerouter {
             }
         } else {
             // If its an endpoint, then record the vertex for this endpoint.
-            let v = router.conns[connector].m_dst_vert.expect("findAttachedObjects(): null m_dst_vert");
-            let key = vert_key(router, v);
-            router.m_hyperedge_rerouter.m_terminal_vertices_vector[index].insert(key);
+            // MISUSE / upstream bug (port addition): the vertex can be
+            // null here (a connector whose endpoints were never set up);
+            // upstream dereferences null (ASan: null VertInf in
+            // ConnEnd::assignPinVisibilityTo()).  The hyperedge is treated
+            // as invalid.
+            if let Some(v) = router.conns[connector].m_dst_vert {
+                let key = vert_key(router, v);
+                router.m_hyperedge_rerouter.m_terminal_vertices_vector[index].insert(key);
+            } else {
+                router.m_hyperedge_rerouter.m_cycle_detected = true;
+            }
         }
         valid_hyperedge
     }
@@ -291,6 +308,11 @@ impl HyperedgeRerouter {
             // corresponding terminals
             let terminals = router.m_hyperedge_rerouter.m_terminals_vector[i].clone();
             for it in terminals.iter() {
+                // MISUSE: a terminal whose shape/junction was freed since
+                // registration is a point end (upstream: use-after-free in
+                // ConnEnd::getHyperedgeVertex(); ConnEnd::forget_dead_refs).
+                let mut it = it.clone();
+                it.forget_dead_refs(router);
                 let maybe_new_vertex = it.get_hyperedge_vertex(router);
                 let key = vert_key(router, maybe_new_vertex.1);
                 router.m_hyperedge_rerouter.m_terminal_vertices_vector[i].insert(key);
@@ -328,6 +350,15 @@ impl HyperedgeRerouter {
             // Execute the MTST method to find good junction positions and an
             // initial path.  A hyperedge tree will be built for the new route.
             let terminals = router.m_hyperedge_rerouter.m_terminal_vertices_vector[i].clone();
+            // MISUSE / upstream bug (port addition): when two registered
+            // hyperedges share objects (e.g. the same junction registered
+            // twice), rerouting the first one frees connector vertices that
+            // are terminals of the second; upstream reads them (ASan:
+            // heap-use-after-free in MinimumTerminalSpanningTree::
+            // constructInterleaved()).  Such a hyperedge is skipped.
+            if terminals.iter().any(|t| !router.vert_infs.contains(t.idx)) {
+                continue;
+            }
             let mut mtst = MinimumTerminalSpanningTree::new(terminals, true);
 
             // The older MTST construction method (faster, worse results).
@@ -347,6 +378,16 @@ impl HyperedgeRerouter {
                 mtst.destruct();
                 continue;
             };
+            // MISUSE / upstream bug (port addition): the tree built by the
+            // MTST can contain a cycle (seen with registered hyperedges
+            // whose terminals share pins/vertices); upstream's recursive
+            // addConns() then never terminates (stack overflow, ASan:
+            // stack-overflow in Obstacle::addFollowingConnEnd).  Such a
+            // hyperedge is skipped like one without a junction (the tree
+            // is dropped with `mtst`: destruct() would recurse forever too).
+            if mtst.tree.contains_cycle_from(tree_root) {
+                continue;
+            }
 
             // Fill in connector information and join them to junctions of endpoints
             // of original connectors.

@@ -144,8 +144,16 @@
 //!   transaction.
 //! * Hyperedges: a registered hyperedge whose MTST has no junction (fewer
 //!   than three distinct terminals, unreachable terminals) is skipped; one
-//!   that contains a cycle is treated as invalid (upstream recurses
-//!   forever); a freed root junction is ignored.
+//!   that contains a cycle (upstream recurses forever) or a connector
+//!   without an endpoint vertex (upstream dereferences null) is treated
+//!   as invalid; a freed root junction is ignored; one whose MTST tree
+//!   contains a cycle is skipped (upstream's recursive `addConns()`
+//!   overflows the stack).  A hyperedge tree edge without an end node
+//!   (both ends are the node it is entered from) is left alone by
+//!   `updateConnEnds()` (upstream dereferences null).  A hyperedge whose
+//!   terminal vertices were freed by rerouting an earlier registered
+//!   hyperedge sharing its objects (e.g. one junction registered twice)
+//!   is skipped (upstream: use-after-free in the MTST).
 //! * `splitAtSegment(0)` is a no-op; splitting a connector whose
 //!   destination is a free point uses a point end for the new connector.
 //! * `removeJunctionAndMergeConnectors()` on a junction holding both ends
@@ -165,7 +173,21 @@
 //! `deleteShape()` in the same transaction deactivates the shape twice
 //! (the port ignores the move), cluster-crossing counting in A* overflows
 //! a heap buffer, and rubber-band routing dereferences a null start vertex
-//! (the port runs all of these without panicking).
+//! (the port runs all of these without panicking).  A connector with both
+//! ends on one junction makes `HyperedgeImprover::execute()` (or
+//! `removeZeroLengthEdges()`) erase the `std::set` element it is iterating;
+//! upstream's `++curr` then reads the freed tree node (ASan misses it: the
+//! increment is in uninstrumented libstdc++; the e2e fuzzer's ASan build
+//! detects it, "iterator-erased"); the port continues with the next root.
+//!
+//! Known upstream behaviour (faithful, not misuse): with
+//! `improveHyperedgeRoutesMovingAddingAndDeletingJunctions` on, some
+//! scenes make `HyperedgeImprover` add one junction and one connector on
+//! every `processTransaction()`, even with nothing else queued, so the
+//! cost of each transaction grows with the number of transactions run.
+//! The port reproduces this byte for byte (and terminates); the e2e
+//! fuzzer's bump-allocator C++ builds run out of memory on long such
+//! scenes ("#exclude memory", e.g. s1-80, which takes the port ~280 s).
 //!
 //! ## Asserts
 //! `COLA_ASSERT` becomes `debug_assert!`, with one exception: an assert

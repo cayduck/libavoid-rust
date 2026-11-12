@@ -5771,6 +5771,7 @@ hate L 1
 option 3 1
 process
 #out
+#exclude ub signal=6 ERROR: iterator-erased (std::set element erased while iterated) @ Avoid::HyperedgeImprover::execute
 T 0 ret=1 lines=90 fnv=22f98106d92c17e6
 T 1 ret=0 lines=81 fnv=176c2f821c585391
 T 2 ret=0 lines=82 fnv=346bf4dae522abf5
@@ -43043,7 +43044,7 @@ moveto 4 1 4 251.46357544832 24.666666666666668 251.46357544832 59.0591866666666
 conn 16746 P 218.23272554192536 64.657486391101187 1 S 1 1
 process
 #out
-#exclude ub exit=1 ERROR: AddressSanitizer: heap-use-after-free on address 0x at pc 0x bp 0x sp 0x @ Avoid::JunctionRef::removeJunctionAndMergeConnectors libavoid/junction.cpp:226
+#exclude ub signal=6 ERROR: iterator-erased (std::set element erased while iterated) @ Avoid::HyperedgeImprover::execute
 T 0 ret=1 lines=85 fnv=b0a7a8adf547495e
 T 1 ret=0 lines=85 fnv=3df6f38e640a81f5
 T 2 ret=1 lines=70 fnv=58053b9368c840fb
@@ -68285,7 +68286,7 @@ process
 param 2 -1
 process
 #out
-#exclude crash exit=1 ERROR: AddressSanitizer: stack-overflow on address 0x (pc 0x bp 0x sp 0x T0) @ Avoid::Obstacle::addFollowingConnEnd libavoid/obstacle.cpp:330
+#exclude crash exit=1 ERROR: AddressSanitizer: stack-overflow on address 0x (pc 0x bp 0x sp 0x T0) @ Avoid::ConnRef::makeActive libavoid/connector.cpp:555
 #end
 #scene s1-493
 router 1
@@ -126819,6 +126820,7 @@ process
 moveby 0 -19.99344 24.651539999999997
 process
 #out
+#exclude ub signal=6 ERROR: iterator-erased (std::set element erased while iterated) @ Avoid::HyperedgeImprover::execute
 T 0 ret=1 lines=81 fnv=e8f73bccb7e25908
 T 1 ret=0 lines=80 fnv=1e367f18f4ac4296
 T 2 ret=0 lines=81 fnv=1f5306c4faef647f
@@ -135779,7 +135781,7 @@ txn 0
 invalid L
 process
 #out
-#assert exit=134 libavoid/makepath.cpp:385: double Avoid::cost(ConnRef*, double, VertInf*, VertInf*, ANode*): Assertion `isOrthogonal || router->vertices.getVertexByPos(cBoundary.at(j))' failed.
+#exclude ub signal=6 ERROR: iterator-erased (std::set element erased while iterated) @ Avoid::HyperedgeImprover::execute
 T 0 ret=0 lines=102 fnv=f2c25f701021e02f
 T 1 ret=0 lines=91 fnv=f094a073d107140c
 T 2 ret=1 lines=102 fnv=f0ec03136b07e39b

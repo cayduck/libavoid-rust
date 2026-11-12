@@ -89,3 +89,86 @@ process
 #out
 #exclude crash pinset-unsorted (transformConnectionPinPositions breaks std::set order: UB; port must not panic)
 #end
+#scene reg-improver-erases-current-root
+router 3
+rect 0 0 60 70 80
+junction 0 210 170 0
+conn 5235 P 210 90 0 J L
+conn 7095 P 230 160 15 J L
+type L 2
+junction 0 40 160 1
+conn 0 J 741 J L
+cps L 3 80 90 0 15 160 50 0 0 10 50 2 0
+moveto 0 1 4 170 10 170 80 110 80 110 10
+process
+#out
+#exclude crash iterator-erased (connector with both ends on one junction: HyperedgeImprover::execute erases the std::set element it is iterating; UB missed by ASan, the bump builds then revisit junction 2 and skip it as cyclic; port must not panic)
+#end
+#scene reg-hyperedge-null-endpoint-vertex
+router 3
+junction 0 87.85175000000001 77.336062499999997 0
+conn 11310 J L P 49.269500000000008 105.07165000000001 15
+conn 15445 J 347 S 1 4
+conn 0 J 908 S 1 4
+regj 758
+process
+regj 944
+#out
+#exclude crash null VertInf (registered hyperedge with a connector whose endpoint vertex is null: upstream dereferences null; port treats the hyperedge as invalid, must not panic)
+#end
+#scene reg-hyperedge-cyclic-mtst-tree
+router 3
+rect 0 215 120 225 165
+poly 1899 6 420 300 415 315 410 315 405 300 410 280 415 280
+rect 0 135 290 195 355
+poly 2911 5 170 380 140 400 95 390 95 365 140 355
+poly 4619 6 390 130 370 150 325 150 305 130 325 105 370 105
+rect 6102 395 270 445 320
+rect 0 305 215 330 240
+pin 6 4 0 0.25 1 0 15
+junction 0 20 180 0
+conn 14180 J L S 6 4
+conn 18507 P 95 265 3 J L
+conn 0 J L P 305 230 15
+regj 37
+#out
+#exclude crash [debug-assert] stack-overflow (MTST tree of a registered hyperedge contains a cycle: upstream's recursive addConns() overflows the stack; port skips the hyperedge, must not overflow or panic)
+#end
+#scene reg-improver-edge-without-end-node
+router 2
+junction 5538 0 85 0
+conn 6588 S 1 4 J L
+conn 0 J 962 J 940
+process
+movejto 540 60 115
+fixroute 234 2 200 130 200 155
+option 5 1
+src 438 J 762
+#out
+#exclude crash [debug-assert] null HyperedgeTreeNode (hyperedge tree edge whose ends are both the node it is entered from: upstream dereferences null in HyperedgeTreeEdge::updateConnEnds; port must not panic)
+#end
+#scene reg-hyperedge-terminal-shape-freed
+router 2
+rect 0 7 54.9230625 38.305440000000004 73.828382500000004
+pin 0 3 0.25 0.25 1 0 15
+rect 1558 -44.810857984319995 73.828382500000004 40.072422015680004 90.943182500000006
+pin 1 4 1 0 1 0 15
+poly 10375 3 212.1584105267639 171.52223555825213 238.21564730131357 155.08058591018425 242.19190217192255 182.19705103156366
+pin 2 2 1 0.060999999999999999 1 0 15
+process
+regends 3 S 1 4 S 0 3 S 2 2
+delshape 0
+#out
+#exclude crash heap-use-after-free (hyperedge registered by ConnEnd list, terminal shape deleted before the transaction: upstream reads the freed shape in ConnEnd::getHyperedgeVertex; port must not panic)
+#end
+#scene reg-hyperedge-registered-twice
+router 3
+junction 7988 200 25 0
+conn 0 J L P 230 180 8
+conn 0 S 0 3 J L
+conn 0 S 0 2 J L
+regj 110
+regj 844
+#out
+#exclude crash heap-use-after-free (one junction registered twice: rerouting the first hyperedge frees terminal vertices of the second; upstream reads them in MinimumTerminalSpanningTree::constructInterleaved; port must not panic)
+#end
