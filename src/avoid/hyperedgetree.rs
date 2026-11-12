@@ -838,7 +838,13 @@ impl HyperedgeTreeStore {
             self.node_update_conn_ends(router, second.unwrap(), Some(this), forward, changed_conns);
         }
 
-        let end_node = end_node.expect("HyperedgeTreeEdge::updateConnEnds(): no end node");
+        // MISUSE / upstream bug (port addition): an edge whose both ends
+        // are the node it was entered from (seen with a connector that has
+        // both ends on one junction) has no end node; upstream dereferences null (UBSan:
+        // hyperedgetree.cpp:638).  Nothing to update for it.
+        let Some(end_node) = end_node else {
+            return;
+        };
         if let Some(end_junction) = self.nodes[end_node.0].junction {
             // We've reached a junction at the end of this connector, and it's
             // not an endpoint of the hyperedge.  So  the connector ConnEnd to

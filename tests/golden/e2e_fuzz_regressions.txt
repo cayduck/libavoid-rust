@@ -134,3 +134,16 @@ regj 37
 #out
 #exclude crash stack-overflow (MTST tree of a registered hyperedge contains a cycle: upstream's recursive addConns() overflows the stack; port skips the hyperedge, must not overflow or panic)
 #end
+#scene reg-improver-edge-without-end-node
+router 2
+junction 5538 0 85 0
+conn 6588 S 1 4 J L
+conn 0 J 962 J 940
+process
+movejto 540 60 115
+fixroute 234 2 200 130 200 155
+option 5 1
+src 438 J 762
+#out
+#exclude crash null HyperedgeTreeNode (hyperedge tree edge whose ends are both the node it is entered from: upstream dereferences null in HyperedgeTreeEdge::updateConnEnds; port must not panic)
+#end
