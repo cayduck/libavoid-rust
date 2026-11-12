@@ -125,7 +125,11 @@ fn is_pending(r: &Router, ty: ActionType, o: ObstacleIdx) -> bool {
 }
 
 fn conn_live(r: &Router, c: ConnIdx, serial: u64) -> bool {
-    r.conns.get(c).is_some_and(|x| x.serial == serial) && r.conn_refs.contains(&c)
+    // (a connector created in a transaction only joins connRefs when its
+    // queued ConnChange is processed)
+    r.conns.get(c).is_some_and(|x| x.serial == serial)
+        && (r.conn_refs.contains(&c)
+            || r.action_list.iter().any(|a| a.type_ == ActionType::ConnChange && a.obj_ptr == ActionObj::Conn(c)))
 }
 
 fn junction_live(r: &Router, j: JunctionRef, serial: u64) -> bool {
@@ -136,6 +140,10 @@ fn junction_live(r: &Router, j: JunctionRef, serial: u64) -> bool {
         return false;
     }
     r.m_obstacles.contains(&j.0) || is_pending(r, ActionType::JunctionAdd, j.0)
+}
+
+fn has_pin_class(r: &Router, s: ShapeRef, cls: u32) -> bool {
+    s.connection_pins(r).iter().any(|&p| r.pins[p].m_class_id == cls)
 }
 
 fn install_callback(r: &mut Router, cbs: &Rc<RefCell<Vec<u32>>>, c: ConnIdx) {
@@ -281,8 +289,8 @@ impl Scene {
                 let i = t.reference(self.shapes.len());
                 let cls = t.unum();
                 match i {
-                    None => ConnEnd::from_point_dirs(Point::new(0.0, 0.0), CONN_DIR_ALL),
-                    Some(i) => ConnEnd::from_shape_pin(r, self.shapes[i], cls),
+                    Some(i) if has_pin_class(r, self.shapes[i], cls) => ConnEnd::from_shape_pin(r, self.shapes[i], cls),
+                    _ => ConnEnd::from_point_dirs(Point::new(0.0, 0.0), CONN_DIR_ALL),
                 }
             }
             "J" => match t.reference(self.juncs.len()) {
@@ -401,7 +409,28 @@ impl Scene {
         t.reference(pins.len()).map(|i| pins[i])
     }
 
+    /// As the C++ driver: in immediate mode, commands that upstream cannot
+    /// run there (see `unsafeImmediate()` in e2e_fuzz.cpp) run as a
+    /// one-command transaction.
     fn run_command(&mut self, line: &str) {
+        let cmd = line.split_whitespace().next().unwrap_or("");
+        let wrap = self.router.as_ref().is_some_and(|r| !r.transaction_use())
+            && matches!(
+                cmd,
+                "moveby" | "moveto" | "delshape" | "movejby" | "movejto" | "deljunc" | "mergej" | "markmoved" | "conn" | "split"
+            );
+        if wrap {
+            self.r().set_transaction_use(true);
+        }
+        self.run_command_inner(line);
+        if wrap {
+            self.r().process_transaction();
+            self.r().set_transaction_use(false);
+            self.sync();
+        }
+    }
+
+    fn run_command_inner(&mut self, line: &str) {
         let mut t = Toks { it: line.split_whitespace() };
         let cmd = match t.it.next() {
             None => return,
@@ -477,6 +506,9 @@ impl Scene {
             }
             "delshape" => {
                 let i = refr!(self.shapes.len());
+                if is_pending(self.router.as_ref().unwrap(), ActionType::ShapeAdd, self.shapes[i].0) {
+                    return;
+                }
                 let s = self.shapes.remove(i);
                 self.r().delete_shape(s);
             }
@@ -696,10 +728,37 @@ impl Scene {
                 self.r().hyperedge_rerouter().register_hyperedge_for_rerouting_junction(j);
             }
             "regends" => {
+                // (as the C++ driver: only pins of distinct shapes)
                 let n = t.unum();
                 let mut ends = Vec::new();
+                let mut used: Vec<ShapeRef> = Vec::new();
+                let mut ok = true;
                 for _ in 0..n {
-                    ends.push(self.read_end(&mut t));
+                    let kind = t.word();
+                    if kind != "S" {
+                        ok = false;
+                        if kind == "P" {
+                            t.num();
+                            t.num();
+                            t.unum();
+                        } else {
+                            t.word();
+                        }
+                        continue;
+                    }
+                    let i = t.reference(self.shapes.len());
+                    let cls = t.unum();
+                    let r = self.router.as_ref().unwrap();
+                    match i {
+                        Some(i) if has_pin_class(r, self.shapes[i], cls) && !used.contains(&self.shapes[i]) => {
+                            used.push(self.shapes[i]);
+                            ends.push(ConnEnd::from_shape_pin(r, self.shapes[i], cls));
+                        }
+                        _ => ok = false,
+                    }
+                }
+                if !ok || ends.len() < 2 {
+                    return;
                 }
                 self.r().hyperedge_rerouter().register_hyperedge_for_rerouting(ends);
             }
@@ -727,6 +786,10 @@ pub fn run_scene(dsl: &[String], full: bool) -> Vec<String> {
     };
     for line in dsl {
         sc.run_command(line);
+    }
+    if let Some(r) = sc.router.as_mut() {
+        // (as the C++ driver: process queued deletions before ~Router)
+        r.process_transaction();
     }
     if let Some(mut r) = sc.router.take() {
         r.destruct();

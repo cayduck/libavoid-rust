@@ -293,12 +293,17 @@ static void sync(Scene& sc)
     Router *r = sc.r;
     if (!r) return;
 
-    // Connectors: live iff in connRefs.
+    // Connectors: live iff in connRefs or with a queued ConnChange.
     {
         std::vector<ConnRef *> keep;
         for (size_t i = 0; i < sc.conns.size(); ++i)
         {
-            if (inConnRefs(r, sc.conns[i])) keep.push_back(sc.conns[i]);
+            // (a connector created in a transaction only joins connRefs
+            // when its queued ConnChange is processed)
+            if (inConnRefs(r, sc.conns[i]) || isPendingAction(r, ConnChange, sc.conns[i]))
+            {
+                keep.push_back(sc.conns[i]);
+            }
         }
         sc.conns = keep;
         for (ConnRefList::const_iterator it = r->connRefs.begin();
@@ -583,6 +588,16 @@ static Polygon readPoly(std::istringstream& in)
     return poly;
 }
 
+static bool hasPinClass(ShapeRef *s, unsigned cls)
+{
+    for (ShapeConnectionPinSet::const_iterator p = s->m_connection_pins.begin();
+            p != s->m_connection_pins.end(); ++p)
+    {
+        if ((*p)->m_class_id == cls) return true;
+    }
+    return false;
+}
+
 static ConnEnd readEnd(Scene& sc, std::istringstream& in)
 {
     std::string k = word(in);
@@ -598,7 +613,12 @@ static ConnEnd readEnd(Scene& sc, std::istringstream& in)
         size_t i;
         bool ok = ref(in, sc.shapes.size(), i);
         unsigned cls = unum(in);
-        if (!ok) return ConnEnd(Point(0, 0), ConnDirAll);
+        if (!ok || !hasPinClass(sc.shapes[i], cls))
+        {
+            // (a ConnEnd naming a pin class the shape does not have makes
+            // upstream dereference a null vertex, connend.cpp:292)
+            return ConnEnd(Point(0, 0), ConnDirAll);
+        }
         return ConnEnd(sc.shapes[i], cls);
     }
     else if (k == "J")
@@ -620,7 +640,7 @@ static ShapeConnectionPin *pinAt(ShapeRef *s, std::istringstream& in)
     return *it;
 }
 
-static void runCommand(Scene& sc, const std::string& line)
+static void runCommandInner(Scene& sc, const std::string& line)
 {
     std::istringstream in(line);
     std::string cmd = word(in);
@@ -699,6 +719,8 @@ static void runCommand(Scene& sc, const std::string& line)
     {
         if (!ref(in, sc.shapes.size(), i)) return;
         ShapeRef *s = sc.shapes[i];
+        // (upstream asserts / frees twice for a shape with a queued add)
+        if (isPendingAction(r, ShapeAdd, s)) return;
         sc.shapes.erase(sc.shapes.begin() + i);
         r->deleteShape(s);
     }
@@ -903,12 +925,35 @@ static void runCommand(Scene& sc, const std::string& line)
     }
     else if (cmd == "regends")
     {
+        // Terminals must be existing pin classes of distinct shapes: free
+        // points get vertices without orthogonal visibility and coincident
+        // terminals collapse, and upstream then dereferences a null MTST
+        // root (hyperedge.cpp:337).  Otherwise the command is skipped.
         unsigned n = unum(in);
         ConnEndList ends;
+        std::set<ShapeRef *> used;
+        bool ok = true;
         for (unsigned k = 0; k < n; ++k)
         {
-            ends.push_back(readEnd(sc, in));
+            std::string kind = word(in);
+            if (kind != "S")
+            {
+                ok = false;
+                if (kind == "P") { num(in); num(in); unum(in); }
+                else word(in);
+                continue;
+            }
+            bool have = ref(in, sc.shapes.size(), i);
+            unsigned cls = unum(in);
+            if (!have || !hasPinClass(sc.shapes[i], cls) || used.count(sc.shapes[i]))
+            {
+                ok = false;
+                continue;
+            }
+            used.insert(sc.shapes[i]);
+            ends.push_back(ConnEnd(sc.shapes[i], cls));
         }
+        if (!ok || ends.size() < 2) return;
         r->hyperedgeRerouter()->registerHyperedgeForRerouting(ends);
     }
     else
@@ -917,6 +962,45 @@ static void runCommand(Scene& sc, const std::string& line)
         abort();
     }
     sync(sc);
+}
+
+// Upstream's immediate mode (setTransactionUse(false)) is unusable for
+// these commands:
+//  * a ConnRef created with ends routes before m_reroute_flag_ptr is set,
+//    so a later EdgeInf::alertConns() writes through a null pointer (conn,
+//    split, and the connector merging of mergej);
+//  * moving/deleting an obstacle with attached connectors calls
+//    modifyConnector() from inside processActions(), which re-enters
+//    processTransaction() on the same action list until the stack
+//    overflows (moveby, moveto, movejby, movejto, delshape, deljunc,
+//    markmoved).
+// In immediate mode the interpreter therefore runs them as a one-command
+// transaction (setTransactionUse(true); command; processTransaction();
+// setTransactionUse(false)), which is what immediate mode means.
+static bool unsafeImmediate(const std::string& cmd)
+{
+    static const char *cmds[] = { "moveby", "moveto", "delshape", "movejby",
+        "movejto", "deljunc", "mergej", "markmoved", "conn", "split", nullptr };
+    for (const char **c = cmds; *c; ++c)
+    {
+        if (cmd == *c) return true;
+    }
+    return false;
+}
+
+static void runCommand(Scene& sc, const std::string& line)
+{
+    std::istringstream in(line);
+    std::string cmd = word(in);
+    bool wrap = sc.r && !sc.r->transactionUse() && unsafeImmediate(cmd);
+    if (wrap) sc.r->setTransactionUse(true);
+    runCommandInner(sc, line);
+    if (wrap)
+    {
+        sc.r->processTransaction();
+        sc.r->setTransactionUse(false);
+        sync(sc);
+    }
 }
 
 // Runs a scene; returns the output lines (stage dumps, hashed if large).
@@ -930,6 +1014,13 @@ static std::vector<std::string> execScene(const std::vector<std::string>& dsl)
     for (size_t i = 0; i < dsl.size(); ++i)
     {
         runCommand(sc, dsl[i]);
+    }
+    if (sc.r)
+    {
+        // Process queued deletions (e.g. junctions removed by hyperedge
+        // rerouting) before ~Router: upstream's destructor otherwise calls
+        // removeFromGraph() on such inactive junctions.
+        sc.r->processTransaction();
     }
     delete sc.r;
     size_t total = 0;
@@ -1887,13 +1978,6 @@ static std::vector<std::string> genScene(uint64_t seed, uint64_t index)
     unsigned nJuncs = chance(40) ? 1 + rnd(size < 6 ? 2 : 3) : 0;
     unsigned nClusters = (g.flags & 1) && chance(30) ? 1 + rnd(2) : 0;
     for (unsigned k = 0; k < nShapes; ++k) genShape(g);
-    if (!g.txn)
-    {
-        // (connectors are never created in immediate mode, see below)
-        L.push_back("txn 1");
-        g.txn = true;
-        g.inBatch = true;
-    }
     for (unsigned k = 0; k < nJuncs; ++k) genJunction(g);
     for (unsigned k = 0; k < nConns; ++k) genConn(g);
     for (unsigned k = 0; k < nClusters; ++k)
@@ -1933,44 +2017,12 @@ static std::vector<std::string> genScene(uint64_t seed, uint64_t index)
         }
         else
         {
-            // Immediate mode (setTransactionUse(false)) is only used for
-            // commands that do not make upstream misbehave there:
-            //  * a ConnRef created with ends in immediate mode routes before
-            //    m_reroute_flag_ptr is set, so a later EdgeInf::alertConns()
-            //    writes through a null pointer (conn, split, junction+conns);
-            //  * moving/deleting an obstacle with attached connectors calls
-            //    modifyConnector() from inside processActions(), which
-            //    re-enters processTransaction() with the same action list
-            //    and recurses until the stack overflows (moveby, moveto,
-            //    movej*, delshape, deljunc, mergej, markmoved).
-            // Everything else runs in transactions.
-            static const char *immediateOk[] = { "param ", "option ", "settings",
-                "pin", "transform ", "rect ", "poly ", "src ", "dst ", "type ",
-                "hate ", "invalid ", "cps ", "fixroute ", "fixexist ", "clearfix ",
-                "delconn ", "cluster ", "movecluster ", "delcluster ", "regj ",
-                "regends ", "fixj ", nullptr };
-            size_t mark = L.size();
-            genOp(g);
-            bool createsConn = false;
-            for (size_t k = mark; k < L.size(); ++k)
+            if (g.txn)
             {
-                bool ok = false;
-                for (const char **w = immediateOk; *w; ++w)
-                {
-                    if (L[k].compare(0, strlen(*w), *w) == 0) ok = true;
-                }
-                if (!ok) createsConn = true;
-            }
-            if (createsConn && !g.txn)
-            {
-                L.insert(L.begin() + mark, "txn 1");
-                g.txn = true;
-            }
-            else if (!createsConn && g.txn)
-            {
-                L.insert(L.begin() + mark, "txn 0");
+                L.push_back("txn 0");
                 g.txn = false;
             }
+            genOp(g);
             L.push_back("process");
         }
     }
