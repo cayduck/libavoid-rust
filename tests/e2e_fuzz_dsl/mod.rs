@@ -82,6 +82,10 @@ struct Scene {
     reroute_count: u64,
     /// "nowrap" seen (see `run_command`).
     no_wrap: bool,
+    /// Raw mode (Rust only, `run_scene_raw`): every guard against upstream
+    /// API-precondition violations is off, so the port itself meets the
+    /// misuse (robustness check: no panic, bounded time).
+    raw: bool,
     pending: Vec<String>,
     stage: usize,
     stages: Vec<Vec<String>>,
@@ -304,7 +308,9 @@ impl Scene {
                 let i = t.reference(self.shapes.len());
                 let cls = t.unum();
                 match i {
-                    Some(i) if has_pin_class(r, self.shapes[i], cls) => ConnEnd::from_shape_pin(r, self.shapes[i], cls),
+                    Some(i) if self.raw || has_pin_class(r, self.shapes[i], cls) => {
+                        ConnEnd::from_shape_pin(r, self.shapes[i], cls)
+                    }
                     _ => ConnEnd::from_point_dirs(Point::new(0.0, 0.0), CONN_DIR_ALL),
                 }
             }
@@ -549,7 +555,7 @@ impl Scene {
             }
             "markmoved" => {
                 // (as the C++ driver: not with queued removals)
-                if self.router.as_ref().unwrap().action_list.iter().any(|a| {
+                if !self.raw && self.router.as_ref().unwrap().action_list.iter().any(|a| {
                     a.type_ == ActionType::ShapeRemove || a.type_ == ActionType::JunctionRemove
                 }) {
                     return;
@@ -584,12 +590,18 @@ impl Scene {
                 let first = t.unum() != 0;
                 let p = t.poly();
                 let s = self.shapes[i];
+                // (as the C++ driver: same number of points only)
+                if !self.raw && p.ps.len() != s.polygon(self.router.as_ref().unwrap()).ps.len() {
+                    return;
+                }
                 self.r().move_shape(s, &p, first);
             }
             "delshape" => {
                 let i = refr!(self.shapes.len());
                 let r = self.router.as_ref().unwrap();
-                if is_pending(r, ActionType::ShapeAdd, self.shapes[i].0) || queued_conn_end_uses(r, self.shapes[i].0) {
+                if !self.raw
+                    && (is_pending(r, ActionType::ShapeAdd, self.shapes[i].0) || queued_conn_end_uses(r, self.shapes[i].0))
+                {
                     return;
                 }
                 let s = self.shapes.remove(i);
@@ -627,7 +639,7 @@ impl Scene {
                         let r = self.router.as_ref().unwrap();
                         let cls = r.pins[p].m_class_id;
                         let same = s.connection_pins(r).iter().filter(|&&q| r.pins[q].m_class_id == cls).count();
-                        if same < 2 {
+                        if same < 2 && !self.raw {
                             return;
                         }
                         ShapeConnectionPin::delete(self.r(), p)
@@ -683,7 +695,7 @@ impl Scene {
                 let i = refr!(self.juncs.len());
                 let j = self.juncs[i].0;
                 let r = self.router.as_ref().unwrap();
-                if is_pending(r, ActionType::JunctionAdd, j.0) || queued_conn_end_uses(r, j.0) {
+                if !self.raw && (is_pending(r, ActionType::JunctionAdd, j.0) || queued_conn_end_uses(r, j.0)) {
                     return;
                 }
                 self.juncs.remove(i);
@@ -782,7 +794,7 @@ impl Scene {
                 // (as the C++ driver: skip splits that would dereference a
                 // null m_dst_connend upstream)
                 let conn = &self.router.as_ref().unwrap().conns[c];
-                if conn.m_display_route.ps.len() > seg && conn.m_dst_connend.is_none() {
+                if !self.raw && conn.m_display_route.ps.len() > seg && conn.m_dst_connend.is_none() {
                     return;
                 }
                 c.split_at_segment(self.r(), seg);
@@ -809,7 +821,7 @@ impl Scene {
             "regj" => {
                 let i = refr!(self.juncs.len());
                 let j = self.juncs[i].0;
-                if !self.hyperedge_is_tree(j) {
+                if !self.raw && !self.hyperedge_is_tree(j) {
                     return;
                 }
                 self.r().hyperedge_rerouter().register_hyperedge_for_rerouting_junction(j);
@@ -837,14 +849,16 @@ impl Scene {
                     let cls = t.unum();
                     let r = self.router.as_ref().unwrap();
                     match i {
-                        Some(i) if has_pin_class(r, self.shapes[i], cls) && !used.contains(&self.shapes[i]) => {
+                        Some(i)
+                            if self.raw || (has_pin_class(r, self.shapes[i], cls) && !used.contains(&self.shapes[i])) =>
+                        {
                             used.push(self.shapes[i]);
                             ends.push(ConnEnd::from_shape_pin(r, self.shapes[i], cls));
                         }
                         _ => ok = false,
                     }
                 }
-                if !ok || ends.len() < 3 {
+                if !self.raw && (!ok || ends.len() < 3) {
                     return;
                 }
                 self.r().hyperedge_rerouter().register_hyperedge_for_rerouting(ends);
@@ -858,6 +872,16 @@ impl Scene {
 /// Runs a scene; returns its output lines (stage dumps hashed per stage if
 /// the scene's output is large and `full` is false).
 pub fn run_scene(dsl: &[String], full: bool) -> Vec<String> {
+    run_scene_mode(dsl, full, false)
+}
+
+/// Runs a scene with all interpreter guards off (see `Scene::raw`); the
+/// output is not comparable with the C++.
+pub fn run_scene_raw(dsl: &[String]) -> Vec<String> {
+    run_scene_mode(dsl, false, true)
+}
+
+fn run_scene_mode(dsl: &[String], full: bool, raw: bool) -> Vec<String> {
     let mut sc = Scene {
         router: None,
         shapes: Vec::new(),
@@ -866,7 +890,8 @@ pub fn run_scene(dsl: &[String], full: bool) -> Vec<String> {
         clusters: Vec::new(),
         known: BTreeMap::new(),
         reroute_count: e2e_reroute_count(),
-        no_wrap: false,
+        no_wrap: raw,
+        raw,
         pending: Vec::new(),
         stage: 0,
         stages: Vec::new(),

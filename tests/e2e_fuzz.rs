@@ -26,6 +26,10 @@
 //!  * `E2E_SUBSAMPLE=k`  only every k-th scene (default 4 in debug builds)
 //!  * `E2E_THREADS=n`    worker threads (default: available parallelism)
 //!  * `E2E_REPORT=path`  write "name<TAB>status" per scene
+//!  * `E2E_RAW=1`        robustness replay: every scene with all interpreter
+//!    guards against upstream API misuse off (raw immediate mode, missing
+//!    pin classes, cyclic / two-terminal hyperedges, deleting objects with
+//!    queued actions, ...); must not panic (no comparison)
 //!  * `E2E_NO_SLOT_REUSE=1` arenas never reuse freed slots (results must
 //!    not change: a difference means a slot index leaks into behaviour)
 
@@ -37,14 +41,32 @@ mod e2e_fuzz_dsl;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
-use e2e_fuzz_dsl::{parse_golden, run_scene, GoldenScene};
+use e2e_fuzz_dsl::{parse_golden, run_scene, run_scene_raw, GoldenScene};
 
 enum Outcome {
     Match,
     Differ(String),
     Panic(String),
-    SkippedAssert,
-    Excluded { soft_match: Option<bool> },
+    /// `soft_match`: with `E2E_SOFT`, whether the replay matched the NDEBUG
+    /// output (None: not replayed / no output); `panic`: the replay panicked.
+    Excluded { soft_match: Option<bool>, panic: Option<String> },
+}
+
+fn panic_msg(e: Box<dyn std::any::Any + Send>) -> String {
+    e.downcast_ref::<String>()
+        .cloned()
+        .or_else(|| e.downcast_ref::<&str>().map(|s| s.to_string()))
+        .unwrap_or_default()
+}
+
+/// Robustness replay (`E2E_RAW=1`): the scene with all interpreter guards
+/// against upstream API misuse off; must not panic.
+fn check_raw(scene: &GoldenScene) -> Outcome {
+    let dsl = scene.dsl.clone();
+    match std::panic::catch_unwind(move || run_scene_raw(&dsl)) {
+        Ok(_) => Outcome::Match,
+        Err(e) => Outcome::Panic(panic_msg(e)),
+    }
 }
 
 fn check(scene: &GoldenScene, full: bool, soft: bool) -> Outcome {
@@ -53,30 +75,25 @@ fn check(scene: &GoldenScene, full: bool, soft: bool) -> Outcome {
     let mut excluded = false;
     if first.starts_with("#exclude") {
         if !soft {
-            return Outcome::Excluded { soft_match: None };
+            return Outcome::Excluded { soft_match: None, panic: None };
         }
         excluded = true;
         expected = &scene.out[1..];
-        if expected.first().is_some_and(|l| l.starts_with("#crash")) {
-            return Outcome::Excluded { soft_match: None };
+        if first.starts_with("#exclude crash") {
+            // No C++ output: crash/hang-freedom check only.
+            let dsl = scene.dsl.clone();
+            let panic = std::panic::catch_unwind(move || run_scene(&dsl, false)).err().map(panic_msg);
+            return Outcome::Excluded { soft_match: None, panic };
         }
     } else if first.starts_with("#assert") {
-        if cfg!(debug_assertions) {
-            return Outcome::SkippedAssert;
-        }
+        // (The port drops the upstream asserts that upstream itself
+        // violates on valid input, so debug builds run these too.)
         expected = &scene.out[1..];
     }
     let dsl = scene.dsl.clone();
     let result = std::panic::catch_unwind(move || run_scene(&dsl, full));
     let outcome = match result {
-        Err(e) => {
-            let msg = e
-                .downcast_ref::<String>()
-                .cloned()
-                .or_else(|| e.downcast_ref::<&str>().map(|s| s.to_string()))
-                .unwrap_or_default();
-            Outcome::Panic(msg)
-        }
+        Err(e) => Outcome::Panic(panic_msg(e)),
         Ok(out) => {
             if full {
                 let mut s = format!("#scene {}\n", scene.name);
@@ -104,7 +121,8 @@ fn check(scene: &GoldenScene, full: bool, soft: bool) -> Outcome {
         }
     };
     if excluded {
-        return Outcome::Excluded { soft_match: Some(matches!(outcome, Outcome::Match)) };
+        let panic = if let Outcome::Panic(m) = &outcome { Some(m.clone()) } else { None };
+        return Outcome::Excluded { soft_match: Some(matches!(outcome, Outcome::Match)), panic };
     }
     outcome
 }
@@ -124,6 +142,8 @@ fn e2e_fuzz_matches_cpp_oracle() {
     let only = std::env::var("E2E_SCENE").ok();
     let full = std::env::var("E2E_FULL").is_ok();
     let soft = std::env::var("E2E_SOFT").is_ok();
+    let raw = std::env::var("E2E_RAW").is_ok();
+    let max_ms = std::sync::atomic::AtomicU64::new(0);
     let subsample: usize = std::env::var("E2E_SUBSAMPLE")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -156,7 +176,10 @@ fn e2e_fuzz_matches_cpp_oracle() {
                 if i >= selected.len() {
                     break;
                 }
-                let o = check(selected[i], full, soft);
+                let t0 = std::time::Instant::now();
+                let o = if raw { check_raw(selected[i]) } else { check(selected[i], full, soft) };
+                let ms = t0.elapsed().as_millis() as u64;
+                max_ms.fetch_max(ms, Ordering::SeqCst);
                 results.lock().unwrap().push((i, o));
             });
         }
@@ -164,7 +187,7 @@ fn e2e_fuzz_matches_cpp_oracle() {
     std::panic::set_hook(prev_hook);
     let mut results = results.into_inner().unwrap();
     results.sort_by_key(|(i, _)| *i);
-    let (mut matched, mut skipped_assert, mut excluded, mut soft_ok, mut soft_bad) = (0, 0, 0, 0, 0);
+    let (mut matched, mut excluded, mut soft_ok, mut soft_bad) = (0, 0, 0, 0);
     let mut failures = Vec::new();
     let mut report = String::new();
     for (i, o) in results.iter() {
@@ -174,12 +197,13 @@ fn e2e_fuzz_matches_cpp_oracle() {
                 matched += 1;
                 "match".to_string()
             }
-            Outcome::SkippedAssert => {
-                skipped_assert += 1;
-                "skip-assert".to_string()
-            }
-            Outcome::Excluded { soft_match } => {
+            Outcome::Excluded { soft_match, panic } => {
                 excluded += 1;
+                if let Some(m) = panic {
+                    // The port must not panic even where upstream is
+                    // undefined.
+                    failures.push(format!("{}: (excluded scene) panicked: {}", name, m));
+                }
                 match soft_match {
                     Some(true) => {
                         soft_ok += 1;
@@ -207,15 +231,16 @@ fn e2e_fuzz_matches_cpp_oracle() {
         std::fs::write(p, report).expect("write report");
     }
     println!(
-        "{} scenes in golden, {} selected: {} match, {} differ/panic, {} #assert skipped (debug build), {} excluded (soft replay: {} match, {} differ)",
+        "{}{} scenes in golden, {} selected: {} match, {} differ/panic, {} excluded (soft replay: {} match, {} differ); slowest scene {} ms",
+        if raw { "[raw robustness replay] " } else { "" },
         scenes.len(),
         selected.len(),
         matched,
         failures.len(),
-        skipped_assert,
         excluded,
         soft_ok,
-        soft_bad
+        soft_bad,
+        max_ms.load(Ordering::SeqCst)
     );
     assert!(failures.is_empty(), "{} scene(s) differ:\n{}", failures.len(), failures.join("\n"));
 }
@@ -229,7 +254,7 @@ fn e2e_fuzz_regressions() {
     let mut failures = Vec::new();
     for scene in scenes.iter() {
         match check(scene, false, false) {
-            Outcome::Match | Outcome::SkippedAssert => {}
+            Outcome::Match => {}
             Outcome::Differ(m) => failures.push(format!("{}: {}", scene.name, m)),
             Outcome::Panic(m) => failures.push(format!("{}: panicked: {}", scene.name, m)),
             Outcome::Excluded { .. } => failures.push(format!("{}: unexpectedly excluded", scene.name)),

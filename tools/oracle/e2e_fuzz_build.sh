@@ -16,7 +16,7 @@ VENDOR="${VENDOR:-$ROOT/vendor/adaptagrams/cola}"
 BUILD="${E2E_BUILD:-$ROOT/target/e2e_fuzz}"
 mkdir -p "$BUILD/libavoid"
 cp -u "$VENDOR"/libavoid/*.cpp "$VENDOR"/libavoid/*.h "$BUILD/libavoid/"
-# The only patch to the copy: count rerouteAndCallbackConnectors() calls
+# Patch 1 to the copy: count rerouteAndCallbackConnectors() calls
 # (e2eRerouteCount, defined in e2e_fuzz.cpp; mirrored by the Rust test hook
 # avoid::router::e2e_reroute_count()).
 python3 - "$VENDOR/libavoid/router.cpp" "$BUILD/libavoid/router.cpp" <<'PY'
@@ -25,6 +25,40 @@ s = open(sys.argv[1]).read()
 old = "void Router::rerouteAndCallbackConnectors(void)\n{\n"
 assert s.count(old) == 1
 s = s.replace(old, "extern unsigned long e2eRerouteCount;\n" + old + "    ++e2eRerouteCount;\n")
+try:
+    if open(sys.argv[2]).read() == s:
+        sys.exit(0)
+except FileNotFoundError:
+    pass
+open(sys.argv[2], "w").write(s)
+PY
+# Second patch, identical to tools/oracle/build_hyperedge_oracle.sh: the
+# port's stale-pathNext rule.  AStarPathPrivate::search() follows
+# start->pathNext, which can point at a vertex freed since (a use-after-free
+# upstream); the port reads such a link as null (router.rs, "Stale
+# pathNext").  The copy ignores the link unless it is still in the router's
+# vertex list, so those scenes are compared instead of excluded.  Live
+# links are untouched.
+python3 - "$VENDOR/libavoid/makepath.cpp" "$BUILD/libavoid/makepath.cpp" <<'PY'
+import sys
+s = open(sys.argv[1]).read()
+old = """        if (start->pathNext)
+        {
+"""
+assert s.count(old) == 1
+s = s.replace(old, """        // E2E ORACLE: stale pathNext reads as null (see e2e_fuzz_build.sh).
+        bool oracleLive = false;
+        if (start->pathNext)
+        {
+            for (VertInf *k = lineRef->router()->vertices.connsBegin();
+                    k; k = k->lstNext)
+            {
+                if (k == start->pathNext) oracleLive = true;
+            }
+        }
+        if (oracleLive)
+        {
+""")
 try:
     if open(sys.argv[2]).read() == s:
         sys.exit(0)

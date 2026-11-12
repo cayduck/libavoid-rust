@@ -782,6 +782,10 @@ static void runCommandInner(Scene& sc, const std::string& line)
         if (!ref(in, sc.shapes.size(), i)) return;
         bool first = unum(in) != 0;
         Polygon poly = readPoly(in);
+        // (a polygon with a different number of points violates
+        // Obstacle::setNewPoly()'s precondition; the port ignores such
+        // moves, upstream's release build corrupts the shape's vertices)
+        if (poly.size() != sc.shapes[i]->polygon().size()) return;
         r->moveShape(sc.shapes[i], poly, first);
     }
     else if (cmd == "delshape")
