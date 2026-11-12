@@ -150,7 +150,8 @@
 //!   contains a cycle is skipped (upstream's recursive `addConns()`
 //!   overflows the stack).  A hyperedge tree edge without an end node
 //!   (both ends are the node it is entered from) is left alone by
-//!   `updateConnEnds()` (upstream dereferences null).  A hyperedge whose
+//!   `updateConnEnds()` (upstream dereferences null), and deleting the
+//!   tree deletes it once (upstream deletes it twice).  A hyperedge whose
 //!   terminal vertices were freed by rerouting an earlier registered
 //!   hyperedge sharing its objects (e.g. one junction registered twice)
 //!   is skipped (upstream: use-after-free in the MTST).
@@ -219,8 +220,14 @@
 //! ported, so that debug builds never panic where upstream's release build
 //! works.  Each such site carries a comment `Upstream: COLA_ASSERT(..).
 //! Not ported (assert policy)` with the evidence (the nudging oracle's 29
-//! `#assert` scenes run in debug builds too).  Asserts on API misuse are
-//! made unreachable by the `MISUSE` handling above.
+//! `#assert` scenes and the e2e fuzzer's `#assert` scenes run in debug
+//! builds too).  Asserts on API misuse are made unreachable by the
+//! `MISUSE` handling above; an invariant assert that the documented
+//! handling of input upstream leaves undefined (or never finishes) would
+//! violate, and that upstream's asserting build fails on that input as
+//! well, is not ported either, so debug and release builds behave the same
+//! (hyperedge validation with a connector whose both ends are on one
+//! junction; MTST bridging edges of a hyperedge whose tree has a cycle).
 
 #![allow(dead_code)]
 // Keep upstream statement shapes.

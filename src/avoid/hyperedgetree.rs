@@ -558,7 +558,16 @@ impl HyperedgeTreeStore {
                 debug_assert!(
                     (conn_ends.0.junction(router) == Some(junction)) || (conn_ends.1.junction(router) == Some(junction))
                 );
-                debug_assert!(conn_ends.0.junction(router) != conn_ends.1.junction(router));
+                // Upstream: COLA_ASSERT(connEnds.first.junction() !=
+                // connEnds.second.junction()).  Not ported (assert policy):
+                // a connector with both ends on one junction (accepted by
+                // the API) violates it.  Upstream never gets here on such
+                // scenes: its asserting build fails earlier (or crashes) and
+                // its NDEBUG build never returns or crashes (e2e fuzz
+                // regression scenes reg-improver-self-loop-edge-splice,
+                // reg-improver-edge-without-end-node); the port handles them
+                // ("Upstream non-termination" and "Public-API misuse" in
+                // router.rs), so debug builds must get past this as well.
             } else if node.edges.len() == 1 {
                 debug_assert!(conn_ends.0.junction(router).is_none() || conn_ends.1.junction(router).is_none());
             }
@@ -655,7 +664,15 @@ impl HyperedgeTreeStore {
 
     /// Upstream `delete edge` (trivial destructor).
     pub fn delete_edge(&mut self, this: HeEdgeIdx) {
-        debug_assert!(!self.edges[this.0].deleted);
+        // MISUSE: deleting an edge twice is a no-op.  An edge whose both
+        // ends are one node (left by a connector with both ends on one
+        // junction) is in that node's edge list twice, so
+        // deleteEdgesExcept() deletes it twice upstream (a double free; ASan:
+        // heap-use-after-free in HyperedgeTreeEdge::deleteNodesExcept);
+        // reg-improver-self-loop-edge-splice, reg-improver-edge-without-end-node.
+        if self.edges[this.0].deleted {
+            return;
+        }
         self.edges[this.0].deleted = true;
     }
 
