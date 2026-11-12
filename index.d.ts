@@ -30,11 +30,56 @@
 //   neither [x, y] nor {x, y}, a non-array where an array is expected, a
 //   non-boolean flag, a non-number where a number is expected) throw a
 //   TypeError.
-// * Otherwise nothing throws or aborts the wasm instance: mutators return
-//   `false` and queries return `null` for unknown ids, duplicate ids,
-//   non-finite numbers, out-of-range enum values and violated upstream
-//   preconditions (documented per method).
+// * Otherwise invalid input does not throw: mutators return `false` and
+//   queries return `null` for unknown ids, duplicate ids, non-finite
+//   numbers, out-of-range enum values and violated upstream preconditions
+//   (documented per method).
 // * The constructor throws an Error for invalid router flags.
+// * An internal failure (a bug: a Rust panic, a failed allocation, a stack
+//   overflow) throws an `AvoidInternalError`; see below.
+//
+// Failure containment
+// -------------------
+// The wasm module is built with `panic = "abort"`, so an internal failure
+// traps the WebAssembly instance.  The adapter catches the trap and throws
+// an `AvoidInternalError` that carries the method name, the Rust panic
+// message and source location when there was a panic (`kind` "panic"), or
+// says that an allocation failed ("out-of-memory") or the stack overflowed
+// ("stack-overflow"); `cause` is the original `WebAssembly.RuntimeError`.
+//
+// A trap leaves the whole instance in an unknown state: no Rust destructors
+// ran, the shadow stack it was using is never released, and the router
+// that was executing may be half-updated and stays borrowed.  Other routers
+// of the same instance often keep working for a while, but not reliably
+// (a stack overflow breaks every later call; repeated traps exhaust the
+// stack).  Therefore the first internal error *poisons the instance*: every
+// router created on it -- not only the one that failed -- throws
+// `AvoidInternalError` ("router is unusable after an internal error: ...",
+// `kind` "poisoned", `cause` the first error) from every later call
+// without entering wasm, and so does `new AvoidRouter()`.  `free()` and
+// `isPoisoned()` still work.  To recover, call `reset()` (ES-module entry:
+// `await reset()` or `await init()`), which instantiates a fresh wasm
+// module instance; routers created afterwards work normally.  The routers
+// of the old instance stay unusable; rebuild their scenes on new routers.
+// `internalError()` returns the error that poisoned the current instance.
+//
+// Long transactions
+// -----------------
+// `setTransactionTimeLimit(ms)` and `setTransactionProgressCallback(fn)`
+// map onto upstream's `shouldContinueTransactionWithProgress()`.  Upstream
+// calls it during the visibility-graph scans, the route search, crossing
+// detection, crossing reroutes and between nudging regions, but only acts
+// on a request to stop in the crossing-improvement phases
+// (`TransactionPhase.CrossingDetection` and `.RerouteSearch`, which run
+// only with a non-zero `crossingPenalty` or `fixedSharedPathPenalty`): the
+// remaining crossing work is skipped, everything else still runs, and the
+// router stays usable.  Nothing else can be interrupted: route search,
+// nudging, hyperedge rerouting and hyperedge improvement (the "Known slow
+// cases" of PORTING.md) run to completion.  After a cancelled transaction
+// the next `processTransaction()` runs the rerouting phase again even if
+// nothing new was queued, which finishes the cancelled work.  Time is
+// measured in JavaScript (`performance.now()`), from the start of the call
+// that runs the transaction.
 
 export interface Point {
   x: number;
@@ -237,6 +282,55 @@ export const OrthogonalDimension: Readonly<{
 /** upstream `Polygon(points).curvedPolyline(curveAmount, closed = false)`; null for invalid input. */
 export function curvedPolyline(points: readonly PointInput[], curveAmount: number, closed?: boolean): CurvedPolyline | null;
 
+/** upstream `TransactionPhases`, as passed to a transaction progress callback. */
+export const TransactionPhase: Readonly<{
+  OrthogonalVisibilityGraphScanX: 1;
+  OrthogonalVisibilityGraphScanY: 2;
+  RouteSearch: 3;
+  CrossingDetection: 4;
+  RerouteSearch: 5;
+  OrthogonalNudgingX: 6;
+  OrthogonalNudgingY: 7;
+  Completed: 8;
+}>;
+
+/**
+ * upstream `shouldContinueTransactionWithProgress(elapsedTime, phaseNumber,
+ * totalPhases, proportion)`; return `false` to ask the router to stop.
+ * `elapsedMs` is measured in JavaScript from the start of the API call.
+ * Must not call into the same router (that throws).
+ */
+export type TransactionProgressCallback = (
+  elapsedMs: number,
+  phase: number,
+  totalPhases: number,
+  proportion: number,
+) => boolean | void;
+
+/** An internal failure of the wasm module; see "Failure containment" above. */
+export class AvoidInternalError extends Error {
+  readonly name: "AvoidInternalError";
+  /** The API function that failed, e.g. "AvoidRouter.processTransaction". */
+  readonly method: string | null;
+  readonly kind: "panic" | "out-of-memory" | "stack-overflow" | "trap" | "poisoned" | "reset";
+  /** The Rust panic message (kind "panic"). */
+  readonly panicMessage: string | null;
+  /** Crate-relative source location of the panic, "src/file.rs:line:column". */
+  readonly location: string | null;
+  /** The WebAssembly.RuntimeError of the trap, or for "poisoned" the first AvoidInternalError. */
+  cause?: unknown;
+}
+
+/** The AvoidInternalError that poisoned the current wasm instance, or null. */
+export function internalError(): AvoidInternalError | null;
+
+/**
+ * Replaces the wasm module instance by a fresh one (Node: synchronously,
+ * by loading a fresh copy of the wasm-bindgen glue).  Routers of the old
+ * instance become unusable (AvoidInternalError); new routers work.
+ */
+export function reset(): void;
+
 export class AvoidRouter {
   /** `new Router(flags)`; flags default `RouterFlag.OrthogonalRouting`.  Throws unless flags is 1, 2 or 3. */
   constructor(flags?: number);
@@ -252,7 +346,11 @@ export class AvoidRouter {
   setTransactionUse(transactions: boolean): void;
   /** `Router::transactionUse()`. */
   transactionUse(): boolean;
-  /** `Router::processTransaction()`: true if anything was processed. */
+  /**
+   * `Router::processTransaction()`: true if anything was processed.  After
+   * a cancelled transaction it also runs when nothing new is queued, to
+   * finish the cancelled work (wrapper addition).
+   */
   processTransaction(): boolean;
   /**
    * Connectors whose upstream callback fired (i.e. were rerouted) in the last
@@ -262,6 +360,22 @@ export class AvoidRouter {
    * callback.  Built on `ConnRef::setCallback()`.
    */
   lastTransactionUpdatedConnectorIds(): string[];
+  /**
+   * Calls `callback` for upstream `shouldContinueTransactionWithProgress()`
+   * (null removes it); see "Long transactions" above.  An exception thrown
+   * by the callback cancels the transaction like returning false and is
+   * rethrown by the call that ran the transaction, after it finished.
+   */
+  setTransactionProgressCallback(callback: TransactionProgressCallback | null): void;
+  /** Asks every later transaction to stop after `milliseconds` (null: no limit); see "Long transactions". */
+  setTransactionTimeLimit(milliseconds: number | null): void;
+  transactionTimeLimit(): number | null;
+  /** Whether the last transaction was asked to stop (upstream `m_abort_transaction`). */
+  lastTransactionCancelled(): boolean;
+
+  // --- failure containment ---
+  /** Whether this router's wasm instance failed (or was replaced by reset()); every other method then throws AvoidInternalError. */
+  isPoisoned(): boolean;
 
   // --- parameters ---
   /** `Router::setRoutingParameter()`; omitted value = `chooseSensibleParamValue`. */
@@ -562,6 +676,7 @@ export class AvoidRouter {
   /** `Router::newAndDeletedObjectListsFromHyperedgeImprovement()`. */
   newAndDeletedObjectListsFromHyperedgeImprovement(): HyperedgeNewAndDeletedObjectLists;
 
+  /** Frees the wasm memory of the router (a no-op once the router is poisoned). */
   free(): void;
 }
 
@@ -570,7 +685,9 @@ export class AvoidRouter {
  * objects, JSON strings for structured results, `undefined` instead of null,
  * ConnEnds as (kind, objectId, pinId, x, y, num) with kind 0 = point
  * (num = directions), 1 = shape pin class (num = class id), 2 = junction,
- * 3 = shape pin by name.  Same validation as AvoidRouter (never aborts).
+ * 3 = shape pin by name.  Same validation as AvoidRouter.  No failure
+ * containment: a trap surfaces as a plain `WebAssembly.RuntimeError`.  This
+ * is the class of the current instance (`reset()` replaces it).
  */
 export class WasmAvoidRouter {
   constructor(flags?: number);
@@ -581,6 +698,9 @@ export class WasmAvoidRouter {
   transactionUse(): boolean;
   processTransaction(): boolean;
   lastTransactionUpdatedConnectorIds(): string;
+  /** `elapsedMs` is upstream's own clock, always 0 in wasm. */
+  setProgressCallback(callback?: (elapsedMs: number, phase: number, totalPhases: number, proportion: number) => boolean): void;
+  lastTransactionCancelled(): boolean;
   setRoutingParameter(parameter: number, value?: number): boolean;
   setRoutingPenalty(penalty_type: number, penalty_value?: number): boolean;
   routingParameter(parameter: number): number | undefined;
