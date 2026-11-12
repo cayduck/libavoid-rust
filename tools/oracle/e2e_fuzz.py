@@ -334,7 +334,7 @@ def compare(golden_path, soft=False, scene=None, full=False, quiet=False, env_ex
     if env_extra:
         env.update(env_extra)
     try:
-        r = subprocess.run([rust_bin(), "--nocapture", "--test-threads", "1"], capture_output=True,
+        r = subprocess.run([rust_bin(), "--exact", "e2e_fuzz_matches_cpp_oracle", "--nocapture", "--test-threads", "1"], capture_output=True,
                            text=True, env=env, timeout=float(os.environ.get("E2E_REPLAY_TIMEOUT", "600")))
     except subprocess.TimeoutExpired:
         return {"<process>": "died: replay timeout"}, ""
@@ -379,22 +379,31 @@ def _replay_once(env, limit, rss_cap):
     import threading
     import time
     wait_for_memory(quiet=True)
-    p = subprocess.Popen([rust_bin(), "--nocapture", "--test-threads", "1"], env=env,
+    p = subprocess.Popen([rust_bin(), "--exact", "e2e_fuzz_matches_cpp_oracle", "--nocapture", "--test-threads", "1"], env=env,
                          stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
                          errors="replace")
+    import re
     inflight, done, tail = {}, {}, []
+    last_event = [time.time()]
     lock = threading.Lock()
+    # Progress lines may follow output that lacks a final newline, so they
+    # are matched at the end of a line.
+    start_re = re.compile(r"(?:^|[^A-Za-z0-9_-])start (\S+)$")
+    done_re = re.compile(r"(?:^|[^A-Za-z0-9_-])done (\S+) (\d+) ms ?(.*)$")
 
     def reader():
         for line in p.stderr:
             line = line.rstrip("\n")
-            parts = line.split(" ", 4)
+            ms = start_re.search(line)
+            md = done_re.search(line)
             with lock:
-                if len(parts) == 2 and parts[0] == "start":
-                    inflight[parts[1]] = time.time()
-                elif len(parts) >= 4 and parts[0] == "done" and parts[3] == "ms":
-                    inflight.pop(parts[1], None)
-                    done[parts[1]] = parts[4] if len(parts) > 4 else ""
+                if md:
+                    inflight.pop(md.group(1), None)
+                    done[md.group(1)] = md.group(3)
+                    last_event[0] = time.time()
+                elif ms:
+                    inflight[ms.group(1)] = time.time()
+                    last_event[0] = time.time()
                 else:
                     tail.append(line)
                     del tail[:-20]
@@ -406,8 +415,13 @@ def _replay_once(env, limit, rss_cap):
         now = time.time()
         with lock:
             over = [n for n, t0 in inflight.items() if now - t0 > limit]
+            silent = not inflight and now - last_event[0] > limit + 15
         if over:
             killed = ("slow", over)
+        elif silent:
+            # Busy without a scene in flight (a progress line was lost):
+            # the caller replays the remaining scenes one per process.
+            killed = ("silent", None)
         elif _rss_mb(p.pid) > rss_cap:
             killed = ("memory", None)
         if killed:
@@ -470,6 +484,13 @@ def replay(golden_path, names, soft=False, env_extra=None, threads=None, limit=N
                 status[n] = "slow >%gs" % limit
             queue.extend(n for n in flying if n not in killed[1])
             queue.extend(rest)
+        elif killed and killed[0] == "silent":
+            if alone:
+                for n in batch:
+                    if n not in done:
+                        status[n] = "slow >%gs (no progress line)" % limit
+            else:
+                solo.extend(n for n in batch if n not in done)
         elif killed or flying:
             why = "memory" if killed else "died: " + sanitize(" | ".join(tail[-6:]))[-300:]
             if alone or len(flying) == 1:

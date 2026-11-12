@@ -202,13 +202,13 @@ fn e2e_fuzz_matches_cpp_oracle() {
                 }
                 let t0 = std::time::Instant::now();
                 if progress {
-                    eprintln!("start {}", selected[i].name);
+                    eprintln!("\nstart {}", selected[i].name);
                 }
                 let o = if raw { check_raw(selected[i]) } else { check(selected[i], full, soft) };
                 let ms = t0.elapsed().as_millis() as u64;
                 max_ms.fetch_max(ms, Ordering::SeqCst);
                 if progress {
-                    eprintln!("done {} {} ms {}", selected[i].name, ms, status_of(&o));
+                    eprintln!("\ndone {} {} ms {}", selected[i].name, ms, status_of(&o));
                 }
                 results.lock().unwrap().push((i, o));
             });
