@@ -1,0 +1,16 @@
+junction
+id=3
+x=262
+y=312
+
+junction
+id=2
+x=87
+y=112
+
+path
+id=4
+p0: -25 50 
+p1: 280 150 
+
+

@@ -29,9 +29,11 @@
 //
 // Every scene runs in a forked child (so that a scene on which upstream
 // asserts or crashes is simply dropped; the count is reported on stderr).
-// Scenes that hit the upstream use-after-free of a stale `start->pathNext`
-// in A* (see tools/oracle/build_hyperedge_oracle.sh) are dropped too
-// (exit code 7), and so are the full-pipeline twins of dropped scenes.
+// The full-pipeline twins of dropped scenes are dropped too.  (A stale
+// `start->pathNext` in A* -- an upstream use-after-free -- is handled by
+// the port's "dead link reads as null" rule, which
+// tools/oracle/build_hyperedge_oracle.sh patches into the oracle's copy of
+// upstream; exit code 7 is no longer produced.)
 // The child's stdout is /dev/null (libavoid prints warnings there); its
 // output comes back through a pipe.
 //

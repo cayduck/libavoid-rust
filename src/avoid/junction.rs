@@ -54,6 +54,14 @@ impl JunctionRef {
     /// for addition to the router scene.  `id` 0 means "assign one".
     // upstream: junction.cpp JunctionRef::JunctionRef()
     pub fn new(router: &mut Router, position: Point, id: u32) -> JunctionRef {
+        // MISUSE (port addition): non-finite coordinates are replaced by 0.
+        let mut position = position;
+        if !position.x.is_finite() {
+            position.x = 0.0;
+        }
+        if !position.y.is_finite() {
+            position.y = 0.0;
+        }
         let rect = JunctionRef::make_rectangle(router, &position);
         let o = Obstacle::new_base(
             router,
@@ -93,11 +101,21 @@ impl JunctionRef {
 
     // upstream: obstacle.cpp Obstacle::id()
     pub fn id(self, router: &Router) -> u32 {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.obstacles.contains(self.0) {
+            return 0;
+        }
         router.obstacles[self.0].m_id
     }
 
     // upstream: obstacle.cpp Obstacle::polygon()
     pub fn polygon(self, router: &Router) -> &Polygon {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.obstacles.contains(self.0) {
+            return &crate::avoid::geomtypes::EMPTY_POLYGON;
+        }
         &router.obstacles[self.0].m_polygon
     }
 
@@ -121,17 +139,32 @@ impl JunctionRef {
     /// Sets whether the junction has a fixed position.
     // upstream: junction.cpp JunctionRef::setPositionFixed()
     pub fn set_position_fixed(self, router: &mut Router, fixed: bool) {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.obstacles.contains(self.0) {
+            return;
+        }
         router.obstacles[self.0].junction_data_mut().m_position_fixed = fixed;
         router.register_settings_change();
     }
 
     // upstream: junction.cpp JunctionRef::positionFixed()
     pub fn position_fixed(self, router: &Router) -> bool {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.obstacles.contains(self.0) {
+            return false;
+        }
         router.obstacles[self.0].junction_data().m_position_fixed
     }
 
     // upstream: junction.cpp JunctionRef::preferOrthogonalDimension()
     pub fn prefer_orthogonal_dimension(self, router: &mut Router, dim: usize) {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.obstacles.contains(self.0) {
+            return;
+        }
         let small_penalty = 1.0;
         let pins: Vec<PinIdx> = router.obstacles[self.0].m_connection_pins.iter().copied().collect();
         for pin in pins {
@@ -150,11 +183,21 @@ impl JunctionRef {
 
     // upstream: junction.cpp JunctionRef::position()
     pub fn position(self, router: &Router) -> Point {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.obstacles.contains(self.0) {
+            return Point::default();
+        }
         router.obstacles[self.0].junction_data().m_position
     }
 
     // upstream: junction.cpp JunctionRef::setPosition()
     pub fn set_position(self, router: &mut Router, position: &Point) {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.obstacles.contains(self.0) {
+            return;
+        }
         {
             let jd = router.obstacles[self.0].junction_data_mut();
             jd.m_position = *position;
@@ -167,11 +210,21 @@ impl JunctionRef {
 
     // upstream: junction.cpp JunctionRef::recommendedPosition()
     pub fn recommended_position(self, router: &Router) -> Point {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.obstacles.contains(self.0) {
+            return Point::default();
+        }
         router.obstacles[self.0].junction_data().m_recommended_position
     }
 
     // upstream: junction.cpp JunctionRef::setRecommendedPosition()
     pub fn set_recommended_position(self, router: &mut Router, position: &Point) {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.obstacles.contains(self.0) {
+            return;
+        }
         router.obstacles[self.0].junction_data_mut().m_recommended_position = *position;
     }
 
@@ -180,6 +233,11 @@ impl JunctionRef {
 
     // upstream: junction.cpp JunctionRef::moveAttachedConns()
     pub fn move_attached_conns(self, router: &mut Router, new_position: &Point) {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.obstacles.contains(self.0) {
+            return;
+        }
         // Update positions of attached connector ends.
         // PTR-ORDER: iterates std::set<ConnEnd *>; the order determines the
         // order in which ConnChange actions are appended to the action list.
@@ -203,6 +261,11 @@ impl JunctionRef {
     /// merges them into a single connector.  Returns the merged connector.
     // upstream: junction.cpp JunctionRef::removeJunctionAndMergeConnectors()
     pub fn remove_junction_and_merge_connectors(self, router: &mut Router) -> Option<ConnIdx> {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.obstacles.contains(self.0) {
+            return None;
+        }
         if router.obstacles[self.0].m_following_conns.len() != 2 {
             return None;
         }
@@ -218,6 +281,12 @@ impl JunctionRef {
 
         // The second conn will be the one we will delete.
         let conn2 = conn_end2.get(router).m_conn_ref.unwrap();
+        // MISUSE / upstream bug (port addition): when both ends of one
+        // connector are attached to this junction, upstream deletes that
+        // connector and returns it (dangling).  Nothing is merged here.
+        if conn_end1.get(router).m_conn_ref == Some(conn2) {
+            return None;
+        }
         // Determine its endpoint that is not attached to the junction.
         let conn2_ref = &router.conns[conn2];
         let conn_end2_is_src = conn_end2.conn == conn2 && conn_end2.end == VertID::SRC as u32
@@ -250,11 +319,21 @@ impl JunctionRef {
 
     // upstream: obstacle.cpp Obstacle::attachedConnectors()
     pub fn attached_connectors(self, router: &Router) -> Vec<ConnIdx> {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.obstacles.contains(self.0) {
+            return Vec::new();
+        }
         Obstacle::attached_connectors(router, self.0)
     }
 
     /// The junction's connection pins in `ShapeConnectionPinSet` order.
     pub fn connection_pins(self, router: &Router) -> Vec<PinIdx> {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.obstacles.contains(self.0) {
+            return Vec::new();
+        }
         router.obstacles[self.0].m_connection_pins.iter().copied().collect()
     }
 }

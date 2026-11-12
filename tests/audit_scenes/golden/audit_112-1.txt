@@ -1,0 +1,13 @@
+rect
+id=1
+x=250
+y=25
+width=25
+height=30
+
+path
+id=2
+p0: 205 200 
+p1: 205 325 
+
+

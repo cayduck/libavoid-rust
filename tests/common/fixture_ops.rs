@@ -28,7 +28,8 @@ use std::collections::HashMap;
 use std::panic::{self, AssertUnwindSafe};
 use std::rc::Rc;
 
-use libavoid_rust::avoid::arena::{ConnIdx, PinIdx};
+use libavoid_rust::avoid::arena::{ClusterIdx, ConnIdx, PinIdx};
+use libavoid_rust::avoid::viscluster::ClusterRef;
 use libavoid_rust::avoid::connectionpin::ShapeConnectionPin;
 use libavoid_rust::avoid::connector::{Checkpoint, ConnRef, ConnType};
 use libavoid_rust::avoid::connend::ConnEnd;
@@ -355,6 +356,7 @@ enum Value {
     Shape(ShapeRef),
     Junction(JunctionRef),
     Pin(PinIdx),
+    Cluster(ClusterIdx),
     Checkpoint(Checkpoint),
     Checkpoints(Vec<Checkpoint>),
     ConnEndList(Vec<ConnEnd>),
@@ -384,6 +386,7 @@ impl Value {
             Value::Shape(_) => "shape",
             Value::Junction(_) => "junction",
             Value::Pin(_) => "pin",
+            Value::Cluster(_) => "cluster",
             Value::Checkpoint(_) => "checkpoint",
             Value::Checkpoints(_) => "checkpoints",
             Value::ConnEndList(_) => "connendlist",
@@ -398,7 +401,7 @@ impl Value {
     }
 }
 
-const POINTER_TYPES: &[&str] = &["router", "conn", "shape", "junction", "pin", "rerouter"];
+const POINTER_TYPES: &[&str] = &["router", "conn", "shape", "junction", "pin", "rerouter", "cluster"];
 
 type CallbackLog = Rc<RefCell<Vec<(ConnIdx, CbKind)>>>;
 
@@ -789,6 +792,98 @@ impl Interp {
                 let j = self.junction(n(0));
                 let (cls, dirs) = (self.uint(n(1)), self.uint(n(2)));
                 Value::Pin(ShapeConnectionPin::new_junction(self.r(), j, cls, dirs))
+            }
+            // --- audit additions (tests/audit_scenes) ---
+            "ClusterRef" => {
+                ar!(3);
+                self.router_arg(n(0));
+                let (p, id) = (self.poly(n(1)), self.uint(n(2)));
+                Value::Cluster(ClusterRef::new(self.r(), &p, id))
+            }
+            "deleteCluster" => {
+                ar!(2);
+                self.router_arg(n(0));
+                let c = match n(1) {
+                    Value::Cluster(c) => *c,
+                    o => self.err(&format!("expected a ClusterRef, got {}", o.kind())),
+                };
+                self.r().delete_cluster(c);
+                Value::Void
+            }
+            "clusterSetNewPoly" => {
+                ar!(2);
+                let c = match n(0) {
+                    Value::Cluster(c) => *c,
+                    o => self.err(&format!("expected a ClusterRef, got {}", o.kind())),
+                };
+                let p = self.poly(n(1));
+                c.set_new_poly(self.r(), &p);
+                Value::Void
+            }
+            "setRouterFlag" => {
+                ar!(3);
+                self.router_arg(n(0));
+                let (flag, b) = (self.int(n(1)), self.boolean(n(2)));
+                let r = self.r();
+                match flag {
+                    0 => r.partial_time = b,
+                    1 => r.simple_routing = b,
+                    2 => r.clustered_routing = b,
+                    3 => r.ignore_regions = b,
+                    4 => r.use_lees_algorithm = b,
+                    5 => r.invisibility_grph = b,
+                    6 => r.selective_reroute = b,
+                    7 => r.partial_feedback = b,
+                    8 => r.rubber_band_routing = b,
+                    _ => self.err(&format!("bad router flag {}", flag)),
+                }
+                Value::Void
+            }
+            "markAllObstaclesAsMoved" => {
+                ar!(1);
+                self.router_arg(n(0));
+                self.r().mark_all_obstacles_as_moved();
+                Value::Void
+            }
+            "setFixedExistingRoute" => {
+                ar!(1);
+                let c = self.conn(n(0));
+                c.set_fixed_existing_route(self.r());
+                Value::Void
+            }
+            "setHateCrossings" => {
+                ar!(2);
+                let (c, b) = (self.conn(n(0)), self.boolean(n(1)));
+                c.set_hate_crossings(self.r(), b);
+                Value::Void
+            }
+            "setEndpoint" => {
+                ar!(3);
+                let (c, t, e) = (self.conn(n(0)), self.uint(n(1)), self.connend(n(2)));
+                c.set_endpoint(self.r(), t, &e);
+                Value::Void
+            }
+            "setCentrePos" => {
+                ar!(2);
+                let (sh, p) = (self.shape(n(0)), self.point(n(1)));
+                sh.set_centre_pos(self.r(), &p);
+                Value::Void
+            }
+            "preferOrthogonalDimension" => {
+                ar!(2);
+                let (j, d) = (self.junction(n(0)), self.uint(n(1)));
+                j.prefer_orthogonal_dimension(self.r(), d as usize);
+                Value::Void
+            }
+            "setConnectionCost" => {
+                ar!(2);
+                let p = match n(0) {
+                    Value::Pin(p) => *p,
+                    o => self.err(&format!("expected a pin, got {}", o.kind())),
+                };
+                let c = self.num(n(1));
+                p.set_connection_cost(self.r(), c);
+                Value::Void
             }
             // --- Router methods ---
             "processTransaction" => {
@@ -1383,7 +1478,7 @@ impl Interp {
             Op::Output { router, golden, checked } => {
                 self.check_router_var(router);
                 if self.golden_mode && *checked && !self.dry_run {
-                    assert_matches_golden_bump(self.r(), golden);
+                    self.compare_output(golden);
                 } else {
                     // Still call it: displayRoute() caches routes, so the
                     // call has side effects upstream too.
@@ -1394,9 +1489,9 @@ impl Interp {
                 self.check_router_var(router);
                 match golden {
                     Some(g) if self.golden_mode && !self.dry_run => {
-                        assert_matches_golden_bump(self.r(), g);
+                        self.compare_output(g);
                     }
-                    Some(_) if !self.golden_mode => self.err("golden name in smoke mode"),
+                    Some(_) if !self.golden_mode && !is_audit(&self.name) => self.err("golden name in smoke mode"),
                     Some(_) => {
                         let _ = self.r().output_diagram_text();
                     }
@@ -1444,6 +1539,29 @@ impl Interp {
         }
     }
 
+    /// Compares the router's diagram with the golden: `tests/golden-bump/`
+    /// for upstream fixtures (within the fixture tolerance), and
+    /// `tests/audit_scenes/golden/` -- bit for bit -- for the audit scenes.
+    fn compare_output(&mut self, golden: &str) {
+        if is_audit(&self.name) {
+            let text = self.r().output_diagram_text();
+            let expected = audit_golden(golden, "txt");
+            if text != expected {
+                let line = text.lines().zip(expected.lines()).position(|(a, b)| a != b).unwrap_or(0);
+                panic!(
+                    "audit scene {}: diagram {} differs from the C++ at line {}:\n  rust: {}\n  c++:  {}",
+                    self.name,
+                    golden,
+                    line + 1,
+                    text.lines().nth(line).unwrap_or("<none>"),
+                    expected.lines().nth(line).unwrap_or("<none>")
+                );
+            }
+        } else {
+            assert_matches_golden_bump(self.r(), golden);
+        }
+    }
+
     fn check_router_var(&self, router: &str) {
         if self.router_var.as_deref() != Some(router) {
             self.err(&format!("{} is not the router", router));
@@ -1451,8 +1569,24 @@ impl Interp {
     }
 }
 
-/// Path of `tests/fixtures/<name>.ops`.
+/// Audit scenes (`tests/audit_scenes/audit_NNN.ops`, generated by
+/// `tools/oracle/audit_scenes.py`, goldens by `tools/oracle/audit_scenes.sh`).
+pub fn is_audit(name: &str) -> bool {
+    name.starts_with("audit_")
+}
+
+/// Reads `tests/audit_scenes/golden/<name>.<ext>`.
+pub fn audit_golden(name: &str, ext: &str) -> String {
+    let path = format!("{}/tests/audit_scenes/golden/{}.{}", env!("CARGO_MANIFEST_DIR"), name, ext);
+    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read audit golden {}: {}", path, e))
+}
+
+/// Path of `tests/fixtures/<name>.ops` (`tests/audit_scenes/<name>.ops` for
+/// audit scenes).
 pub fn ops_path(name: &str) -> String {
+    if is_audit(name) {
+        return format!("{}/tests/audit_scenes/{}.ops", env!("CARGO_MANIFEST_DIR"), name);
+    }
     format!("{}/tests/fixtures/{}.ops", env!("CARGO_MANIFEST_DIR"), name)
 }
 
@@ -1481,10 +1615,25 @@ pub fn dry_run_fixture(name: &str) -> FixtureRun {
     run_fixture_impl(name, true)
 }
 
+/// Runs a golden-mode script without comparing anything (used for audit
+/// scenes on which the C++ has undefined behaviour: the port must still not
+/// panic).
+pub fn smoke_run_fixture(name: &str) -> FixtureRun {
+    let path = ops_path(name);
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {}: {}", path, e));
+    let mut script = parse_script(name, &text);
+    script.golden_mode = false;
+    run_script(name, script, false)
+}
+
 fn run_fixture_impl(name: &str, dry_run: bool) -> FixtureRun {
     let path = ops_path(name);
     let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {}: {}", path, e));
     let script = parse_script(name, &text);
+    run_script(name, script, dry_run)
+}
+
+fn run_script(name: &str, script: Script, dry_run: bool) -> FixtureRun {
     let mut it = Interp {
         name: name.to_string(),
         router: None,
@@ -1501,7 +1650,11 @@ fn run_fixture_impl(name: &str, dry_run: bool) -> FixtureRun {
     it.exec_block(&script.body);
     let exit_code = it.ret.unwrap_or_else(|| script_err(name, 0, "script ended without ret"));
     if script.golden_mode && !dry_run {
-        let expected = golden_exit_code(&script.fixture);
+        let expected = if is_audit(name) {
+            audit_golden(&script.fixture, "exit").trim().parse().expect("exit code")
+        } else {
+            golden_exit_code(&script.fixture)
+        };
         assert_eq!(
             (exit_code & 0xff) as i32,
             expected,
@@ -1511,7 +1664,11 @@ fn run_fixture_impl(name: &str, dry_run: bool) -> FixtureRun {
             expected
         );
         if script.prints {
-            let golden = read_golden_file(&script.fixture, "stdout");
+            let golden = if is_audit(name) {
+                audit_golden(&script.fixture, "stdout")
+            } else {
+                read_golden_file(&script.fixture, "stdout")
+            };
             assert_eq!(it.stdout, golden, "fixture {}: stdout differs from upstream", name);
         }
     }

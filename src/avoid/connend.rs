@@ -193,9 +193,13 @@ impl ConnEnd {
             m_active_pin: None,
             serial: 0,
         };
-        debug_assert!(ce.m_connection_pin_class_id > 0);
+        // Upstream: COLA_ASSERT(m_connection_pin_class_id > 0).  Not ported
+        // (assert policy): see ShapeConnectionPin::common_init_for_shape_connection.
 
-        ce.m_point = Obstacle::position(router, shape_ref.0);
+        // MISUSE: a freed shape leaves the default position.
+        if router.obstacles.contains(shape_ref.0) {
+            ce.m_point = Obstacle::position(router, shape_ref.0);
+        }
         debug_assert!(ce.m_connection_pin_class_id != CONNECTIONPIN_UNSET);
         ce
     }
@@ -214,7 +218,10 @@ impl ConnEnd {
             m_active_pin: None,
             serial: 0,
         };
-        ce.m_point = Obstacle::position(router, junction_ref.0);
+        // MISUSE: a freed junction leaves the default position.
+        if router.obstacles.contains(junction_ref.0) {
+            ce.m_point = Obstacle::position(router, junction_ref.0);
+        }
         ce
     }
 
@@ -227,13 +234,36 @@ impl ConnEnd {
     /// Returns the position of this connector endpoint.
     // upstream: connend.cpp ConnEnd::position()
     pub fn position(&self, router: &Router) -> Point {
-        if let Some(pin) = self.m_active_pin {
+        // (MISUSE: references to freed objects are ignored, see
+        // `forget_dead_refs`.)
+        if let Some(pin) = self.m_active_pin.filter(|&p| router.pins.contains(p)) {
             // Attached to a pin!
             router.pins[pin].position(router, None)
-        } else if let Some(anchor) = self.m_anchor_obj {
+        } else if let Some(anchor) = self.m_anchor_obj.filter(|&o| router.obstacles.contains(o)) {
             Obstacle::position(router, anchor)
         } else {
             self.m_point
+        }
+    }
+
+    /// Port addition (no upstream counterpart).  A `ConnEnd` is a value
+    /// type: copies (in user code, queued actions, hyperedge terminal
+    /// lists) can outlive the shape, junction or pin they refer to, which
+    /// upstream then dereferences (use-after-free).  MISUSE policy: a
+    /// reference to a freed pin is dropped, and an end whose shape or
+    /// junction was freed becomes a free point end at the position stored
+    /// when it was created (the same thing deleting the shape does to
+    /// attached ends).  Never changes a `ConnEnd` whose references are
+    /// live.
+    pub fn forget_dead_refs(&mut self, router: &Router) {
+        if self.m_active_pin.is_some_and(|p| !router.pins.contains(p)) {
+            self.m_active_pin = None;
+        }
+        if self.m_anchor_obj.is_some_and(|o| !router.obstacles.contains(o)) {
+            self.m_type = ConnEndType::ConnEndPoint;
+            self.m_anchor_obj = None;
+            self.m_active_pin = None;
+            self.m_connection_pin_class_id = CONNECTIONPIN_UNSET;
         }
     }
 
@@ -241,7 +271,7 @@ impl ConnEnd {
     /// given visibility.
     // upstream: connend.cpp ConnEnd::directions()
     pub fn directions(&self, router: &Router) -> ConnDirFlags {
-        if let Some(pin) = self.m_active_pin {
+        if let Some(pin) = self.m_active_pin.filter(|&p| router.pins.contains(p)) {
             // Attached to a pin!
             router.pins[pin].directions()
         } else {
@@ -402,7 +432,7 @@ impl ConnEnd {
         &self,
         router: &mut Router,
         dummy_connection_vert: VertIdx,
-        target_vert: VertIdx,
+        target_vert: Option<VertIdx>,
     ) {
         let mut valid_pin_count: u32 = 0;
 
@@ -412,18 +442,26 @@ impl ConnEnd {
 
         let pins: Vec<PinIdx> = router.obstacles[anchor].m_connection_pins.iter().copied().collect();
         for curr_pin in pins {
-            let (class_id, exclusive, users_empty, cost, pin_vertex, pin_dirs) = {
+            let (class_id, exclusive, users_empty) = {
                 let p = &router.pins[curr_pin];
-                (
-                    p.m_class_id,
-                    p.m_exclusive,
-                    p.m_connend_users.is_empty(),
-                    p.m_connection_cost,
-                    p.m_vertex.expect("pin without vertex"),
-                    p.directions(),
-                )
+                (p.m_class_id, p.m_exclusive, p.m_connend_users.is_empty())
             };
             if (class_id == self.m_connection_pin_class_id) && (!exclusive || users_empty) {
+                let (cost, pin_vertex, pin_dirs) = {
+                    let p = &router.pins[curr_pin];
+                    (p.m_connection_cost, p.m_vertex, p.directions())
+                };
+                // Upstream dereferences `currPin->m_vertex` and `targetVert`
+                // unconditionally here.  Either can be null: a pin is
+                // registered with its shape (and a nested transaction can
+                // run, with transactions off) before its vertex exists, and
+                // `targetVert` is null when the connector's other end is
+                // not set yet.  Upstream crashes; the port skips the pin
+                // (it is not counted as valid), see tests/robustness.rs.
+                let (pin_vertex, target_vert) = match (pin_vertex, target_vert) {
+                    (Some(p), Some(t)) => (p, t),
+                    _ => continue,
+                };
                 let mut routing_cost = cost;
                 let adj_target_pt =
                     router.vert_infs[target_vert].point - router.vert_infs[pin_vertex].point;

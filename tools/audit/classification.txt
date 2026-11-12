@@ -1,0 +1,160 @@
+# Manual classifications for tools/audit/inventory.py.
+#
+# Format (one per line):   <upstream file> <item> | <category> | <reason>
+#
+#   <upstream file>  file (or any file of the same stem) the item lives in
+#   <item>           qualified name without `Avoid::` (fnmatch globs allowed);
+#                    with a parameter list it is matched against the item's
+#                    display form, e.g. `Foo::bar(const Point &)`, otherwise
+#                    it covers every overload.
+#   <category>       debug-output | timer | dead-code | declared-undefined |
+#                    subsumed | not-applicable | MISSING | ported
+#                    (`ported` = manual mapping for a ported item that has no
+#                    resolvable `upstream:` comment; the reason names the Rust
+#                    location)
+#   <reason>         mandatory one-line reason / description
+#
+# Only items that are neither mapped by an `upstream:` comment nor by name
+# need an entry.  `inventory.py --check` fails on stale entries.
+
+# --- assertions.h / debug.h ------------------------------------------------
+assertions.h COLA_ASSERT | subsumed | becomes `debug_assert!` (src/avoid/mod.rs conventions)
+assertions.h COLA_UNUSED | subsumed | unused-variable silencer; not needed in Rust
+assertions.h NOMINMAX | not-applicable | MSVC-only guard against windows.h min/max macros
+debug.h NOMINMAX | not-applicable | MSVC-only guard against windows.h min/max macros
+debug.h db_printf | debug-output | debug printf (no-op unless LIBAVOID_DEBUG); not ported (mod.rs)
+debug.h err_printf | debug-output | stderr diagnostics macro; the warnings upstream prints through it are reproduced with eprint! at the call sites that matter (e.g. ConnEnd::assignPinVisibilityTo), others are dropped
+debug.h PREC | debug-output | printf precision for SVG debug output
+
+# --- trivial ctors/dtors, Rust Drop/Default/Clone ----------------------------
+actioninfo.h ActionInfo::~ActionInfo | subsumed | empty destructor
+connector.h PtOrder::~PtOrder | subsumed | empty destructor
+connend.h ConnEnd::~ConnEnd | subsumed | empty destructor
+geomtypes.h PolygonInterface::PolygonInterface | subsumed | empty ctor of abstract base; PolygonInterface is a Rust trait
+geomtypes.h PolygonInterface::~PolygonInterface | subsumed | empty virtual dtor of abstract base; PolygonInterface is a Rust trait
+graph.h EdgeList::~EdgeList | subsumed | only runs at Router destruction (deletes remaining edges via clear()); arenas are dropped with the Router
+makepath.cpp AStarPathPrivate::AStarPathPrivate | subsumed | member initialisation only; AStarPathPrivate fields are initialised in makepath.rs
+makepath.cpp AStarPathPrivate::~AStarPathPrivate | subsumed | frees the ANode blocks; Rust Vec storage is dropped
+makepath.h AStarPath::~AStarPath | subsumed | deletes the pimpl; Rust ownership drops it
+orthogonal.cpp NudgingShiftSegment::~NudgingShiftSegment | subsumed | empty virtual destructor
+router.h ConnRerouteFlagDelegate::ConnRerouteFlagDelegate | subsumed | empty constructor (Default)
+router.h ConnRerouteFlagDelegate::~ConnRerouteFlagDelegate | subsumed | empty destructor
+router.h TopologyAddonInterface::TopologyAddonInterface | subsumed | empty ctor; TopologyAddonInterface is a Rust trait
+router.h TopologyAddonInterface::~TopologyAddonInterface | subsumed | empty virtual dtor; TopologyAddonInterface is a Rust trait
+scanline.h Node::~Node | subsumed | empty destructor
+scanline.h ShiftSegment::~ShiftSegment | subsumed | empty virtual destructor
+vertices.h VertID::VertID() | subsumed | empty default ctor; VertID derives Default (vertices.rs)
+vertices.h VertID::VertID(const VertID &) | subsumed | member-wise copy ctor; VertID derives Clone/Copy
+vertices.h VertID::operator= | subsumed | member-wise assignment; VertID derives Copy
+visibility.cpp EdgePair::EdgePair() | subsumed | default ctor that only asserts it is never called (MSVC appeasement)
+vpsc.h IncSolver::~IncSolver | subsumed | deletes the Blocks; Rust ownership drops them
+vpsc.h Blocks::~Blocks | subsumed | deletes blocks and resets blockTimeCtr of the dying object; Rust drop
+vpsc.h Block::~Block | subsumed | deletes member containers; Rust drop
+vpsc.h Constraint::~Constraint | subsumed | empty destructor (body commented out)
+vpsc.h PositionStats::PositionStats | subsumed | zero-initialisation; PositionStats derives Default (vpsc.rs)
+vpsc.h UnsatisfiedConstraint::UnsatisfiedConstraint | subsumed | stores the constraint; Rust struct literal (vpsc.rs UnsatisfiedConstraint)
+vpsc.h delete_object | subsumed | `delete ptr` functor for std::for_each; Rust drop
+vpsc.h delete_object::operator() | subsumed | `delete ptr` functor for std::for_each; Rust drop
+vpsc.cpp __NOTNAN | subsumed | NaN self-compare inside COLA_ASSERT; `debug_assert!(!x.is_nan())` in vpsc.rs
+
+# --- back-pointer getters / setters (router passed explicitly) -----------------
+connector.h ConnRef::router | subsumed | m_router back-pointer getter; the port passes &Router explicitly (router.rs data model)
+obstacle.h Obstacle::router | subsumed | m_router back-pointer getter; the port passes &Router explicitly (router.rs data model)
+viscluster.h ClusterRef::router | subsumed | m_router back-pointer getter; the port passes &Router explicitly (router.rs data model)
+hyperedge.h HyperedgeRerouter::setRouter | subsumed | stores m_router; the port passes &mut Router to every HyperedgeRerouter method
+hyperedgeimprover.h HyperedgeImprover::setRouter | subsumed | stores m_router; the port passes &mut Router to every HyperedgeImprover method
+
+# --- comparator functor classes whose operator() is ported as a fn ------------
+connectionpin.h CmpConnPinPtr::CmpConnPinPtr | subsumed | empty ctor of stateless comparator
+connectionpin.h CmpConnPinPtr::operator() | ported | connectionpin.rs fn cmp_conn_pin_ptr() (class and operator() ported as one fn)
+hyperedgetree.h CmpNodesInDim | subsumed | comparator class; its ctor and operator() are ported (hyperedgetree.rs)
+makepath.cpp ANodeCmp | subsumed | comparator class; its operator() is ported (makepath.rs)
+makepath.cpp ANodeCmp::ANodeCmp | subsumed | empty ctor of stateless comparator
+makepath.cpp CmpVisEdgeRotation::CmpVisEdgeRotation | subsumed | stores lastPt; the ported comparator takes it as an argument (graph.rs)
+mtst.cpp delete_vertex::operator() | ported | mtst.rs fn delete_vertex() (struct and operator() ported as one fn)
+mtst.h HeapCmpVertInf | subsumed | comparator struct; its operator() is ported (mtst.rs)
+mtst.h CmpEdgeInf | subsumed | comparator struct; its operator() is ported (mtst.rs)
+orthogonal.cpp CmpIndexes | subsumed | comparator class; its operator() is ported (orthogonal.rs)
+orthogonal.cpp CmpIndexes::CmpIndexes | subsumed | stores conn/dim; the ported comparator takes them as arguments
+orthogonal.cpp CmpVertInf | subsumed | comparator struct; its operator() is ported (orthogonal.rs)
+orthogonal.cpp CmpLineOrder::CmpLineOrder | subsumed | stores orders/dimension; the ported CmpLineOrder is built from them (orthogonal.rs)
+router.cpp CmpConnCostRef::CmpConnCostRef | subsumed | empty ctor of stateless comparator
+router.cpp CmpConnCostRef::operator() | subsumed | order-by-connector-id realised as the BTreeMap<u32, ..> key of ConnCostRefSet (router.rs)
+router.cpp CmpOrderedConnCostRef | subsumed | comparator class; its operator() is inlined (see below)
+router.cpp CmpOrderedConnCostRef::CmpOrderedConnCostRef | subsumed | empty ctor of stateless comparator
+router.cpp CmpOrderedConnCostRef::operator() | ported | router.rs Router::improve_crossings(): closure `u.0 < v.0` passed to libstdcxx_list_sort
+scanline.h CmpNodePos | subsumed | comparator struct; its operator() is ported (scanline.rs)
+visibility.cpp isBoundingShape::isBoundingShape(ShapeSet &) | subsumed | stores the ShapeSet; the ported predicate takes it as an argument (visibility.rs)
+vpsc.h CompareConstraints | subsumed | comparator class; its operator() is ported (vpsc.rs)
+router.h TopologyAddonInterface::clone | ported | router.rs trait TopologyAddonInterface::clone_box() (Box<dyn> clone)
+
+# --- container typedefs replaced by Rust types --------------------------------
+connector.h ConnRefList | subsumed | std::list<ConnRef*>; Rust uses Vec<ConnIdx> (alias in hyperedge.rs/hyperedgetree.rs)
+connend.h ConnRefList | subsumed | std::list<ConnRef*>; Rust uses Vec<ConnIdx> (alias in hyperedge.rs/hyperedgetree.rs)
+obstacle.h ConnRefList | subsumed | std::list<ConnRef*>; Rust uses Vec<ConnIdx> (alias in hyperedge.rs/hyperedgetree.rs)
+hyperedgeimprover.h ConnRefList | subsumed | duplicate of the hyperedgetree.h typedef; Rust alias in hyperedgetree.rs
+hyperedgeimprover.h JunctionRefList | subsumed | duplicate of the hyperedgetree.h typedef; Rust alias in hyperedgetree.rs
+hyperedgeimprover.h JunctionSet | subsumed | duplicate of the hyperedgetree.h typedef; Rust alias in hyperedgetree.rs
+hyperedgeimprover.h JunctionHyperedgeTreeNodeMap | subsumed | duplicate of the hyperedgetree.h typedef; Rust alias in hyperedgetree.rs
+junction.h JunctionRefList | subsumed | std::list<JunctionRef*>; Rust uses Vec<JunctionRef> (alias in hyperedge.rs/hyperedgetree.rs)
+shape.h ShapeRefList | subsumed | std::list<ShapeRef*>; Rust uses Vec of handles
+obstacle.h ObstacleList | subsumed | std::list<Obstacle*>; Router::m_obstacles is a Vec<ObstacleIdx> (router.rs)
+router.h ObstacleList | subsumed | std::list<Obstacle*>; Router::m_obstacles is a Vec<ObstacleIdx> (router.rs)
+router.h ClusterRefList | subsumed | std::list<ClusterRef*>; Router::cluster_refs is a Vec (router.rs)
+viscluster.h ClusterRefList | subsumed | std::list<ClusterRef*>; Router::cluster_refs is a Vec (router.rs)
+scanline.h ShiftSegmentList | subsumed | std::list<ShiftSegment*>; Rust uses Vec of segment indices (scanline.rs/orthogonal.rs)
+orthogonal.cpp ConnRefVector | subsumed | local std::vector<ConnRef*> in improveOrthogonalRoutes; Rust Vec
+orthogonal.cpp RouteVector | subsumed | local std::vector<Polygon> in improveOrthogonalRoutes; Rust Vec
+orthogonal.cpp ShiftSegmentPtrList | subsumed | std::list<ShiftSegment*>; Rust Vec (orthogonal.rs)
+router.cpp CrossingConnectorsMapList | subsumed | std::list<CrossingConnectorsMap>; Rust Vec (router.rs field comment)
+router.cpp ConnCostRefList | subsumed | std::list<ConnCostRef>; Rust Vec sorted with libstdcxx_list_sort (router.rs)
+vpsc.cpp VarOffsetMapList | subsumed | std::list<std::map<Variable*,double>>; EqualityConstraintSet::variable_groups is Vec<BTreeMap<VarIdx, f64>> (vpsc.rs)
+vpsc.cpp node | subsumed | helper struct of constraintGraphIsCyclic; Rust uses index maps (vpsc.rs)
+vpsc.h Variables | subsumed | std::vector<Variable*>; Rust Vec<Variable> (vpsc.rs)
+vpsc.h Constraints | subsumed | std::vector<Constraint*>; Rust Vec of constraint indices (vpsc.rs)
+vpsc.h Heap | subsumed | std::priority_queue; heap reimplemented with libstdc++ semantics (vpsc.rs module docs "Heaps")
+vpsc.h Block::Vit | subsumed | iterator typedef
+vpsc.h Block::Cit | subsumed | iterator typedef
+vpsc.h Block::Cit_const | subsumed | iterator typedef
+vpsc.h Blocks::size | subsumed | inline `m_blocks.size()`; Rust uses bs.m_blocks.len() directly
+vpsc.h Blocks::at | subsumed | inline `m_blocks[index]`; Rust indexes bs.m_blocks directly
+vpsc.h Blocks::insert | subsumed | inline `m_blocks.push_back()`; Rust pushes to bs.m_blocks directly
+
+# --- dead code / declared but never defined ----------------------------------
+geometry.cpp SAME_SIGNS | dead-code | macro defined but never used upstream
+hyperedgeimprover.cpp CmpHyperedgeSegmentDirOrder | dead-code | inside `#if 0` ("UNUSED")
+router.cpp AngleAFromThreeSides | dead-code | only compiled with SELECTIVE_DEBUG
+vpsc.h Block::Direction | dead-code | only used by the commented-out Block::compute_dfdv_between()
+vpsc.h Block::Pair | dead-code | only used by the commented-out Block::compute_dfdv_between()
+mtst.h MinimumTerminalSpanningTree::setDebuggingOutput | declared-undefined | declared in mtst.h, never defined
+obstacle.h Obstacle::assignPinVisibilityTo | declared-undefined | declared in obstacle.h, never defined
+shape.h ShapeRef::assignPinVisibilityTo | declared-undefined | declared in shape.h, never defined (noted in shape.rs)
+orthogonal.cpp LineSegment::operator= | declared-undefined | private, never defined (MSVC workaround)
+orthogonal.cpp LineSegment::LineSegment() | declared-undefined | private default ctor, never defined (MSVC workaround)
+visibility.cpp isBoundingShape::operator= | declared-undefined | private, never defined (MSVC workaround)
+visibility.cpp isBoundingShape::isBoundingShape() | declared-undefined | private default ctor, never defined (MSVC workaround)
+
+# --- debug output -------------------------------------------------------------
+connectionpin.h ShapeConnectionPin::outputCode | debug-output | emits C++ reproduction code (noted in connectionpin.rs)
+connector.h ConnRef::outputCode | debug-output | emits C++ reproduction code (noted in connector.rs)
+connend.h ConnEnd::outputCode | debug-output | emits C++ reproduction code (noted in connend.rs)
+junction.h JunctionRef::outputCode | debug-output | emits C++ reproduction code (noted in junction.rs)
+obstacle.h Obstacle::outputCode | debug-output | emits C++ reproduction code (noted in obstacle.rs)
+shape.h ShapeRef::outputCode | debug-output | emits C++ reproduction code (noted in shape.rs)
+graph.h EdgeInf::db_print | debug-output | db_printf debug dump
+hyperedge.h HyperedgeRerouter::outputInstanceToSVG | debug-output | SVG debug output
+hyperedgeimprover.h HyperedgeImprover::outputHyperedgesToSVG | debug-output | SVG debug output (MAJOR_HYPEREDGE_IMPROVEMENT_DEBUG only)
+hyperedgetree.h HyperedgeTreeNode::outputEdgesExcept | debug-output | SVG debug output
+hyperedgetree.h HyperedgeTreeEdge::outputNodesExcept | debug-output | SVG debug output
+makepath.cpp printDirections | debug-output | ESTIMATED_COST_DEBUG-only debug print
+mtst.h MinimumTerminalSpanningTree::drawForest | debug-output | debug drawing, only called under DEBUGHANDLER (its fprintf is commented out)
+router.h Router::setDebugHandler | debug-output | DebugHandler is not ported (noted in router.rs)
+router.h Router::debugHandler | debug-output | DebugHandler is not ported (noted in router.rs)
+router.h Router::outputInstanceToSVG | debug-output | SVG debug output, out of scope (mod.rs)
+router.h Router::outputDiagramSVG | debug-output | SVG debug output, out of scope (mod.rs)
+router.h Router::outputDiagram | subsumed | wrapper calling outputDiagramText() (+ SVG under SVG_OUTPUT); the port exposes Router::output_diagram_text() returning a String
+router.cpp LIMIT | debug-output | coordinate clamp used only by the SVG output functions
+router.cpp reduceRange | debug-output | coordinate clamp used only by the SVG output functions
+vpsc.h IncSolver::printBlocks | debug-output | LIBVPSC_LOGGING-only (body empty otherwise)
+vpsc.h Constraint::toString | debug-output | debug string formatting
+vpsc.h operator<< | debug-output | ostream debug printing of Block/Variable/Constraint

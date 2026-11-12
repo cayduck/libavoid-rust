@@ -21,11 +21,14 @@
 # be stale -- left by an earlier MTST or A* search -- and point at a vertex
 # deleted since (an orthogonal visibility graph vertex freed by graph
 # regeneration, a deleted connector's vertex, ...).  That is a use-after-free
-# upstream.  Under the bump allocator the dead vertex stays readable, but the
-# Rust port cannot model it (its handle is dead or already reused), so the
-# copy exits with code 7 there and the oracle drops the scene.  The MTST's
-# own dummy vertices (id (0,42)) are exempt: the port keeps them readable
-# (mtst.rs, "Deleted dummy vertices").
+# upstream.  The Rust port defines it (router.rs module docs, "Stale
+# pathNext"): a pathNext link to a deleted vertex reads as null.  The copy
+# applies exactly that rule -- it tests whether start->pathNext is still in
+# the router's vertex list (every deleted vertex, including the MTST's own
+# dummy vertices, has been removed from it) and ignores the link if not --
+# so those scenes are compared too instead of being dropped.  Live links
+# are untouched, i.e. upstream behaviour is unchanged wherever it is
+# defined.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 VENDOR="${VENDOR:-$ROOT/vendor/adaptagrams/cola}"
@@ -60,23 +63,22 @@ old = """        if (start->pathNext)
         {
 """
 assert s.count(old) == 1
-s = s.replace(old, old + """            {
-                // ORACLE: detect the use-after-free described in
-                // build_hyperedge_oracle.sh and drop the scene.
-                bool oracleLive = false;
-                for (VertInf *k = lineRef->router()->vertices.connsBegin();
-                        k; k = k->lstNext)
-                {
-                    if (k == start->pathNext) oracleLive = true;
-                }
-                if (!oracleLive && !(start->pathNext->id == VertID(0, 42)))
-                {
-                    _exit(7);
-                }
+s = s.replace(old, """        // ORACLE: the port's stale-pathNext rule (see
+        // build_hyperedge_oracle.sh): a link to a deleted vertex (no longer
+        // in the vertex list; the bump allocator never reuses addresses)
+        // reads as null.  Nothing is dereferenced before the check.
+        bool oracleLive = false;
+        if (start->pathNext)
+        {
+            for (VertInf *k = lineRef->router()->vertices.connsBegin();
+                    k; k = k->lstNext)
+            {
+                if (k == start->pathNext) oracleLive = true;
             }
+        }
+        if (oracleLive)
+        {
 """)
-s = s.replace('#include <algorithm>', '#include <algorithm>\n#include <unistd.h>', 1)
-assert '#include <unistd.h>' in s
 open(p, "w").write(s)
 PY
 g++ -std=c++11 -O2 -ffp-contract=off -fno-access-control -w -I"$BUILD" \

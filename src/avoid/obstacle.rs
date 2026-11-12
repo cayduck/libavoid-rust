@@ -116,7 +116,13 @@ impl Obstacle {
         }
         router.obstacles[o].m_last_vert = node;
 
-        let first = router.obstacles[o].m_first_vert.expect("Obstacle with empty polygon");
+        // MISUSE (port addition): an empty polygon gives an obstacle with no
+        // vertices (upstream dereferences null here).  ShapeRef::new never
+        // adds such an "inert" obstacle to the scene; see the router.rs
+        // module docs, "Public-API misuse".
+        let Some(first) = router.obstacles[o].m_first_vert else {
+            return o;
+        };
         let lastv = node.unwrap();
         router.vert_infs[lastv].sh_next = Some(first);
         router.vert_infs[first].sh_prev = Some(lastv);
@@ -143,16 +149,18 @@ impl Obstacle {
         }
 
         debug_assert!(!router.obstacles[o].m_active);
-        let first = router.obstacles[o].m_first_vert.expect("Obstacle without vertices");
+        // (An inert obstacle -- empty polygon, see new_base -- has no
+        // vertices.)
+        if let Some(first) = router.obstacles[o].m_first_vert {
+            let mut it = first;
+            loop {
+                let tmp = it;
+                it = router.vert_infs[it].sh_next.unwrap();
 
-        let mut it = first;
-        loop {
-            let tmp = it;
-            it = router.vert_infs[it].sh_next.unwrap();
-
-            VertInf::delete(router, tmp);
-            if it == first {
-                break;
+                VertInf::delete(router, tmp);
+                if it == first {
+                    break;
+                }
             }
         }
         router.obstacles[o].m_first_vert = None;
@@ -401,7 +409,9 @@ impl Obstacle {
     // upstream: obstacle.cpp Obstacle::routingBox()
     pub fn routing_box(router: &Router, o: ObstacleIdx) -> Box {
         let poly = &router.obstacles[o].m_polygon;
-        debug_assert!(!poly.empty());
+        // (Upstream asserts !poly.empty().  An empty polygon is MISUSE that
+        // gives an inert obstacle, see new_base; the result is then empty /
+        // inverted and never used for routing.)
 
         let buffer_space = router.routing_parameter(RoutingParameter::ShapeBufferDistance);
         poly.offset_bounding_box(buffer_space)
@@ -410,7 +420,9 @@ impl Obstacle {
     // upstream: obstacle.cpp Obstacle::routingPolygon()
     pub fn routing_polygon(router: &Router, o: ObstacleIdx) -> Polygon {
         let poly = &router.obstacles[o].m_polygon;
-        debug_assert!(!poly.empty());
+        // (Upstream asserts !poly.empty().  An empty polygon is MISUSE that
+        // gives an inert obstacle, see new_base; the result is then empty /
+        // inverted and never used for routing.)
 
         let buffer_space = router.routing_parameter(RoutingParameter::ShapeBufferDistance);
         poly.offset_polygon(buffer_space)
@@ -489,26 +501,56 @@ impl Obstacle {
 impl ObstacleIdx {
     // upstream: obstacle.cpp Obstacle::id()
     pub fn id(self, router: &Router) -> u32 {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.obstacles.contains(self) {
+            return 0;
+        }
         router.obstacles[self].m_id
     }
     // upstream: obstacle.cpp Obstacle::polygon()
     pub fn polygon(self, router: &Router) -> &Polygon {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.obstacles.contains(self) {
+            return &crate::avoid::geomtypes::EMPTY_POLYGON;
+        }
         &router.obstacles[self].m_polygon
     }
     // upstream: Obstacle::position() (virtual)
     pub fn position(self, router: &Router) -> Point {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.obstacles.contains(self) {
+            return Point::default();
+        }
         Obstacle::position(router, self)
     }
     // upstream: obstacle.cpp Obstacle::routingBox()
     pub fn routing_box(self, router: &Router) -> Box {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.obstacles.contains(self) {
+            return Box::default();
+        }
         Obstacle::routing_box(router, self)
     }
     // upstream: obstacle.cpp Obstacle::routingPolygon()
     pub fn routing_polygon(self, router: &Router) -> Polygon {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.obstacles.contains(self) {
+            return Polygon::new();
+        }
         Obstacle::routing_polygon(router, self)
     }
     // upstream: obstacle.cpp Obstacle::attachedConnectors()
     pub fn attached_connectors(self, router: &Router) -> Vec<ConnIdx> {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.obstacles.contains(self) {
+            return Vec::new();
+        }
         Obstacle::attached_connectors(router, self)
     }
 }

@@ -83,6 +83,99 @@
 //! * `Router::shouldContinueTransactionWithProgress()` (virtual upstream)
 //!   is overridable through [`Router::m_progress_callback`].
 //! * `TopologyAddonInterface` is the trait [`TopologyAddonInterface`].
+//!
+//! ## Dangling handles
+//! Arena handles are generation-checked in all builds (`arena.rs`): a
+//! handle to a freed object never aliases a later object in the same slot;
+//! `Arena::contains`/`get` report it dead and indexing with it panics.
+//! Upstream pointers that may legitimately outlive their object are read
+//! through liveness checks; everything else indexes directly, so a bug
+//! that dereferences a dead handle stops deterministically instead of
+//! silently reading another object.
+//!
+//! ### Stale `pathNext`
+//! `VertInf::pathNext` is written by every A* search (the found path) and
+//! every MTST construction (the shortest-path forest) and is never cleared
+//! when the vertex it points at is deleted (orthogonal visibility graph
+//! regeneration, MTST dummy vertices, deleted connector/checkpoint
+//! vertices).  Upstream's only *intended* reader of a pre-existing
+//! `pathNext` is the start of `AStarPathPrivate::search`
+//! (`if (start->pathNext)`): during checkpoint routing the previous
+//! segment's search has just set it, so the next segment prefers to leave
+//! the checkpoint collinearly.  For any other search the value is a
+//! left-over of an unrelated earlier search; upstream still honours it
+//! (defined, deterministic behaviour while the target vertex is alive,
+//! which this port reproduces exactly) but dereferences freed memory when
+//! the target was deleted.  Policy: a `pathNext` link to a deleted vertex
+//! reads as null ([`VertInf::live_path_next`]), at the search start, in
+//! the rubber-band unwind walk and in `generatePath`'s path check.  This
+//! is bit-identical with upstream whenever upstream's behaviour is defined
+//! and never touches freed or reused slots.  The hyperedge oracle
+//! (`tools/oracle/build_hyperedge_oracle.sh`) patches exactly this rule into
+//! its copy of upstream, so the scenes that hit the use-after-free are
+//! compared byte for byte instead of being dropped.
+//!
+//! ## Public-API misuse
+//! The release WASM build aborts on panic, so input that upstream leaves
+//! undefined (or crashes on) must not panic here either.  Where upstream's
+//! behaviour is defined the port reproduces it; elsewhere it does the
+//! following (sites are marked `MISUSE`; exercised by
+//! `tests/robustness.rs` in all routing/transaction modes):
+//! * Handles of freed objects: `Router` delete/move calls and handle
+//!   methods are no-ops (getters return empty/default values).  Deleting
+//!   twice is a no-op.
+//! * A shape/junction deleted in the transaction that created it: the
+//!   queued add is cancelled and the object is freed by
+//!   `processActions()`.  Moving an object queued for deletion, adding one
+//!   already in the scene, or moving a shape to a polygon with a different
+//!   number of points is ignored.
+//! * `ConnEnd`s (copies in user code, queued actions, hyperedge terminal
+//!   lists) whose shape/junction was freed become free point ends at the
+//!   position stored when they were made; references to freed pins are
+//!   dropped (`ConnEnd::forget_dead_refs`).
+//! * Non-finite coordinates: a shape with them, or with an empty polygon,
+//!   is *inert* (never added to the scene, moves ignored, deletable);
+//!   moves and endpoints with them are ignored; such checkpoints are
+//!   dropped; a junction gets 0 for the non-finite components.
+//! * Transactions off: a `processTransaction()` nested inside
+//!   `processActions()` is a no-op (upstream recurses forever when moving
+//!   an obstacle with attached connectors, and dereferences null when
+//!   deleting one with pins); the queued action is handled by the running
+//!   transaction.
+//! * Hyperedges: a registered hyperedge whose MTST has no junction (fewer
+//!   than three distinct terminals, unreachable terminals) is skipped; one
+//!   that contains a cycle is treated as invalid (upstream recurses
+//!   forever); a freed root junction is ignored.
+//! * `splitAtSegment(0)` is a no-op; splitting a connector whose
+//!   destination is a free point uses a point end for the new connector.
+//! * `removeJunctionAndMergeConnectors()` on a junction holding both ends
+//!   of one connector is a no-op.
+//! * Rubber-band routing whose current route has points without a graph
+//!   vertex (e.g. after `setFixedRoute`) searches afresh from the source
+//!   (upstream dereferences null).
+//! * A VPSC failure during nudging (upstream throws an uncaught exception)
+//!   leaves that nudging region unchanged.
+//!
+//! Upstream undefined behaviour reachable from *valid* input, found with
+//! AddressSanitizer by `tools/oracle/audit_scenes.sh` (those scenes have no
+//! golden; `tests/audit_scenes.rs` only checks the port runs them): zero
+//! extent obstacles leave a deleted `Node` in the channel-info scanline
+//! (use-after-free; the port keeps the node in its arena until the sweep
+//! ends, the bump-allocator reading), `markAllObstaclesAsMoved()` after a
+//! `deleteShape()` in the same transaction deactivates the shape twice
+//! (the port ignores the move), cluster-crossing counting in A* overflows
+//! a heap buffer, and rubber-band routing dereferences a null start vertex
+//! (the port runs all of these without panicking).
+//!
+//! ## Asserts
+//! `COLA_ASSERT` becomes `debug_assert!`, with one exception: an assert
+//! that upstream itself violates on valid input (or whose violation
+//! upstream's release build tolerates for accepted API input) is not
+//! ported, so that debug builds never panic where upstream's release build
+//! works.  Each such site carries a comment `Upstream: COLA_ASSERT(..).
+//! Not ported (assert policy)` with the evidence (the nudging oracle's 29
+//! `#assert` scenes run in debug builds too).  Asserts on API misuse are
+//! made unreachable by the `MISUSE` handling above.
 
 #![allow(dead_code)]
 // Keep upstream statement shapes.
@@ -314,11 +407,6 @@ pub struct Router {
     pub edge_infs: EdgeArena,
     /// Cells allocated by `VertInf::makeTreeRootPointer()`.
     pub tree_root_cells: Arena<TreeRootPtr, Option<VertIdx>>,
-    /// Dummy vertices deleted by `MinimumTerminalSpanningTree` whose arena
-    /// slots are kept until the next MTST construction, because upstream
-    /// keeps reading them through dangling `pathNext` pointers (see
-    /// `mtst.rs`, "Deleted dummy vertices").
-    pub m_mtst_zombie_vertices: Vec<VertIdx>,
     pub obstacles: ObstacleArena,
     pub conns: ConnArena,
     pub pins: PinArena,
@@ -390,6 +478,9 @@ pub struct Router {
     pub m_callback_log: Vec<ConnIdx>,
     /// Override of the virtual `shouldContinueTransactionWithProgress()`.
     pub m_progress_callback: Option<ProgressCallback>,
+    /// True while `processActions()` runs (port addition; see
+    /// `process_transaction`).
+    pub m_in_process_actions: bool,
 }
 
 /// Transaction clock (stand-in for `clock()`).
@@ -758,7 +849,6 @@ impl Router {
             vert_infs: Arena::new(),
             edge_infs: Arena::new(),
             tree_root_cells: Arena::new(),
-            m_mtst_zombie_vertices: Vec::new(),
             obstacles: Arena::new(),
             conns: Arena::new(),
             pins: Arena::new(),
@@ -807,6 +897,7 @@ impl Router {
             m_hyperedge_improver: HyperedgeImprover::new(),
             m_callback_log: Vec::new(),
             m_progress_callback: None,
+            m_in_process_actions: false,
         }
     }
 
@@ -899,6 +990,11 @@ impl Router {
     /// Upstream default for `conn_pin_move_update` is false.
     // upstream: router.cpp Router::modifyConnector(ConnRef *, unsigned int, const ConnEnd&, bool)
     pub fn modify_connector_end(&mut self, conn: ConnIdx, type_: u32, conn_end: &ConnEnd, conn_pin_move_update: bool) {
+        // MISUSE (port addition): an endpoint at non-finite coordinates is
+        // ignored (the connector keeps its previous end, if any).
+        if !conn_end.position(self).is_finite() {
+            return;
+        }
         let mut mod_info = ActionInfo::new_conn(self, ActionType::ConnChange, conn);
 
         match find_action(&self.action_list, &mod_info) {
@@ -951,6 +1047,12 @@ impl Router {
 
     // upstream: router.cpp Router::addShape()
     pub fn add_shape(&mut self, shape: ShapeRef) {
+        // MISUSE (port addition): adding a shape that is already in the
+        // scene is ignored (upstream re-activates it: assert / corrupt
+        // lists).
+        if self.obstacles[shape.0].m_active {
+            return;
+        }
         // There shouldn't be remove events or move events for the same shape
         // already in the action list.
         // XXX: Possibly we could handle this by ordering them intelligently.
@@ -980,14 +1082,21 @@ impl Router {
     /// when the transaction is processed).
     // upstream: router.cpp Router::deleteShape()
     pub fn delete_shape(&mut self, shape: ShapeRef) {
+        // MISUSE: a handle of an already freed shape is ignored.
+        if !self.obstacles.contains(shape.0) {
+            return;
+        }
         // There shouldn't be add events events for the same shape already
         // in the action list.
         // XXX: Possibly we could handle this by ordering them intelligently.
-        debug_assert!(find_action(
-            &self.action_list,
-            &ActionInfo::new_shape(self, ActionType::ShapeAdd, shape)
-        )
-        .is_none());
+        // (Upstream asserts here and, in release builds, later erases an
+        // uninitialised list iterator.  MISUSE: the queued add is
+        // cancelled instead; processActions() frees the never-activated
+        // shape.)
+        let add = ActionInfo::new_shape(self, ActionType::ShapeAdd, shape);
+        if let Some(found) = find_action(&self.action_list, &add) {
+            self.action_list.remove(found);
+        }
 
         // Delete any ShapeMove entries for this shape in the action list.
         let mv = ActionInfo::new_shape(self, ActionType::ShapeMove, shape);
@@ -1009,6 +1118,10 @@ impl Router {
     /// Remove a connector from the router scene (immediately).
     // upstream: router.cpp Router::deleteConnector()
     pub fn delete_connector(&mut self, connector: ConnIdx) {
+        // MISUSE: a handle of an already freed connector is ignored.
+        if !self.conns.contains(connector) {
+            return;
+        }
         self.m_currently_calling_destructors = true;
         ConnRef::delete(self, connector);
         self.m_currently_calling_destructors = false;
@@ -1017,6 +1130,10 @@ impl Router {
     /// Move or resize an existing shape by a relative offset.
     // upstream: router.cpp Router::moveShape(ShapeRef *, const double, const double)
     pub fn move_shape_by(&mut self, shape: ShapeRef, x_diff: f64, y_diff: f64) {
+        // MISUSE: a handle of an already freed shape is ignored.
+        if !self.obstacles.contains(shape.0) {
+            return;
+        }
         let move_info = ActionInfo::new_shape_move(self, ActionType::ShapeMove, shape, &Polygon::new(), false);
 
         let mut new_poly = match find_action(&self.action_list, &move_info) {
@@ -1046,14 +1163,32 @@ impl Router {
     /// `first_move` is false.
     // upstream: router.cpp Router::moveShape(ShapeRef *, const Polygon&, const bool)
     pub fn move_shape(&mut self, shape: ShapeRef, new_poly: &Polygon, first_move: bool) {
+        // MISUSE: a handle of an already freed shape is ignored, and so is
+        // an inert shape (empty polygon, see ShapeRef::new).
+        if self.obstacles.get(shape.0).is_none_or(|o| o.m_first_vert.is_none()) {
+            return;
+        }
+        // MISUSE: the new polygon must have as many points as the old one
+        // (upstream asserts in Obstacle::setNewPoly() and otherwise leaves
+        // the shape's vertices out of step with its polygon).  Such a move
+        // is ignored; delete the shape and create a new one instead.
+        if self.obstacles[shape.0].m_polygon.size() != new_poly.size() {
+            return;
+        }
+        // MISUSE: so is a move to non-finite coordinates (and any move of
+        // a shape created with them, which is inert: ShapeRef::new).
+        if !new_poly.ps.iter().all(|p| p.is_finite()) || !self.obstacles[shape.0].m_active && !self.action_list.iter().any(|a| a.type_ == ActionType::ShapeAdd && a.obstacle() == shape.0) {
+            return;
+        }
         // There shouldn't be remove events or add events for the same shape
         // already in the action list.
         // XXX: Possibly we could handle this by ordering them intelligently.
-        debug_assert!(find_action(
-            &self.action_list,
-            &ActionInfo::new_shape(self, ActionType::ShapeRemove, shape)
-        )
-        .is_none());
+        // (Upstream asserts; in release builds the shape is moved after
+        // being freed.  MISUSE: moving a shape queued for deletion is
+        // ignored.)
+        if find_action(&self.action_list, &ActionInfo::new_shape(self, ActionType::ShapeRemove, shape)).is_some() {
+            return;
+        }
 
         let add = ActionInfo::new_shape(self, ActionType::ShapeAdd, shape);
         if let Some(found) = find_action(&self.action_list, &add) {
@@ -1141,6 +1276,7 @@ impl Router {
         self.m_transaction_start_time = clock_now();
         self.m_abort_transaction = false;
 
+        self.m_in_process_actions = true;
         let mut deleted_obstacles: Vec<u32> = Vec::new();
         // actionList.sort()
         let list = std::mem::take(&mut self.action_list);
@@ -1171,6 +1307,18 @@ impl Router {
             let new_position = act_inf.new_position;
 
             let pid = self.obstacles[obstacle].m_id;
+
+            if !self.obstacles[obstacle].m_active {
+                // MISUSE (port addition): an obstacle deleted in the same
+                // transaction that created it (deleteShape() cancelled its
+                // queued add) was never activated: just free it.
+                debug_assert!(!is_move);
+                self.m_currently_calling_destructors = true;
+                deleted_obstacles.push(pid);
+                Obstacle::delete(self, obstacle);
+                self.m_currently_calling_destructors = false;
+                continue;
+            }
 
             // o  Remove entries related to this shape's vertices
             Obstacle::remove_from_graph(self, obstacle);
@@ -1297,12 +1445,26 @@ impl Router {
         }
         // Clear the actionList.
         self.action_list.clear();
+        self.m_in_process_actions = false;
     }
 
     /// Finishes the current transaction and processes all the queued
     /// object changes efficiently.  Returns whether any changes were made.
     // upstream: router.cpp Router::processTransaction()
     pub fn process_transaction(&mut self) -> bool {
+        // MISUSE / upstream bug (port addition): with transactions off,
+        // processActions() itself queues actions whose queueing calls
+        // processTransaction() again -- moving a shape or junction with
+        // attached connectors (moveAttachedConns -> modifyConnector)
+        // recurses until the stack overflows upstream, and deleting an
+        // obstacle with connection pins (~Obstacle -> pin removal ->
+        // modifyConnectionPin) re-processes the half-deleted obstacle
+        // (null dereference).  A nested call is a no-op here: the action
+        // just queued is appended to the list being processed and handled
+        // by the running processActions() exactly as in transaction mode.
+        if self.m_in_process_actions {
+            return false;
+        }
         // If SimpleRouting, then don't update here.
         if (self.action_list.is_empty()
             && (self.m_hyperedge_rerouter.count() == 0)
@@ -1323,6 +1485,13 @@ impl Router {
 
     // upstream: router.cpp Router::addJunction()
     pub fn add_junction(&mut self, junction: JunctionRef) {
+        // MISUSE / upstream bug (port addition): adding a junction that is
+        // already in the scene is ignored.  Upstream re-activates it; this
+        // happens in ConnRef::splitAtSegment() with transactions off
+        // (the JunctionRef constructor already added it).
+        if self.obstacles[junction.0].m_active {
+            return;
+        }
         // There shouldn't be remove events or move events for the same junction
         // already in the action list.
         // XXX: Possibly we could handle this by ordering them intelligently.
@@ -1351,14 +1520,19 @@ impl Router {
     /// Remove a junction from the router scene (queued).
     // upstream: router.cpp Router::deleteJunction()
     pub fn delete_junction(&mut self, junction: JunctionRef) {
+        // MISUSE: a handle of an already freed junction is ignored.
+        if !self.obstacles.contains(junction.0) {
+            return;
+        }
         // There shouldn't be add events events for the same junction already
         // in the action list.
         // XXX: Possibly we could handle this by ordering them intelligently.
-        debug_assert!(find_action(
-            &self.action_list,
-            &ActionInfo::new_junction(self, ActionType::JunctionAdd, junction)
-        )
-        .is_none());
+        // (Upstream asserts.  MISUSE: the queued add is cancelled instead,
+        // as in deleteShape().)
+        let add = ActionInfo::new_junction(self, ActionType::JunctionAdd, junction);
+        if let Some(found) = find_action(&self.action_list, &add) {
+            self.action_list.remove(found);
+        }
 
         // Delete any ShapeMove entries for this shape in the action list.
         let mv = ActionInfo::new_junction(self, ActionType::JunctionMove, junction);
@@ -1380,6 +1554,10 @@ impl Router {
     /// Move an existing junction by a relative offset.
     // upstream: router.cpp Router::moveJunction(JunctionRef *, const double, const double)
     pub fn move_junction_by(&mut self, junction: JunctionRef, x_diff: f64, y_diff: f64) {
+        // MISUSE: a handle of an already freed junction is ignored.
+        if !self.obstacles.contains(junction.0) {
+            return;
+        }
         let move_info = ActionInfo::new_junction_move(self, ActionType::JunctionMove, junction, &Point::default());
 
         let mut new_position = match find_action(&self.action_list, &move_info) {
@@ -1397,14 +1575,23 @@ impl Router {
     /// Move an existing junction to a new position.
     // upstream: router.cpp Router::moveJunction(JunctionRef *, const Point&)
     pub fn move_junction(&mut self, junction: JunctionRef, new_position: &Point) {
+        // MISUSE: a handle of an already freed junction is ignored.
+        if !self.obstacles.contains(junction.0) {
+            return;
+        }
         // There shouldn't be remove events or add events for the same junction
         // already in the action list.
         // XXX: Possibly we could handle this by ordering them intelligently.
-        debug_assert!(find_action(
-            &self.action_list,
-            &ActionInfo::new_junction(self, ActionType::JunctionRemove, junction)
-        )
-        .is_none());
+        // (MISUSE: moving a junction queued for deletion, or to non-finite
+        // coordinates, is ignored.)
+        if !new_position.is_finite() {
+            return;
+        }
+        if find_action(&self.action_list, &ActionInfo::new_junction(self, ActionType::JunctionRemove, junction))
+            .is_some()
+        {
+            return;
+        }
 
         let add = ActionInfo::new_junction(self, ActionType::JunctionAdd, junction);
         if let Some(found) = find_action(&self.action_list, &add) {
@@ -1449,6 +1636,11 @@ impl Router {
     /// `ClusterRef` itself is not freed.)
     // upstream: router.cpp Router::deleteCluster()
     pub fn delete_cluster(&mut self, cluster: ClusterIdx) {
+        // MISUSE: deleting a cluster that is not in the scene (deleted
+        // already) is ignored; upstream erases an invalid list iterator.
+        if !self.clusters.get(cluster).is_some_and(|c| c.m_active) {
+            return;
+        }
         ClusterRef::make_inactive(self, cluster);
 
         let pid = self.clusters[cluster].m_id;

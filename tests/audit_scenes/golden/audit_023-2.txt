@@ -1,0 +1,15 @@
+rect
+id=3
+x=-30
+y=-5
+width=50
+height=20
+
+rect
+id=1
+x=275
+y=0
+width=60
+height=30
+
+

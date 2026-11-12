@@ -602,6 +602,20 @@ impl VertInf {
         idx
     }
 
+    /// `pathNext` of `v` if it names a live vertex, else `None`.
+    ///
+    /// `pathNext` is a weak link: upstream never clears it when the vertex
+    /// it points at is deleted, and reads it again at the start of the next
+    /// A* search from `v` (makepath.cpp, `if (start->pathNext)`), a
+    /// use-after-free.  See "Stale `pathNext`" in the `router.rs` module
+    /// docs: a link to a deleted vertex reads as null.  Links to live
+    /// vertices are returned unchanged, so behaviour is bit-identical with
+    /// upstream wherever upstream's behaviour is defined.
+    #[inline]
+    pub fn live_path_next(router: &Router, v: VertIdx) -> Option<VertIdx> {
+        router.vert_infs[v].path_next.filter(|&n| router.vert_infs.contains(n))
+    }
+
     /// Frees the vertex (upstream `delete vert`).  Like upstream, this does
     /// not unlink it from `Router::vertices`; callers do that first.
     // upstream: vertices.cpp VertInf::~VertInf()
