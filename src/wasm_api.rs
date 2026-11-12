@@ -123,6 +123,19 @@ impl NdLists {
 
 type CallbackLog = Rc<RefCell<Vec<(ConnIdx, u64)>>>;
 
+#[wasm_bindgen]
+extern "C" {
+    /// A JS function `(elapsedMs, phase, totalPhases, proportion) => boolean`
+    /// called for upstream `shouldContinueTransactionWithProgress()`.
+    #[wasm_bindgen(typescript_type = "(elapsedMs: number, phase: number, totalPhases: number, proportion: number) => boolean")]
+    pub type ProgressFn;
+
+    #[wasm_bindgen(method, catch, js_name = call)]
+    fn call4(this: &ProgressFn, this_arg: &JsValue, elapsed: u32, phase: u32, total: u32, proportion: f64) -> Result<JsValue, JsValue>;
+}
+
+type ProgressSlot = Rc<RefCell<Option<ProgressFn>>>;
+
 /// Libavoid router with string object ids (see the module docs).
 #[wasm_bindgen]
 pub struct AvoidRouter {
@@ -134,6 +147,7 @@ pub struct AvoidRouter {
     by_cluster: HashMap<ClusterIdx, (u64, String)>,
     pins: HashMap<String, Vec<PinEntry>>,
     transactions: Rc<Cell<u64>>,
+    progress: ProgressSlot,
     callback_log: CallbackLog,
     last_updated: Vec<String>,
     hyperedge_results: Option<Vec<NdLists>>,
@@ -234,8 +248,9 @@ impl AvoidRouter {
             return None;
         }
         let transactions = Rc::new(Cell::new(0u64));
+        let progress: ProgressSlot = Rc::new(RefCell::new(None));
         let mut router = Router::new(flags);
-        AvoidRouter::install_progress_hook(&mut router, &transactions);
+        AvoidRouter::install_progress_hook(&mut router, &transactions, &progress);
         Some(AvoidRouter {
             router,
             flags,
@@ -245,6 +260,7 @@ impl AvoidRouter {
             by_cluster: HashMap::new(),
             pins: HashMap::new(),
             transactions,
+            progress,
             callback_log: Rc::new(RefCell::new(Vec::new())),
             last_updated: Vec::new(),
             hyperedge_results: None,
@@ -263,15 +279,25 @@ impl AvoidRouter {
         &self.router
     }
 
-    /// Counts completed transactions through the upstream
-    /// `shouldContinueTransactionWithProgress()` hook (always continues).
-    fn install_progress_hook(router: &mut Router, counter: &Rc<Cell<u64>>) {
+    /// Implements the upstream `shouldContinueTransactionWithProgress()`
+    /// hook: counts completed transactions and asks the JS progress
+    /// callback, if one is set (`setProgressCallback`), whether to continue.
+    /// A callback that throws (including wasm-bindgen's error for a call
+    /// back into this router) counts as `false`.
+    fn install_progress_hook(router: &mut Router, counter: &Rc<Cell<u64>>, progress: &ProgressSlot) {
         let counter = counter.clone();
-        router.m_progress_callback = Some(Box::new(move |_elapsed, phase, _total, _proportion| {
+        let progress = progress.clone();
+        router.m_progress_callback = Some(Box::new(move |elapsed, phase, total, proportion| {
             if phase == TRANSACTION_PHASE_COMPLETED {
                 counter.set(counter.get() + 1);
             }
-            true
+            match progress.borrow().as_ref() {
+                None => true,
+                Some(f) => match f.call4(&JsValue::UNDEFINED, elapsed, phase, total, proportion) {
+                    Ok(v) => v.as_bool() != Some(false),
+                    Err(_) => false,
+                },
+            }
         }));
     }
 
@@ -301,6 +327,13 @@ impl AvoidRouter {
     /// during the transaction(s) just run and records the transaction's
     /// results (updated connectors, hyperedge object lists).
     fn after_transaction(&mut self) {
+        // 0. A transaction the progress callback cancelled (upstream
+        //    `m_abort_transaction`) may have left connectors unrouted (see
+        //    `processTransaction`): make the next processTransaction() run
+        //    the rerouting phase even if nothing new is queued.
+        if self.router.m_abort_transaction {
+            self.router.m_settings_changes = true;
+        }
         // 1. Deleted objects are resolved before the maps are reconciled
         //    (their arena slots may already have been reused).
         let rr = &self.router.m_hyperedge_rerouter;
@@ -891,6 +924,7 @@ impl AvoidRouter {
             fresh.router.set_routing_option(o, self.router.routing_option(o));
         }
         fresh.router.set_transaction_use(self.router.transaction_use());
+        *fresh.progress.borrow_mut() = self.progress.borrow_mut().take();
         *self = fresh;
     }
 
@@ -908,7 +942,11 @@ impl AvoidRouter {
         self.router.transaction_use()
     }
 
-    /// `Router::processTransaction()`.
+    /// `Router::processTransaction()`.  After a transaction cancelled by the
+    /// progress callback this also runs when nothing new is queued, so that
+    /// it finishes the cancelled work (wrapper addition: upstream returns
+    /// false and leaves connectors whose crossing reroute was cut short
+    /// without a route).
     #[wasm_bindgen(js_name = processTransaction)]
     pub fn process_transaction(&mut self) -> bool {
         let t0 = self.begin();
@@ -925,6 +963,53 @@ impl AvoidRouter {
     #[wasm_bindgen(js_name = lastTransactionUpdatedConnectorIds)]
     pub fn last_transaction_updated_connector_ids(&self) -> String {
         json::strings(&self.last_updated)
+    }
+
+    /// Sets (or with `undefined` removes) the function called for upstream
+    /// `Router::shouldContinueTransactionWithProgress(elapsedTime,
+    /// phaseNumber, totalPhases, proportion)`.  Returning `false` (or
+    /// throwing) sets upstream's `m_abort_transaction`, which only the
+    /// crossing-improvement phases (4 and 5) act on.  `elapsedTime` is
+    /// upstream's own clock, which is 0 in wasm (no clock); the JS adapter
+    /// measures time itself.  The function must not call into this router.
+    #[wasm_bindgen(js_name = setProgressCallback)]
+    pub fn set_progress_callback(&mut self, callback: Option<ProgressFn>) {
+        *self.progress.borrow_mut() = callback;
+    }
+
+    /// Whether the progress callback asked the last transaction to stop
+    /// (upstream `m_abort_transaction`, reset when the next transaction
+    /// starts).
+    #[wasm_bindgen(js_name = lastTransactionCancelled)]
+    pub fn last_transaction_cancelled(&self) -> bool {
+        self.router.m_abort_transaction
+    }
+
+    /// Test-only trap trigger (not part of the API; used by the Node tests
+    /// to exercise failure containment on the shipped wasm).  Does nothing
+    /// and returns false unless `arming` is exactly
+    /// `wasm_failure::TEST_PANIC_ARMING`; otherwise traps the wasm instance:
+    /// kind 1 = explicit panic, 2 = index out of bounds after mutating this
+    /// router, 3 = stack overflow (unbounded recursion), 4 = failed
+    /// allocation.  Unknown kinds return false.
+    #[wasm_bindgen(js_name = __testPanic, skip_typescript)]
+    pub fn test_panic(&mut self, kind: u32, arming: String) -> bool {
+        if arming != crate::wasm_failure::TEST_PANIC_ARMING {
+            return false;
+        }
+        match kind {
+            crate::wasm_failure::TEST_PANIC_EXPLICIT => panic!("libavoid-rust test panic (kind {})", kind),
+            crate::wasm_failure::TEST_PANIC_INDEX => {
+                // Half-update the wrapper's state, then index out of bounds
+                // while `&mut self` is held, as a bug in a router method would.
+                self.last_updated.push("__testPanic".to_string());
+                let i = std::hint::black_box(self.last_updated.len());
+                self.last_updated[i].len() > 0
+            }
+            crate::wasm_failure::TEST_PANIC_STACK_OVERFLOW => crate::wasm_failure::recurse_forever(0) > 0,
+            crate::wasm_failure::TEST_PANIC_OUT_OF_MEMORY => crate::wasm_failure::exhaust_memory(),
+            _ => false,
+        }
     }
 
     // --- parameters ---------------------------------------------------------

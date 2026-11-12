@@ -56,7 +56,7 @@ const adapterPath = path.join(__dirname, "..", "lib", "adapter.cjs");
 const adapter = fs.readFileSync(adapterPath, "utf8");
 for (const name of declaredMethods("WasmAvoidRouter")) {
   if (name === "withFlags") continue;
-  assert.ok(adapter.includes(`#inner.${name}(`), `lib/adapter.cjs does not use wasm method ${name}`);
+  assert.ok(adapter.includes(`#raw("${name}")(`), `lib/adapter.cjs does not use wasm method ${name}`);
 }
 
 // The ES-module adapter used by index.mjs is the generated copy of the
