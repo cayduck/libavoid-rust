@@ -1354,6 +1354,7 @@ static std::string f(double v)
 struct GShape
 {
     double x1, y1, x2, y2;          // bounding box
+    std::vector<double> xs, ys;     // polygon
     std::vector<unsigned> classes;  // pin classes (may be stale after delpin)
     bool addedInBatch;
 };
@@ -1563,6 +1564,8 @@ static void genShape(Gen& g)
         std::vector<double> xs, ys;
         genPolygon(g, (x1 + x2) / 2, (y1 + y2) / 2, (x2 - x1) / 2, (y2 - y1) / 2, xs, ys);
         g.L.push_back("poly " + newId(g) + " " + polyText(xs, ys));
+        s.xs = xs;
+        s.ys = ys;
         s.x1 = *std::min_element(xs.begin(), xs.end());
         s.x2 = *std::max_element(xs.begin(), xs.end());
         s.y1 = *std::min_element(ys.begin(), ys.end());
@@ -1573,6 +1576,9 @@ static void genShape(Gen& g)
         g.L.push_back("rect " + newId(g) + " " + f(x1) + " " + f(y1) + " " + f(x2) + " " +
                 f(y2));
         s.x1 = x1; s.y1 = y1; s.x2 = x2; s.y2 = y2;
+        double rx[] = { x2, x2, x1, x1 }, ry[] = { y1, y2, y2, y1 };
+        s.xs.assign(rx, rx + 4);
+        s.ys.assign(ry, ry + 4);
     }
     g.shapes.push_back(s);
     unsigned nPins = chance(50) ? rnd(5) : 0;
@@ -1805,6 +1811,11 @@ static void genOp(Gen& g)
         g.L.push_back("moveby " + std::to_string(si) + " " + f(dx) + " " + f(dy));
         GShape& s = g.shapes[si];
         s.x1 += dx; s.x2 += dx; s.y1 += dy; s.y2 += dy;
+        for (size_t k = 0; k < s.xs.size(); ++k)
+        {
+            s.xs[k] += dx;
+            s.ys[k] += dy;
+        }
     }
     else if (w < 18 && nS > 0)
     {
@@ -1821,7 +1832,25 @@ static void genOp(Gen& g)
             x2 = x1 + w; y2 = y1 + h;
         }
         std::vector<double> xs, ys;
-        if (g.allowPoly && chance(30))
+        if (chance(85))
+        {
+            // Same number of points (upstream requires it: Obstacle::
+            // setNewPoly() asserts): the old polygon scaled into the box.
+            double ow = std::max(1e-9, s.x2 - s.x1), oh = std::max(1e-9, s.y2 - s.y1);
+            for (size_t k = 0; k < s.xs.size(); ++k)
+            {
+                double x = x1 + (s.xs[k] - s.x1) * ((x2 - x1) / ow);
+                double y = y1 + (s.ys[k] - s.y1) * ((y2 - y1) / oh);
+                if (g.grid)
+                {
+                    x = std::round(x / g.unit) * g.unit;
+                    y = std::round(y / g.unit) * g.unit;
+                }
+                xs.push_back(x);
+                ys.push_back(y);
+            }
+        }
+        else if (g.allowPoly && chance(30))
         {
             genPolygon(g, (x1 + x2) / 2, (y1 + y2) / 2, (x2 - x1) / 2, (y2 - y1) / 2, xs, ys);
         }
@@ -1832,6 +1861,8 @@ static void genOp(Gen& g)
             xs.push_back(x1); ys.push_back(y2);
             xs.push_back(x1); ys.push_back(y1);
         }
+        s.xs = xs;
+        s.ys = ys;
         g.L.push_back("moveto " + std::to_string(si) + " " + std::to_string(rnd(2)) + " " +
                 polyText(xs, ys));
         s.x1 = *std::min_element(xs.begin(), xs.end());
