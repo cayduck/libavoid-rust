@@ -150,6 +150,22 @@
 //!   destination is a free point uses a point end for the new connector.
 //! * `removeJunctionAndMergeConnectors()` on a junction holding both ends
 //!   of one connector is a no-op.
+//! * Rubber-band routing whose current route has points without a graph
+//!   vertex (e.g. after `setFixedRoute`) searches afresh from the source
+//!   (upstream dereferences null).
+//! * A VPSC failure during nudging (upstream throws an uncaught exception)
+//!   leaves that nudging region unchanged.
+//!
+//! Upstream undefined behaviour reachable from *valid* input, found with
+//! AddressSanitizer by `tools/oracle/audit_scenes.sh` (those scenes have no
+//! golden; `tests/audit_scenes.rs` only checks the port runs them): zero
+//! extent obstacles leave a deleted `Node` in the channel-info scanline
+//! (use-after-free; the port keeps the node in its arena until the sweep
+//! ends, the bump-allocator reading), `markAllObstaclesAsMoved()` after a
+//! `deleteShape()` in the same transaction deactivates the shape twice
+//! (the port ignores the move), cluster-crossing counting in A* overflows
+//! a heap buffer, and rubber-band routing dereferences a null start vertex
+//! (the port runs all of these without panicking).
 //!
 //! ## Asserts
 //! `COLA_ASSERT` becomes `debug_assert!`, with one exception: an assert
