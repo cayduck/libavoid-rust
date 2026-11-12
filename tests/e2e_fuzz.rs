@@ -264,7 +264,10 @@ fn e2e_fuzz_matches_cpp_oracle() {
 }
 
 /// Minimised scenes of the divergences the fuzzer found (one per fixed
-/// port bug; `tests/golden/e2e_fuzz_regressions.txt`, C++ NDEBUG output).
+/// port bug; `tests/golden/e2e_fuzz_regressions.txt`, C++ NDEBUG output),
+/// plus `reg-unifying-all-pairs`, a defined scene whose unifying nudging
+/// stage tries all F(F-1)/2 pairs of free segments (PORTING.md, "Known
+/// slow cases"; C++ output identical under both allocators).
 #[test]
 fn e2e_fuzz_regressions() {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/golden/e2e_fuzz_regressions.txt");
@@ -288,6 +291,68 @@ fn e2e_fuzz_regressions() {
             Outcome::Excluded { panic: Some(m), .. } => failures.push(format!("{}: panicked: {}", scene.name, m)),
             Outcome::Excluded { .. } => failures.push(format!("{}: differs", scene.name)),
         }
+        // A scene marked "[linear N]" ends with N transactions that queue
+        // nothing; on such transactions upstream's hyperedge improvement
+        // may add the same number of junctions and connectors every time
+        // (router.rs, "Known upstream behaviour"), so the total number of
+        // display-route points, connectors and junctions must grow by the
+        // same amount on each of them: no growth that compounds.
+        if let Some(n) = linear_marker(scene) {
+            if let Err(m) = check_linear_growth(&scene.dsl, n) {
+                failures.push(format!("{}: {}", scene.name, m));
+            }
+        }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+fn linear_marker(scene: &GoldenScene) -> Option<usize> {
+    let first = scene.out.first()?;
+    let start = first.find("[linear ")? + "[linear ".len();
+    let len = first[start..].find(']')?;
+    first[start..start + len].parse().ok()
+}
+
+/// Per-transaction (route points, connectors, junctions) of a full dump.
+fn transaction_totals(out: &[String]) -> Vec<[usize; 3]> {
+    let mut res: Vec<[usize; 3]> = Vec::new();
+    for line in out {
+        if line.starts_with("T ") {
+            res.push([0; 3]);
+        } else if let Some(t) = res.last_mut() {
+            if let Some(rest) = line.strip_prefix("  disp ") {
+                t[0] += rest.split(':').next().and_then(|n| n.parse::<usize>().ok()).unwrap_or(0);
+            } else if line.starts_with("C ") {
+                t[1] += 1;
+            } else if line.starts_with("J ") {
+                t[2] += 1;
+            }
+        }
+    }
+    res
+}
+
+fn check_linear_growth(dsl: &[String], n: usize) -> Result<(), String> {
+    let out = run_scene(dsl, true);
+    let totals = transaction_totals(&out);
+    if totals.len() < n + 1 {
+        return Err(format!("only {} transactions", totals.len()));
+    }
+    let tail = &totals[totals.len() - n - 1..];
+    let step = |k: usize| -> [i64; 3] {
+        let (a, b) = (tail[k], tail[k + 1]);
+        [0, 1, 2].map(|i| b[i] as i64 - a[i] as i64)
+    };
+    let first = step(0);
+    for k in 1..n {
+        if step(k) != first {
+            return Err(format!(
+                "growth per empty transaction not constant: {:?} then {:?} (points, connectors, junctions; totals {:?})",
+                first,
+                step(k),
+                tail
+            ));
+        }
+    }
+    Ok(())
 }
