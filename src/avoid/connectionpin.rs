@@ -561,6 +561,17 @@ impl ShapeConnectionPinSet {
             self.items.remove(pos);
             return 1;
         }
+        // MISUSE (port addition, found by the e2e fuzzer): after
+        // `ShapeRef::transformConnectionPinPositions()` has changed pin keys
+        // in place the set may no longer be sorted (undefined behaviour for
+        // the upstream std::set) and the search can miss an element that
+        // is present.  Erase the pin itself then, so that a deleted pin
+        // never stays in the set (the port used its freed handle; upstream
+        // leaks or double-deletes, depending on the tree shape).
+        if let Some(pos) = self.items.iter().position(|&p| p == pin) {
+            self.items.remove(pos);
+            return 1;
+        }
         0
     }
 

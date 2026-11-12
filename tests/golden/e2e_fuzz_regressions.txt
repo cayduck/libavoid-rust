@@ -75,3 +75,17 @@ process
 #out
 #exclude crash timeout (upstream never returns: nested processTransaction from hyperedge improvement in immediate mode)
 #end
+#scene reg-unsorted-pinset-delete
+router 2
+rect 0 440 65 465 75
+pin 0 2 0.75 0.25 1 0 4
+pin 0 2 0.75 0.25 1 0 8
+process
+transform 0 1
+delpin 0 0
+process
+delshape 0
+process
+#out
+#exclude crash pinset-unsorted (transformConnectionPinPositions breaks std::set order: UB; port must not panic)
+#end
