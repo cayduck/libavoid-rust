@@ -27,7 +27,7 @@ Classification of a scene (first output line of the golden):
   #exclude ub ...     the ASan/UBSan build reports an error (message and
                       first libavoid frame follow)
   #exclude memory     a C++ build exceeded the memory cap (bump arena
-                      E2E_ARENA_MB, default 3072 MB, or RSS E2E_RSS_MB,
+                      E2E_ARENA_MB, default 16384 MB of addresses, or RSS E2E_RSS_MB,
                       default 4096 MB) -- not a verdict on upstream
   #exclude assertdiff the asserting build finished with different output
   #exclude pinset-unsorted
@@ -101,7 +101,7 @@ def run_cpp(variant, args, env_extra=None):
     env["E2E_TIMEOUT"] = str(TIMEOUTS[variant])
     env["ASAN_OPTIONS"] = ("detect_leaks=0:abort_on_error=0:allocator_may_return_null=1:"
                            "quarantine_size_mb=64:malloc_context_size=8")
-    env.setdefault("E2E_ARENA_MB", "3072")
+    env.setdefault("E2E_ARENA_MB", "16384")
     env.setdefault("E2E_RSS_MB", "4096")
     env["UBSAN_OPTIONS"] = "print_stacktrace=1:halt_on_error=1"
     if env_extra:
@@ -290,7 +290,7 @@ def exclusion_reasons(scenes):
     return reasons
 
 
-CAMPAIGN_LOG = os.path.join(ROOT, "tools", "oracle", "e2e_fuzz_campaign.log")
+CAMPAIGN_LOG = os.environ.get("E2E_CAMPAIGN_LOG", os.path.join(ROOT, "tools", "oracle", "e2e_fuzz_campaign.log"))
 
 
 def short_reason(r):
@@ -320,6 +320,41 @@ def wait_for_memory(quiet=False):
         time.sleep(10)
 
 
+def gen_fast(seed, first, count, path):
+    """Campaign mode: run the NDEBUG build and compare every scene that did
+    not crash with the Rust port; only scenes that crash or diverge are run
+    on the asserting and ASan builds and classified (a scene whose NDEBUG
+    output the port reproduces needs no UB verdict).  Returns the
+    classified scenes and the Rust statuses."""
+    nd = gen_variant("ndebug", seed, first, count)
+    with open(path, "w") as f:
+        f.write(format_scenes([(n, d, o if not is_crash(o) else ["#exclude crash pending"])
+                               for n, d, o in nd]))
+    status, _ = compare(path, quiet=True)
+    todo = [(n, d, o) for n, d, o in nd
+            if is_crash(o) or not status.get(n, "").startswith("match")]
+    if not todo:
+        return [(n, d, o if not o or o[0] != "#pinset-unsorted" else
+                 ["#exclude pinset-unsorted"] + o[1:]) for n, d, o in nd], status
+    res = {v: {n: o for n, _, o in run_cpp_file(v, todo)} for v in ("assert", "asan")}
+    classified = {}
+    for n, d, o in todo:
+        classified[n] = (n, d, classify(res["assert"][n], o, res["asan"][n]))
+    scenes = []
+    for n, d, o in nd:
+        if n in classified:
+            scenes.append(classified[n])
+        elif o and o[0] == "#pinset-unsorted":
+            scenes.append((n, d, ["#exclude pinset-unsorted"] + o[1:]))
+        else:
+            scenes.append((n, d, o))
+    # Re-compare the reclassified scenes (exclusions are skipped now).
+    with open(path, "w") as f:
+        f.write(format_scenes(scenes))
+    status, _ = compare(path, quiet=True)
+    return scenes, status
+
+
 def cmd_campaign(args):
     """Runs batches of scenes; every finished batch appends one JSON line to
     tools/oracle/e2e_fuzz_campaign.log, and batches already in the log are
@@ -339,11 +374,14 @@ def cmd_campaign(args):
         if (args.seed, first, count) in done:
             continue
         wait_for_memory()
-        scenes = gen(args.seed, first, count)
         path = os.path.join(outdir, "batch-%06d.txt" % first)
-        with open(path, "w") as f:
-            f.write(format_scenes(scenes))
-        status, _ = compare(path, quiet=True)
+        if args.full_classify:
+            scenes = gen(args.seed, first, count)
+            with open(path, "w") as f:
+                f.write(format_scenes(scenes))
+            status, _ = compare(path, quiet=True)
+        else:
+            scenes, status = gen_fast(args.seed, first, count, path)
         # The same replay with arena slot reuse disabled must give the same
         # statuses (else a slot index leaks into behaviour).
         status2, _ = compare(path, quiet=True, env_extra={"E2E_NO_SLOT_REUSE": "1"})
@@ -532,6 +570,8 @@ def main():
     s.add_argument("--scenes", type=int, required=True)
     s.add_argument("--first", type=int, default=0)
     s.add_argument("--batch", type=int, default=500)
+    s.add_argument("--full-classify", action="store_true",
+                   help="run all three builds on every scene (slow)")
     s.set_defaults(fn=cmd_campaign)
     s = sub.add_parser("report")
     s.add_argument("--seed", type=int)
