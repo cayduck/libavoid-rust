@@ -1,125 +1,115 @@
-# libavoid C++ to Rust/WASM Porting Map
+# Porting notes: C++ libavoid to Rust
 
-This repository vendors the upstream Adaptagrams source at:
+`src/avoid/` is a port of upstream libavoid from
+[Adaptagrams](https://github.com/mjwybrow/adaptagrams) at commit `840ebcf`
+(2025-10-29). The upstream source is vendored at
+`vendor/adaptagrams/cola/libavoid` and is the source of truth: the Rust code
+is ported from it function by function.
 
-- `vendor/adaptagrams/cola/libavoid`
+## Layout
 
-The Rust implementation must be ported from that source, not invented from memory.
+| Path | Contents |
+| --- | --- |
+| `src/avoid/<name>.rs` | Port of upstream `libavoid/<name>.{h,cpp}`. Every function carries an `// upstream: file.cpp Class::method()` comment. |
+| `src/avoid/arena.rs` | Arenas and `Copy` handles that stand in for upstream pointers. |
+| `src/wasm_api.rs`, `index.cjs`, `index.d.ts` | The JavaScript-facing `AvoidRouter`, a string-id adapter over the core with no routing logic of its own. |
+| `docs/PORTING_INVENTORY.md` | Generated function-level inventory: every upstream class, function and constant, mapped to its Rust counterpart or to the reason it is not ported. |
+| `tests/` | Upstream fixtures, differential oracles, robustness tests and API tests. |
+| `tools/oracle/` | C++ drivers and scripts that build upstream libavoid and record reference output. |
+| `tools/fixtures/` | Converter from upstream `tests/*.cpp` to the op scripts in `tests/fixtures/`. |
+| `tools/audit/` | The inventory generator. |
+| `tools/wasm/` | Runs the Rust integration tests on a 32-bit WebAssembly target. |
 
-## Public API Parity Targets
+The porting conventions and the data model are documented where they apply:
+`src/avoid/mod.rs` (conventions) and the module docs of `src/avoid/router.rs`
+(arenas and handles, intrusive lists, borrow pattern, dangling handles,
+public-API misuse, asserts).
 
-- `libavoid.h`: umbrella include, public surface inventory
-- `router.h` / `router.cpp`: `Router`, flags, transactions, routing parameters/options, object lifecycle
-- `shape.h` / `shape.cpp`: `ShapeRef`, polygon obstacles, shape movement, pin transforms
-- `connector.h` / `connector.cpp`: `ConnRef`, connector type, endpoints, checkpoints, fixed routes, repaint state
-- `connend.h` / `connend.cpp`: `ConnEnd`, point/shape-pin/junction endpoints, direction flags
-- `connectionpin.h` / `connectionpin.cpp`: `ShapeConnectionPin`, proportional/absolute offsets, visibility, exclusivity, cost
-- `junction.h` / `junction.cpp`: `JunctionRef` endpoints and hyperedge support
-- `geometry.h`, `geomtypes.h`, `vertices.h`: `Point`, `Polygon`, `Box`, vertices, segment utilities
-- `visibility.*`, `scanline.*`, `graph.*`: visibility graph maintenance
-- `orthogonal.*`, `makepath.*`: orthogonal route generation and post-processing
-- `hyperedge.*`, `hyperedgetree.*`, `hyperedgeimprover.*`, `mtst.*`: hyperedge routing
+## How fidelity is achieved
 
-## Current Rust Status
+Routes depend on details that are easy to lose in a port, so the port keeps
+them deliberately:
 
-Implemented as an initial slice:
+- **Iteration order.** Upstream containers are reproduced with the same
+  ordering semantics, including the intrusive vertex and edge lists,
+  `std::set` comparators and `std::list` splicing.
+- **Sorting and heaps.** Where the result of ties depends on the algorithm,
+  the libstdc++ algorithm is ported exactly (`std::list::sort`, the
+  `make_heap`/`push_heap`/`pop_heap` family, insertion sort for small
+  `std::sort` ranges).
+- **Floating point.** Expressions keep upstream's operation order; there is
+  no fused multiply-add or algebraic simplification.
+- **Pointer order.** Upstream orders some containers and breaks some ties by
+  pointer address. The port uses the creation order of the objects instead;
+  each such site is marked `// PTR-ORDER:`.
 
-- `AvoidRouter` exported through `wasm-bindgen`
-- router object-id, connector-type, and shape-containment queries
-- rectangular shape obstacles
-- shape and junction obstacle add/remove invalidates connector routes
-- cluster objects matching `ClusterRef` lifecycle, polygon/rectangle
-  construction and update, polygon access, outside-to-outside boundary
-  avoidance, inside-to-inside containment, and explicit inside/outside
-  boundary crossing, with `clusterCrossingPenalty` controlling whether cluster
-  boundaries participate in routing
-- free-point connectors, including `ConnEnd(Point, ConnDirFlags)`-style endpoint direction flags
-- shape connection pins, including shape-relative absolute offsets, `ids()`-style
-  containing-object/class metadata, and boundary `insideOffset` handling for
-  automatic visibility
-- shape connection pin position/direction introspection plus connection-cost and
-  exclusivity mutation with queued, pin-specific connector invalidation
-- shape connection pin transforms matching `ShapeRef::transformConnectionPinPositions()`
-- pin-to-pin c
-- onnectors and source/destination endpoint mutation to shape pins
-  and shape pin classes
-- class-based shape/junction pin endpoints can reassign to another available
-  pin in the same class when their active pin is removed or pin
-  cost/exclusivity changes
-- transaction-queued shape/junction movement, connector endpoint updates, and
-  shape/junction/connector/pin deletion matching the `processTransaction()`
-  model
-- shape/junction deletion detaches attached `ConnEnd`s to manual point
-  endpoints at their last resolved positions, matching
-  `Obstacle::makeInactive()` / `ConnEnd::disconnect()`
-- basic junction objects and junction-attached connector endpoints
-- junction connection pins with class-based connector endpoints, class-based
-  source/destination endpoint mutation, resolved
-  position/direction/cost/exclusivity introspection, mutation with queued,
-  pin-specific connector invalidation, movement, default non-exclusive centre
-  pins, and dependent connector deletion
-- shape/junction attached connector introspection
-- shape-to-shape attachment introspection matching `Router::attachedShapes()`
-  with `runningTo`, `runningFrom`, and `runningToAndFrom` filters
-- connector endpoint introspection matching `ConnRef::endpointConnEnds()`,
-  including resolved position and direction metadata for point, shape-pin, and
-  junction endpoints
-- connector routing type getter/setter with `Router::validConnType()` normalization
-  and `ConnRef::setRoutingType()` transaction/immediate reroute behavior
-- connector hate-crossing flag matching `ConnRef::setHateCrossings()` /
-  `doesHateCrossings()`
-- connector route invalidation, repaint state, and display-route retrieval matching
-  `ConnRef::makePathInvalid()`, `needsRepaint()`, and `displayRoute()`
-- JS callback-equivalent transaction reporting via last updated connector IDs
-  after `Router::processTransaction()` reroutes invalid paths
-- destination shape-pin point introspection for `ConnRef::possibleDstPinPoints()`,
-  including class-based candidate point enumeration for class endpoints with
-  upstream-style exclusive-pin availability filtering
-- invalid orthogonal display-route diagnostics matching
-  `Router::existsInvalidOrthogonalPaths()`
-- strict display-route crossing count for `Router::existsCrossings()`
-- shared orthogonal segment diagnostics matching
-  `Router::existsOrthogonalSegmentOverlap()`
-- fixed shared segment diagnostics matching
-  `Router::existsOrthogonalFixedSegmentOverlap()`
-- touching/crossing orthogonal path diagnostics matching
-  `Router::existsOrthogonalTouchingPaths()`
-- connector splitting matching `ConnRef::splitAtSegment()` with explicit JS string IDs
-- two-connector junction removal/merge matching `JunctionRef::removeJunctionAndMergeConnectors()`
-- junction preferred orthogonal dimension matching `JunctionRef::preferOrthogonalDimension()`
-  including direction-based junction pin connection-cost updates
-- junction fixed-position and recommended-position state matching
-  `JunctionRef::setPositionFixed()`, `positionFixed()`,
-  `recommendedPosition()`, and `setRecommendedPosition()`
-- connector checkpoints with arrival/departure direction constraints
-- fixed connector routes
-- `Router::registerSettingsChange()`-style transaction reporting for routing
-  parameters/options, fixed-route state, and junction fixed-position state
-- basic polyline visibility routing around obstacle vertices
-- upstream routing option indices, defaults, and getters/setters
-- upstream routing parameter getters/setters plus `Router::setRoutingPenalty()` alias
-- transaction-style shape movement, junction movement, connector endpoint updates,
-  cluster polygon updates/removal, and `Router::setTransactionUse()`
-  queue-preserving toggle behavior
-- orthogonal obstacle-avoiding route search
-- generated Node/WASM package and smoke tests
+### Pointer order and the reference outputs
 
-Not complete:
+Because of that last point, upstream results depend on heap layout in a few
+places. The reference outputs are therefore recorded from a build of the C++
+that uses a bump allocator (`tools/oracle/bump_alloc.cpp`), which makes
+pointer order equal to allocation order, the model the port implements.
 
-- upstream visibility graph algorithm
-- full upstream polyline routing behavior, including rubber-band routing and
-  invisibility graph maintenance
-- full polygon obstacles
-- full upstream cluster visibility graph integration
-- hyperedge routing
-- full junction/hyperedge tree improvement
-- complete transactions, including the full upstream action queue, progress
-  reporting/cancellation, and callback hooks beyond the current updated-connector
-  transaction report
-- nudging and shared-path ordering
-- behavior for all upstream routing parameters/options
-- compatibility assertions against upstream test fixtures
+For the upstream fixtures this matters in exactly one case: with the system
+allocator, `hyperedge01` swaps the positions of two junctions. All other
+fixture outputs are identical under both allocators. `tests/golden-bump/`
+holds the bump-allocator outputs the tests compare against; `tests/golden/`
+holds the system-allocator outputs for reference.
 
-## Porting Rule
+## Verification
 
-Each new Rust behavior should name the corresponding upstream source files in commits or notes and add tests that are either translated from `vendor/adaptagrams/cola/libavoid/tests` or directly assert documented public API behavior from the headers.
+`npm test` runs the Rust tests, builds the WASM package and runs the Node
+tests. The pieces are:
+
+| Test | What it checks |
+| --- | --- |
+| `tests/fixtures_ops.rs` | All 83 upstream fixtures, converted to op scripts. The 80 that compile upstream must reproduce the C++ routes, junction positions, exit code and stdout. The other 3 (`corneroverlap01`, `nudgeCrossing01`, `reallyslowrouting`) use APIs upstream has removed and run as smoke tests. Four slow fixtures only run with `LIBAVOID_SLOW_FIXTURES=1`. |
+| `tests/fixtures_polyline.rs`, `fixtures_orthogonal.rs`, `fixtures_hyperedge.rs` | Hand translations of the smaller fixtures. |
+| `tests/*_oracle.rs` | Per-module differential tests against recorded C++ output: geometry, objects and router state, crossings, visibility and path search, orthogonal visibility graph, nudging, hyperedges, VPSC (in `src/avoid/vpsc.rs`). |
+| `tests/audit_scenes.rs` | 146 generated scenes covering router flags, every routing option and extreme parameter values, compared with the C++. |
+| `tests/wasm_api_fixtures.rs`, `tests/wasm_api.rs`, `test/*.cjs` | The fixtures again through the string-id wrapper, wrapper API contracts, and the built WASM package from Node. |
+| `tests/robustness.rs`, `tests/core_findings.rs` | Misuse of the public API must not panic or hang. |
+| `tools/audit/inventory.py --check` | Every upstream item is accounted for, and every `// upstream:` comment names something that exists. |
+| `tools/wasm/run_wasm_tests.sh` | The integration tests on `wasm32-wasip1`, where `usize` is 32 bits. |
+
+Useful commands:
+
+```sh
+tools/fixtures/run_all.sh            # status table for every fixture
+tools/fixtures/verify_roundtrip.sh   # prove the op scripts against the C++
+ORACLE_ALLOC=bump tools/oracle/build.sh   # rebuild upstream, regenerate tests/golden-bump
+python3 tools/audit/inventory.py     # regenerate docs/PORTING_INVENTORY.md
+```
+
+The oracle scripts need `g++` and the vendored upstream source, which is not
+checked in (`vendor/adaptagrams` is a checkout of the Adaptagrams repository
+at the commit above).
+
+## Where the port differs from upstream
+
+The port reproduces upstream wherever upstream's behaviour is defined. The
+differences are confined to the following.
+
+- **Not ported.** SVG and debug output (`outputInstanceToSVG`,
+  `outputDiagramSVG`, `outputCode`, the debug handler), timers, dead `#if 0`
+  code and functions that upstream declares but never defines. The inventory
+  lists each one with its reason.
+- **Undefined behaviour upstream.** Where upstream reads freed memory,
+  dereferences null or recurses without bound, the port does something
+  defined instead and never panics. The cases are listed under "Public-API
+  misuse" and "Dangling handles" in `src/avoid/router.rs`. The main ones:
+  - A `pathNext` link to a deleted vertex reads as null.
+  - Using a handle after deleting its object is a no-op.
+  - A registered hyperedge with fewer than three distinct terminals, or one
+    containing a cycle, is skipped.
+  - With transactions off, a `processTransaction()` nested inside another is
+    a no-op.
+- **Asserts.** `COLA_ASSERT` is `debug_assert!`, except for asserts that
+  upstream itself violates on valid input; those are not ported, so that debug
+  builds do not panic where upstream's release build works. Each site cites
+  its evidence.
+- **Callbacks.** A connector callback is a closure that receives the
+  connector handle and has no access to the router. The JavaScript API
+  reports the connectors updated by the last transaction instead.
+- **Uncaught exceptions.** Where upstream's VPSC solver would throw an
+  exception nothing catches, the port leaves that nudging region unchanged.

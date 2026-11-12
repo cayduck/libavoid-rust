@@ -27,3 +27,6 @@ Thumbs.db
 
 # This crate is distributed as a library; npm uses package-lock.json.
 /Cargo.lock
+
+# Python bytecode from the tools/ scripts
+__pycache__/

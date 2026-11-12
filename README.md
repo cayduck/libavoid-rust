@@ -1,8 +1,15 @@
 # libavoid-rust
 
-`libavoid-rust` is a Rust and WebAssembly connector-routing package for JavaScript. The goal is a complete Rust/WASM conversion of the original C++ libavoid API and behavior.
+`libavoid-rust` is a Rust port of the C++ connector-routing library
+[libavoid](https://www.adaptagrams.org/documentation/libavoid.html) (part of
+Adaptagrams), packaged for JavaScript through WebAssembly.
 
-Current status: early implementation. The upstream C++ source is vendored at `vendor/adaptagrams/cola/libavoid` and the porting map is tracked in `PORTING.md`. The Rust code currently provides a WASM-backed orthogonal router with rectangular and polygon obstacle handling, cluster boundary and containment support, graph-backed polyline visibility routing with endpoint direction filtering and focused transition-cost penalties, router object/type/shape-containment queries, shape and junction attached-connector introspection, shape-to-shape attachment introspection, free endpoints with `ConnEnd(Point, ConnDirFlags)`-style direction constraints, shape connection pins with position/direction introspection plus cost/exclusivity mutation and shape-transform support, shape and junction pin-class endpoint mutation, junction endpoints, default junction centre pins, junction fixed/recommended-position state, junction orthogonal-dimension preferences, connector endpoint introspection, destination pin-point introspection for shape pins, junction pins, plain junction centre pins, and class-based candidate enumeration, connector repaint/display-route state, connector routing type normalization and hate-crossing flags, connector splitting, two-connector junction merging, connector checkpoints, fixed connector routes, obstacle lifecycle route invalidation, invalid orthogonal display-route, strict crossing, shared orthogonal segment, fixed shared segment, and orthogonal touching-path diagnostics, upstream-style direction/routing constants, options, parameters, and penalty setters that affect focused orthogonal route choice, transaction-based shape/junction movement, connector endpoint updates including shape-pin endpoints, shape/junction deletion with ConnEnd detachment, connector deletion, and native Rust plus Node tests.
+The Rust core in `src/avoid/` is a function-by-function port of upstream
+libavoid: poly-line and orthogonal routing, connection pins, junctions,
+clusters, checkpoints, nudging, and hyperedge rerouting and improvement. Its
+routes are checked against the original C++ (see [Verification](#verification)).
+The JavaScript `AvoidRouter` is a thin adapter over that core that names
+objects by string ids.
 
 ## Install
 
@@ -14,8 +21,11 @@ npm install libavoid-rust
 
 ```sh
 npm install
-npm run build:node
+npm run build:node   # Node.js package in pkg/
+npm run build        # web target
 ```
+
+Requires Rust with the `wasm32-unknown-unknown` target and `wasm-pack`.
 
 ## JavaScript usage
 
@@ -58,13 +68,56 @@ console.log(router.displayConnectorRoute("edge"));
 console.log(router.shapeBoundingBox("target"));
 ```
 
-The package also exports `WasmAvoidRouter`, the raw `wasm-bindgen` class. That lower-level class returns JSON strings for structured results (see `index.d.ts`).
+Things to know, all documented in detail at the top of `index.d.ts`:
 
-## Scope
+- **Transactions.** Changes are queued until `processTransaction()`, as in
+  upstream. `setTransactionUse(false)` processes every change immediately.
+- **Routes.** `displayConnectorRoute(id)` is upstream `ConnRef::displayRoute()`
+  (after nudging); `routeConnector(id)` is the raw `ConnRef::route()`.
+- **Ids.** Objects are named by string ids. Each also has the upstream numeric
+  id, assigned in creation order or passed explicitly as `numericId`; routing
+  results can depend on numeric ids, so pass the ids of an upstream scene to
+  reproduce it exactly.
+- **Errors.** Malformed arguments throw a `TypeError`; otherwise mutators
+  return `false` and queries return `null` for unknown ids or invalid values.
+- **Callbacks.** Instead of per-connector callbacks,
+  `lastTransactionUpdatedConnectorIds()` lists the connectors whose routes
+  changed in the last transaction.
 
-This package is not yet a behavior-complete port of upstream libavoid. The next conversion milestones are:
+The package also exports `WasmAvoidRouter`, the raw `wasm-bindgen` class,
+which returns JSON strings for structured results.
 
-- route generation on top of the translated visibility graph and scanline foundations
-- full polygon obstacle routing beyond the current bounding-box fallback
-- hyperedge routing and nudging
-- compatibility fixtures translated from `vendor/adaptagrams/cola/libavoid/tests`
+## Rust usage
+
+The core is available as `libavoid_rust::avoid`. Its API mirrors upstream:
+`Router::new(flags)`, `ShapeRef::new(&mut router, &polygon, id)`,
+`ConnRef::new(&mut router, id)`, and so on, with `Copy` handles in place of
+pointers. `tests/fixtures_orthogonal.rs` has many worked examples.
+
+## Verification
+
+Run everything with `npm test` (Rust tests, WASM build, Node tests).
+
+- **Upstream fixtures.** All 83 programs in upstream `libavoid/tests` run
+  against the port. The 80 that compile upstream must reproduce the C++
+  output (connector routes, junction positions, exit code); the other 3 use
+  APIs upstream has since removed and run as smoke tests.
+- **Differential oracles.** Each module has a test that replays generated
+  scenes and compares the result with output recorded from the C++
+  (`tests/*_oracle.rs`, `tests/audit_scenes.rs`).
+- **Function inventory.** `docs/PORTING_INVENTORY.md` maps every upstream
+  class, function and constant to its Rust counterpart or to the reason it is
+  not ported (debug/SVG output and the like).
+
+`PORTING.md` describes how the port is organised, how the reference outputs
+are produced, and where the port deliberately differs from upstream.
+
+## Not included
+
+- SVG and debug output (`outputInstanceToSVG`, the debug handler, timers).
+- From JavaScript: the topology add-on interface, per-connector callback
+  functions and the router's raw public flag members.
+
+## License
+
+LGPL-2.1-or-later, the same as upstream libavoid. See `LICENSE`.
