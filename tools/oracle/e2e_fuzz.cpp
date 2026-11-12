@@ -1260,7 +1260,7 @@ static std::string runSceneChild(const std::vector<std::string>& dsl)
             kill(pid, SIGKILL);
         }
         // RSS watchdog (all builds; the bump builds are also capped by
-        // their arena size): a child above E2E_RSS_MB (default 1536) is
+        // their arena size): a child above E2E_RSS_MB (default 4096) is
         // killed and the scene reported as "#crash memory".
         {
             char path[64];
@@ -1271,7 +1271,7 @@ static std::string runSceneChild(const std::vector<std::string>& dsl)
                 unsigned long sizePages = 0, rssPages = 0;
                 if (fscanf(fp, "%lu %lu", &sizePages, &rssPages) == 2)
                 {
-                    unsigned long capMb = getenv("E2E_RSS_MB") ? atol(getenv("E2E_RSS_MB")) : 1536;
+                    unsigned long capMb = getenv("E2E_RSS_MB") ? atol(getenv("E2E_RSS_MB")) : 4096;
                     if (rssPages * (unsigned long) sysconf(_SC_PAGESIZE) > (capMb << 20))
                     {
                         memoryKilled = true;

@@ -27,8 +27,8 @@ Classification of a scene (first output line of the golden):
   #exclude ub ...     the ASan/UBSan build reports an error (message and
                       first libavoid frame follow)
   #exclude memory     a C++ build exceeded the memory cap (bump arena
-                      E2E_ARENA_MB, default 1024 MB, or RSS E2E_RSS_MB,
-                      default 1536 MB) -- not a verdict on upstream
+                      E2E_ARENA_MB, default 3072 MB, or RSS E2E_RSS_MB,
+                      default 4096 MB) -- not a verdict on upstream
   #exclude assertdiff the asserting build finished with different output
   #exclude pinset-unsorted
                       transformConnectionPinPositions() mutated the keys of a
@@ -39,9 +39,10 @@ For #exclude ub / memory (of the ASan build) / assertdiff the NDEBUG output
 follows the marker (E2E_SOFT=1 replays those too, without failing).
 
 Resources (shared workstation): the three builds run one after the other,
-at most E2E_JOBS (default 3) C++ processes at once (2 for ASan), each scene
-in its own process whose memory is capped as above; campaigns wait for
->= E2E_MIN_FREE_GB (default 8) of available memory before every batch.
+at most E2E_JOBS (default 8) C++ processes at once (6 for ASan), each scene
+in its own forked process (its bump arena dies with it) whose memory is
+capped as above (RSS default 4096 MB); no C++ process is started while
+less than E2E_MIN_FREE_GB (default 6) of memory is available.
 The ASan build runs on ASan's malloc with a 64 MB quarantine (the bump
 builds never free), so it only answers "does this scene hit UB".
 """
@@ -56,7 +57,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 BUILD = os.environ.get("E2E_BUILD", os.path.join(ROOT, "target", "e2e_fuzz"))
-JOBS = int(os.environ.get("E2E_JOBS", "3"))
+JOBS = int(os.environ.get("E2E_JOBS", "8"))
 VARIANTS = ("assert", "ndebug", "asan")
 # Per-scene limits (seconds); scenes take ~0.1-3 s (ASan ~5x).
 TIMEOUTS = {"assert": 60, "ndebug": 60, "asan": 300}
@@ -100,11 +101,12 @@ def run_cpp(variant, args, env_extra=None):
     env["E2E_TIMEOUT"] = str(TIMEOUTS[variant])
     env["ASAN_OPTIONS"] = ("detect_leaks=0:abort_on_error=0:allocator_may_return_null=1:"
                            "quarantine_size_mb=64:malloc_context_size=8")
-    env.setdefault("E2E_ARENA_MB", "1024")
-    env.setdefault("E2E_RSS_MB", "1536")
+    env.setdefault("E2E_ARENA_MB", "3072")
+    env.setdefault("E2E_RSS_MB", "4096")
     env["UBSAN_OPTIONS"] = "print_stacktrace=1:halt_on_error=1"
     if env_extra:
         env.update(env_extra)
+    wait_for_memory(quiet=True)
     r = subprocess.run([exe(variant)] + args, capture_output=True, text=True, env=env)
     if r.returncode != 0:
         raise RuntimeError("%s %s failed: %s" % (variant, args, r.stderr[-2000:]))
@@ -124,7 +126,7 @@ def run_cpp_file(variant, scenes, env_extra=None):
 def gen_variant(variant, seed, first, count):
     # The variants run one after the other, JOBS processes each (fewer for
     # the memory-hungry ASan build).
-    jobs = max(1, min(JOBS, 2)) if variant == "asan" else max(1, JOBS)
+    jobs = max(1, min(JOBS, 6)) if variant == "asan" else max(1, JOBS)
     chunk = max(1, (count + jobs - 1) // jobs)
     chunk = min(chunk, 25)
     tasks = [(f, min(chunk, first + count - f)) for f in range(first, first + count, chunk)]
@@ -307,12 +309,15 @@ def available_gb():
     return 0.0
 
 
-def wait_for_memory():
+def wait_for_memory(quiet=False):
+    """Blocks while less than E2E_MIN_FREE_GB (default 6) is available
+    (called before every C++ process and every batch)."""
     import time
-    need = float(os.environ.get("E2E_MIN_FREE_GB", "8"))
+    need = float(os.environ.get("E2E_MIN_FREE_GB", "6"))
     while available_gb() < need:
-        print("waiting: %.1f GB available (< %.1f)" % (available_gb(), need), flush=True)
-        time.sleep(60)
+        if not quiet:
+            print("waiting: %.1f GB available (< %.1f)" % (available_gb(), need), flush=True)
+        time.sleep(10)
 
 
 def cmd_campaign(args):
