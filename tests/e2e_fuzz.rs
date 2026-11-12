@@ -211,3 +211,21 @@ fn e2e_fuzz_matches_cpp_oracle() {
     );
     assert!(failures.is_empty(), "{} scene(s) differ:\n{}", failures.len(), failures.join("\n"));
 }
+
+/// Minimised scenes of the divergences the fuzzer found (one per fixed
+/// port bug; `tests/golden/e2e_fuzz_regressions.txt`, C++ NDEBUG output).
+#[test]
+fn e2e_fuzz_regressions() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/golden/e2e_fuzz_regressions.txt");
+    let scenes = parse_golden(&std::fs::read_to_string(path).expect("regression golden"));
+    let mut failures = Vec::new();
+    for scene in scenes.iter() {
+        match check(scene, false, false) {
+            Outcome::Match | Outcome::SkippedAssert => {}
+            Outcome::Differ(m) => failures.push(format!("{}: {}", scene.name, m)),
+            Outcome::Panic(m) => failures.push(format!("{}: panicked: {}", scene.name, m)),
+            Outcome::Excluded { .. } => failures.push(format!("{}: unexpectedly excluded", scene.name)),
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

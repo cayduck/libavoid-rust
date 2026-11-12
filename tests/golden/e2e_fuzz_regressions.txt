@@ -1,0 +1,60 @@
+# e2e fuzz regression scenes (minimised divergences; C++ NDEBUG output). See tests/e2e_fuzz.rs.
+#scene reg-pin-without-vertex
+router 1
+rect 1 265 170 315 240
+pin 0 2 0.5 0 1 0 0
+conn 2 S 0 2 P 135 235 15
+process
+txn 0
+pin 0 3 0 0 1 0 15
+process
+#out
+T 0 ret=1
+cb 2
+H nj=[] nc=[] dj=[] dc=[] cc=[]
+S 1 4: 315,170 315,240 265,240 265,170
+  pin c=2 290,170 d=1 x=1 $=0
+C 2 t=1 f=0 src=S290,170 dst=P135,235
+  raw 3: 290,170 265,170 135,235
+  disp 3: 290,170 265,170 135,235
+Q ovl=00 fovl=00 touch=0 cross=0,0 invalid=0
+A 1 [][] [2][] [2][]
+D rect
+D id=1
+D x=265
+D y=170
+D width=50
+D height=70
+D 
+D path
+D id=2
+D p0: 290 170 
+D p1: 265 170 
+D p2: 135 235 
+D 
+D 
+T 1 ret=0
+cb 2
+S 1 4: 315,170 315,240 265,240 265,170
+  pin c=2 290,170 d=1 x=1 $=0
+  pin c=3 265,170 d=15 x=0 $=0
+C 2 t=1 f=0 src=S290,170 dst=P135,235
+  raw 3: 290,170 265,170 135,235
+  disp 3: 290,170 265,170 135,235
+Q ovl=00 fovl=00 touch=0 cross=0,0 invalid=0
+A 1 [][] [2][] [2][]
+D rect
+D id=1
+D x=265
+D y=170
+D width=50
+D height=70
+D 
+D path
+D id=2
+D p0: 290 170 
+D p1: 265 170 
+D p2: 135 235 
+D 
+D 
+#end

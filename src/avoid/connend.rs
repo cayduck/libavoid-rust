@@ -419,11 +419,15 @@ impl ConnEnd {
                     p.m_exclusive,
                     p.m_connend_users.is_empty(),
                     p.m_connection_cost,
-                    p.m_vertex.expect("pin without vertex"),
+                    // (only dereferenced for matching pins, as upstream: a
+                    // pin of another class may not have its vertex yet when
+                    // its own addConnectionPin() triggers a transaction)
+                    p.m_vertex,
                     p.directions(),
                 )
             };
             if (class_id == self.m_connection_pin_class_id) && (!exclusive || users_empty) {
+                let pin_vertex = pin_vertex.expect("pin without vertex");
                 let mut routing_cost = cost;
                 let adj_target_pt =
                     router.vert_infs[target_vert].point - router.vert_infs[pin_vertex].point;
