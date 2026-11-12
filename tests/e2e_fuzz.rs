@@ -26,6 +26,8 @@
 //!  * `E2E_SUBSAMPLE=k`  only every k-th scene (default 4 in debug builds)
 //!  * `E2E_THREADS=n`    worker threads (default: available parallelism)
 //!  * `E2E_REPORT=path`  write "name<TAB>status" per scene
+//!  * `E2E_NO_SLOT_REUSE=1` arenas never reuse freed slots (results must
+//!    not change: a difference means a slot index leaks into behaviour)
 
 #![allow(clippy::uninlined_format_args)]
 
@@ -116,6 +118,9 @@ fn e2e_fuzz_matches_cpp_oracle() {
     let text = std::fs::read_to_string(&path).expect("golden file");
     let scenes = parse_golden(&text);
     assert!(custom.is_some() || scenes.len() >= 1000, "golden file looks truncated");
+    if std::env::var("E2E_NO_SLOT_REUSE").is_ok() {
+        libavoid_rust::avoid::arena::NO_SLOT_REUSE.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
     let only = std::env::var("E2E_SCENE").ok();
     let full = std::env::var("E2E_FULL").is_ok();
     let soft = std::env::var("E2E_SOFT").is_ok();
