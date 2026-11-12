@@ -161,3 +161,14 @@ delshape 0
 #out
 #exclude crash heap-use-after-free (hyperedge registered by ConnEnd list, terminal shape deleted before the transaction: upstream reads the freed shape in ConnEnd::getHyperedgeVertex; port must not panic)
 #end
+#scene reg-hyperedge-registered-twice
+router 3
+junction 7988 200 25 0
+conn 0 J L P 230 180 8
+conn 0 S 0 3 J L
+conn 0 S 0 2 J L
+regj 110
+regj 844
+#out
+#exclude crash heap-use-after-free (one junction registered twice: rerouting the first hyperedge frees terminal vertices of the second; upstream reads them in MinimumTerminalSpanningTree::constructInterleaved; port must not panic)
+#end

@@ -150,7 +150,10 @@
 //!   contains a cycle is skipped (upstream's recursive `addConns()`
 //!   overflows the stack).  A hyperedge tree edge without an end node
 //!   (both ends are the node it is entered from) is left alone by
-//!   `updateConnEnds()` (upstream dereferences null).
+//!   `updateConnEnds()` (upstream dereferences null).  A hyperedge whose
+//!   terminal vertices were freed by rerouting an earlier registered
+//!   hyperedge sharing its objects (e.g. one junction registered twice)
+//!   is skipped (upstream: use-after-free in the MTST).
 //! * `splitAtSegment(0)` is a no-op; splitting a connector whose
 //!   destination is a free point uses a point end for the new connector.
 //! * `removeJunctionAndMergeConnectors()` on a junction holding both ends

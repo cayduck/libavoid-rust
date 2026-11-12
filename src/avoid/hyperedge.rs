@@ -350,6 +350,15 @@ impl HyperedgeRerouter {
             // Execute the MTST method to find good junction positions and an
             // initial path.  A hyperedge tree will be built for the new route.
             let terminals = router.m_hyperedge_rerouter.m_terminal_vertices_vector[i].clone();
+            // MISUSE / upstream bug (port addition): when two registered
+            // hyperedges share objects (e.g. the same junction registered
+            // twice), rerouting the first one frees connector vertices that
+            // are terminals of the second; upstream reads them (ASan:
+            // heap-use-after-free in MinimumTerminalSpanningTree::
+            // constructInterleaved()).  Such a hyperedge is skipped.
+            if terminals.iter().any(|t| !router.vert_infs.contains(t.idx)) {
+                continue;
+            }
             let mut mtst = MinimumTerminalSpanningTree::new(terminals, true);
 
             // The older MTST construction method (faster, worse results).
