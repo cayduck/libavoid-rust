@@ -50,8 +50,8 @@
   ],
   "scripts": {
     "build": "npm run build:node && npm run build:web",
-    "build:node": "wasm-pack build --target nodejs --out-dir pkg && node scripts/prepare-pkg.cjs",
-    "build:web": "wasm-pack build --target web --out-dir pkg-web && node scripts/prepare-pkg.cjs",
+    "build:node": "node scripts/build-wasm.cjs nodejs pkg && node scripts/prepare-pkg.cjs",
+    "build:web": "node scripts/build-wasm.cjs web pkg-web && node scripts/prepare-pkg.cjs",
     "build:demo": "npm run build:web && node scripts/build-demo.cjs",
     "demo": "node scripts/serve-demo.cjs",
     "test": "cargo test && npm run build && npm run test:node",
