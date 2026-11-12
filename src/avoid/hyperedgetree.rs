@@ -448,6 +448,33 @@ impl HyperedgeTreeStore {
         false
     }
 
+    /// Port addition (UPSTREAM NON-TERMINATION guard, see
+    /// `HyperedgeImprover::execute_impl`): whether the graph reachable from
+    /// `root` contains an edge without a fixed route whose two ends are the
+    /// same node (left by a connector with both ends on one junction and a
+    /// two-point display route).  Iterative; does not touch `visited`.
+    pub fn contains_unfixed_self_loop_from(&self, root: HeNodeIdx) -> bool {
+        let mut seen = vec![false; self.nodes.len()];
+        let mut stack: Vec<HeNodeIdx> = vec![root];
+        seen[root.0] = true;
+        while let Some(node) = stack.pop() {
+            for &e in self.nodes[node.0].edges.iter() {
+                let edge = &self.edges[e.0];
+                let (a, b) = edge.ends;
+                if a == b && !edge.has_fixed_route {
+                    return true;
+                }
+                for other in [a, b].into_iter().flatten() {
+                    if !seen[other.0] {
+                        seen[other.0] = true;
+                        stack.push(other);
+                    }
+                }
+            }
+        }
+        false
+    }
+
     // This method traverses the hyperedge tree and creates connectors for each
     // segment bridging junction and/or terminals.  It also sets the
     // appropriate ConnEnds for each connector.

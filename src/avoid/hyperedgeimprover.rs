@@ -929,6 +929,32 @@ impl HyperedgeImprover {
                 curr = self.next_root(&c);
             }
         }
+        // UPSTREAM NON-TERMINATION (port addition; router.rs, "Upstream
+        // non-termination"): with major changes allowed, a tree edge without
+        // a fixed route whose two ends are the same junction node (a
+        // connector with both ends on one junction and a two-point display
+        // route) makes removeZeroLengthEdges() below merge that junction
+        // node into itself: spliceEdgesFrom(self) never returns (or, if the
+        // self-loop was the node's only edge, the traversal continues on the
+        // freed node).  The traversal reaches every edge of a (cycle-free)
+        // tree, so upstream is never defined on such a hyperedge (fixed-route
+        // edges are skipped upstream, hence not here either).  The port skips it like a
+        // cyclic hyperedge.  (Continuing past the merge instead, as the
+        // guard in removeZeroLengthEdges() does, leaves the self-loop in the
+        // tree; writeEdgesToConns() then re-enters the junction node through
+        // it and writes the node's other branches again, so their display
+        // routes triple on every transaction: fuzz scene s1-123.)
+        if self.m_can_make_major_changes {
+            let roots: Vec<JunctionKey> = self.m_hyperedge_tree_roots.iter().copied().collect();
+            for curr in roots {
+                let node = self.tree_junction_node(&curr);
+                let junction = self.m_tree.node(node).junction.unwrap();
+                if !cyclic_hyperedge_tree_roots.contains(&junction) && self.m_tree.contains_unfixed_self_loop_from(node)
+                {
+                    self.m_hyperedge_tree_roots.remove(&curr);
+                }
+            }
+        }
         // Remove roots of cyclic hyperedges, we can't improve these.
         for &junction in cyclic_hyperedge_tree_roots.iter() {
             eprint!(

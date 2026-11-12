@@ -115,8 +115,10 @@ differences are confined to the following.
 - **Infinite loops upstream.** Two loops in hyperedge improvement never
   finish upstream when a connector has both ends on the same junction
   (`HyperedgeTreeNode::spliceEdgesFrom` called on its own node). The port
-  detects that exact condition and carries on. The guards cannot fire on a run
-  that finishes upstream. See "Upstream non-termination" in
+  detects that exact condition and carries on. When such a connector already
+  forms a self-loop edge in the hyperedge tree and major changes are on, the
+  port skips that hyperedge, as it would a cyclic one. The guards cannot fire
+  on a run that finishes upstream. See "Upstream non-termination" in
   `src/avoid/router.rs`.
 - **Asserts.** `COLA_ASSERT` is `debug_assert!`, except for asserts that
   upstream itself violates on valid input; those are not ported, so that debug
@@ -137,20 +139,59 @@ differences are confined to the following.
 
 ## Known slow cases
 
-These are upstream's behaviour, reproduced faithfully, and can look like a
-hang in an interactive application.
+The first two are upstream's behaviour, reproduced faithfully, and can look
+like a hang in an interactive application.
 
 - **Hyperedge improvement that adds junctions.** With
   `improveHyperedgeRoutesMovingAddingAndDeletingJunctions` on, some scenes gain
   a junction and a connector on every `processTransaction()`, so each
   transaction is slower than the last. On a truncated fuzz scene the C++ took
   10.5 s and the port 10.6 s, with identical output.
-- **Nudging after undefined input.** On one fuzz scene where the C++ crashes
-  early, the port keeps going and spends more than ten minutes in the nudging
-  constraint loop of a single transaction. The loop was making progress when
-  stopped, but it was not run to completion.
+- **Unifying nudging stage with many free segments.** With
+  `performUnifyingNudgingPreprocessingStep` on (the default) and
+  `fixedSharedPathPenalty` 0, `nudgeOrthogonalRoutes` first tries to give
+  pairs of free segments in a nudging region the same position. Upstream
+  means to stop considering a pair once one of its segments has been merged.
+  However, `PotentialSegmentConstraint& pc` refers to the list element that
+  the rewrite loop changes first, so every later `rewriteIndex` call does
+  nothing. As a result, all P = F(F−1)/2 pairs of the region's F free
+  segments are tried. That takes exactly P + 1 VPSC solves, or P + 2 if the
+  last pair is rejected, and the number of equality constraints grows to P.
+  Each solve costs roughly the square of its constraint count, so a region
+  costs about P³:
+  - F = 26 (P = 325): 0.15 s.
+  - F = 80 (P = 3,160): about 150 s.
+
+  The relaxation loop of the actual nudging stage is cheap by comparison:
+  each unsatisfied solve lowers the separation by a tenth of the ideal
+  distance, so a region needs at most 11 solves.
+
+  Measurements:
+  - **Defined 80-connector scene** (80 Z-shaped
+    connectors whose middle segments share one channel): C++ -O2 took 81 s
+    with the system allocator and 702 s with the bump allocator. The port
+    took 299 s on a loaded machine, before the VPSC change below. The output
+    was identical.
+  - **Driver for one unifying region** (51 free segments, 1,276 solves, both
+    programs pinned to the same core, medians of 3): upstream's `IncSolver`
+    took 5.1 s. The port took 10.4 s, and after moving the VPSC active-tree
+    traversals onto slices it takes 6.6 s. The output is bit-identical.
+
+  `reg-unifying-all-pairs` (24 connectors) in
+  `tests/golden/e2e_fuzz_regressions.txt` checks this stage against the C++.
+- **Fuzz scene s1-123.** The C++ crashes on this scene (iterator-erased in
+  `HyperedgeImprover::execute`). It used to send the port into the case
+  above: in every later transaction a self-loop hyperedge tree edge
+  (see "Infinite loops upstream") tripled a connector's display route. The
+  free segments in one region went 2, 8, 26, 80, 242, and the fifth
+  transaction would have needed 29,162 solves (more than a day). The port now
+  skips such hyperedges, and the scene runs in about 3 s.
+  `reg-improver-junction-self-loop-rewrite` checks that 20 further empty
+  transactions grow routes, connectors and junctions by the same amount each
+  time. The fixed amount comes from the faithful junction-adding behaviour
+  above.
 
 A transaction time limit or progress callback (JavaScript API) does not
-shorten either case: upstream polls its continuation hook during nudging and
+shorten these cases: upstream polls its continuation hook during nudging and
 route search but acts on a stop request only during crossing improvement.
 Run such scenes in a worker if the thread must stay responsive.

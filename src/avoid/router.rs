@@ -203,15 +203,34 @@
 //!   re-appends the same edge forever.  The port treats such an edge as
 //!   not mergeable (what upstream does when it terminates: both nodes are
 //!   junctions without major changes) and continues the traversal
-//!   (`reg-improver-self-loop-edge-splice`).  When upstream would have
-//!   merged (major changes allowed, or a node without junction), writing
-//!   the tree back to the connectors does not re-enter the node through
-//!   the self-loop edge either: upstream's traversal (reached only when it
-//!   does not merge) writes the node's other connectors once more for each
-//!   of the edge's two entries in the node's edge list, so a fixed
-//!   connector's display route would triple on every transaction, until
-//!   routing takes exponential time and the recursion overflows the stack
-//!   (`reg-improver-self-loop-route-growth`).
+//!   (`reg-improver-self-loop-edge-splice`).
+//! * The same loop, for a self-loop edge present when the tree is built:
+//!   a connector with both ends on one junction and a two-point display
+//!   route (e.g. left by the iterator-erased case above, or by a checkpoint)
+//!   becomes a tree edge from the junction node to itself.  With major
+//!   changes allowed, upstream's `removeZeroLengthEdges()` reaches every
+//!   edge of the tree and merges the junction node into itself on it
+//!   (unless the edge has a fixed route, which it skips): `spliceEdgesFrom`
+//!   then never returns, or, when the self-loop was the node's only edge,
+//!   the traversal continues on the freed node.  `HyperedgeImprover::execute()` skips such a
+//!   hyperedge, like a cyclic one.  Continuing with the self-loop in place
+//!   (as the guard above does for self-loops created during improvement)
+//!   is not stable: `writeEdgesToConns()` re-enters the junction node
+//!   through the self-loop and writes the node's other branches again, so
+//!   their display routes tripled on every transaction, and nudging the
+//!   resulting overlapping segments took hours
+//!   (`reg-improver-junction-self-loop-rewrite`, from fuzz scene s1-123).
+//!   A self-loop that only arises during improvement (e.g. a connector with
+//!   both ends on a junction first gives that junction two tree nodes,
+//!   which a zero-length edge then merges) cannot be skipped that way; the
+//!   guard above records when it meets such an edge that upstream would
+//!   merge (major changes allowed, or a node without junction), and from
+//!   then on `writeEdgesToConns()` does not re-enter a node through a
+//!   self-loop edge.  Without that, a fixed connector's display route
+//!   tripled on every transaction until routing took exponential time and
+//!   the recursion overflowed the stack (`reg-improver-self-loop-route-growth`,
+//!   from fuzz scene s21-739).  Both rules fire only where upstream never
+//!   returns.
 //! * `HyperedgeImprover::moveJunctionAlongCommonEdge()`, split case: when
 //!   two of the common edges lead to the same node (parallel edges, e.g.
 //!   from a connector with both ends on one junction),
