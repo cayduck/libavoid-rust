@@ -1184,6 +1184,18 @@ static void installCrashHandlers(void)
     noCore.rlim_cur = 0;
     noCore.rlim_max = 0;
     setrlimit(RLIMIT_CORE, &noCore);
+    // A large stack (the main thread's stack grows up to RLIMIT_STACK):
+    // upstream recurses deeply in places, and ASan frames are big, so 8 MB
+    // overflows on scenes that are fine (an infinite recursion still
+    // overflows).
+    struct rlimit stack;
+    if (getrlimit(RLIMIT_STACK, &stack) == 0)
+    {
+        rlim_t want = (rlim_t) 1 << 30;
+        if (stack.rlim_max != RLIM_INFINITY && stack.rlim_max < want) want = stack.rlim_max;
+        stack.rlim_cur = want;
+        setrlimit(RLIMIT_STACK, &stack);
+    }
 #ifndef E2E_SANITIZE
     signal(SIGABRT, crashHandler);
     signal(SIGSEGV, crashHandler);

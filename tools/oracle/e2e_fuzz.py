@@ -50,7 +50,9 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 BUILD = os.environ.get("E2E_BUILD", os.path.join(ROOT, "target", "e2e_fuzz"))
 JOBS = int(os.environ.get("E2E_JOBS", str(os.cpu_count() or 4)))
 VARIANTS = ("assert", "ndebug", "asan")
-TIMEOUTS = {"assert": 30, "ndebug": 20, "asan": 90}
+# Per-scene limits (seconds).  Generous: scenes take ~0.1-3 s, but the
+# three builds run concurrently; spurious timeouts would exclude scenes.
+TIMEOUTS = {"assert": 120, "ndebug": 120, "asan": 600}
 
 
 def exe(variant):
@@ -110,10 +112,13 @@ def run_cpp_file(variant, scenes, env_extra=None):
 
 
 def gen_variant(variant, seed, first, count):
-    chunk = max(1, (count + JOBS - 1) // JOBS)
+    # The three variants run concurrently: share the JOBS processes (the
+    # slow ASan build gets half of them).
+    jobs = max(1, JOBS // 2) if variant == "asan" else max(1, JOBS // 4)
+    chunk = max(1, (count + jobs - 1) // jobs)
     chunk = min(chunk, 25)
     tasks = [(f, min(chunk, first + count - f)) for f in range(first, first + count, chunk)]
-    with ThreadPoolExecutor(JOBS) as ex:
+    with ThreadPoolExecutor(jobs) as ex:
         outs = list(ex.map(lambda t: run_cpp(variant, ["gen", str(seed), str(t[0]), str(t[1])]), tasks))
     res = []
     for o in outs:
