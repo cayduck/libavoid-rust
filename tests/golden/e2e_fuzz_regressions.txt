@@ -104,3 +104,15 @@ process
 #out
 #exclude crash iterator-erased (connector with both ends on one junction: HyperedgeImprover::execute erases the std::set element it is iterating; UB missed by ASan, the bump builds then revisit junction 2 and skip it as cyclic; port must not panic)
 #end
+#scene reg-hyperedge-null-endpoint-vertex
+router 3
+junction 0 87.85175000000001 77.336062499999997 0
+conn 11310 J L P 49.269500000000008 105.07165000000001 15
+conn 15445 J 347 S 1 4
+conn 0 J 908 S 1 4
+regj 758
+process
+regj 944
+#out
+#exclude crash null VertInf (registered hyperedge with a connector whose endpoint vertex is null: upstream dereferences null; port treats the hyperedge as invalid, must not panic)
+#end

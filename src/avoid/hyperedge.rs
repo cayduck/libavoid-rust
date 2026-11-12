@@ -67,7 +67,8 @@ pub struct HyperedgeRerouter {
     pub m_terminal_vertices_vector: VertexSetVector,
     pub m_added_vertices: VertexList,
     /// Port addition: set by `find_attached_objects_*` when the registered
-    /// hyperedge contains a cycle (see there).
+    /// hyperedge contains a cycle or a connector without an endpoint
+    /// vertex (see there).
     pub m_cycle_detected: bool,
 }
 
@@ -169,9 +170,17 @@ impl HyperedgeRerouter {
             }
         } else {
             // If its an endpoint, then record the vertex for this endpoint.
-            let v = router.conns[connector].m_src_vert.expect("findAttachedObjects(): null m_src_vert");
-            let key = vert_key(router, v);
-            router.m_hyperedge_rerouter.m_terminal_vertices_vector[index].insert(key);
+            // MISUSE / upstream bug (port addition): the vertex can be
+            // null here (a connector whose endpoints were never set up);
+            // upstream dereferences null (ASan: null VertInf in
+            // ConnEnd::assignPinVisibilityTo()).  The hyperedge is treated
+            // as invalid.
+            if let Some(v) = router.conns[connector].m_src_vert {
+                let key = vert_key(router, v);
+                router.m_hyperedge_rerouter.m_terminal_vertices_vector[index].insert(key);
+            } else {
+                router.m_hyperedge_rerouter.m_cycle_detected = true;
+            }
         }
 
         if let Some(j_second) = j_second {
@@ -187,9 +196,17 @@ impl HyperedgeRerouter {
             }
         } else {
             // If its an endpoint, then record the vertex for this endpoint.
-            let v = router.conns[connector].m_dst_vert.expect("findAttachedObjects(): null m_dst_vert");
-            let key = vert_key(router, v);
-            router.m_hyperedge_rerouter.m_terminal_vertices_vector[index].insert(key);
+            // MISUSE / upstream bug (port addition): the vertex can be
+            // null here (a connector whose endpoints were never set up);
+            // upstream dereferences null (ASan: null VertInf in
+            // ConnEnd::assignPinVisibilityTo()).  The hyperedge is treated
+            // as invalid.
+            if let Some(v) = router.conns[connector].m_dst_vert {
+                let key = vert_key(router, v);
+                router.m_hyperedge_rerouter.m_terminal_vertices_vector[index].insert(key);
+            } else {
+                router.m_hyperedge_rerouter.m_cycle_detected = true;
+            }
         }
         valid_hyperedge
     }

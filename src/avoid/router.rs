@@ -144,8 +144,9 @@
 //!   transaction.
 //! * Hyperedges: a registered hyperedge whose MTST has no junction (fewer
 //!   than three distinct terminals, unreachable terminals) is skipped; one
-//!   that contains a cycle is treated as invalid (upstream recurses
-//!   forever); a freed root junction is ignored.
+//!   that contains a cycle (upstream recurses forever) or a connector
+//!   without an endpoint vertex (upstream dereferences null) is treated
+//!   as invalid; a freed root junction is ignored.
 //! * `splitAtSegment(0)` is a no-op; splitting a connector whose
 //!   destination is a free point uses a point end for the new connector.
 //! * `removeJunctionAndMergeConnectors()` on a junction holding both ends
