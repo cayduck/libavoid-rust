@@ -66,6 +66,50 @@ except FileNotFoundError:
     pass
 open(sys.argv[2], "w").write(s)
 PY
+# Third patch (detection only, ASan build): HyperedgeImprover iterates its
+# std::set of tree roots while the loop body erases elements.  Erasing the
+# element the loop stands on (a connector with both ends on one junction
+# gives that junction two tree nodes, so removeOtherJunctionsFrom() reaches
+# the root's own junction) makes the following ++curr read a freed rb-tree
+# node -- undefined behaviour that ASan misses (_Rb_tree_increment lives in
+# the uninstrumented libstdc++).  The bump builds then resume at whatever
+# the stale node links point to (e.g. revisit an earlier root); the port
+# continues with the next root (router.rs, "Public-API misuse").  The ASan
+# build reports such scenes, so they are classified "#exclude ub".
+python3 - "$VENDOR/libavoid/hyperedgeimprover.cpp" "$BUILD/libavoid/hyperedgeimprover.cpp" <<'PY'
+import sys
+s = open(sys.argv[1]).read()
+check = """#ifdef E2E_SANITIZE
+        if (m_hyperedge_tree_roots.count(e2eCurr) == 0)
+        {
+            fprintf(stderr, "ERROR: iterator-erased (std::set element erased "
+                    "while iterated) @ Avoid::HyperedgeImprover::%s\\n", E2E_FN);
+            abort();
+        }
+#endif
+"""
+reps = [
+    ("""        HyperedgeTreeNode *node = m_hyperedge_tree_junctions[*curr];
+        bool containsCycle = node->removeOtherJunctionsFrom(nullptr,
+                m_hyperedge_tree_roots);
+""", "execute"),
+    ("""        HyperedgeTreeNode *node = m_hyperedge_tree_junctions[*curr];
+
+        removeZeroLengthEdges(node, nullptr);
+""", "removeZeroLengthEdges"),
+]
+for old, fn in reps:
+    assert s.count(old) == 1
+    s = s.replace(old, "        JunctionRef *e2eCurr = *curr;\n" + old +
+                  check.replace("E2E_FN", '"%s"' % fn))
+s = "#include <cstdio>\n#include <cstdlib>\n" + s
+try:
+    if open(sys.argv[2]).read() == s:
+        sys.exit(0)
+except FileNotFoundError:
+    pass
+open(sys.argv[2], "w").write(s)
+PY
 
 build_variant() {
   local dir="$1"; shift

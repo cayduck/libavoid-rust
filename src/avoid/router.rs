@@ -165,7 +165,12 @@
 //! `deleteShape()` in the same transaction deactivates the shape twice
 //! (the port ignores the move), cluster-crossing counting in A* overflows
 //! a heap buffer, and rubber-band routing dereferences a null start vertex
-//! (the port runs all of these without panicking).
+//! (the port runs all of these without panicking).  A connector with both
+//! ends on one junction makes `HyperedgeImprover::execute()` (or
+//! `removeZeroLengthEdges()`) erase the `std::set` element it is iterating;
+//! upstream's `++curr` then reads the freed tree node (ASan misses it: the
+//! increment is in uninstrumented libstdc++; the e2e fuzzer's ASan build
+//! detects it, "iterator-erased"); the port continues with the next root.
 //!
 //! ## Asserts
 //! `COLA_ASSERT` becomes `debug_assert!`, with one exception: an assert

@@ -89,3 +89,18 @@ process
 #out
 #exclude crash pinset-unsorted (transformConnectionPinPositions breaks std::set order: UB; port must not panic)
 #end
+#scene reg-improver-erases-current-root
+router 3
+rect 0 0 60 70 80
+junction 0 210 170 0
+conn 5235 P 210 90 0 J L
+conn 7095 P 230 160 15 J L
+type L 2
+junction 0 40 160 1
+conn 0 J 741 J L
+cps L 3 80 90 0 15 160 50 0 0 10 50 2 0
+moveto 0 1 4 170 10 170 80 110 80 110 10
+process
+#out
+#exclude crash iterator-erased (connector with both ends on one junction: HyperedgeImprover::execute erases the std::set element it is iterating; UB missed by ASan, the bump builds then revisit junction 2 and skip it as cyclic; port must not panic)
+#end

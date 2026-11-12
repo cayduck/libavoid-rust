@@ -890,7 +890,11 @@ impl HyperedgeImprover {
         let mut cyclic_hyperedge_tree_roots: JunctionRefList = Vec::new();
         {
             // (removeOtherJunctionsFrom() erases later elements of the set
-            // being iterated.)
+            // being iterated.  It can also erase the current element --
+            // a connector with both ends on a junction not seen before
+            // gives that junction two tree nodes -- after which upstream's
+            // ++curr reads a freed rb-tree node (UB; router.rs, "Public-API
+            // misuse").  The port continues with the next larger root.)
             let mut curr = self.first_root();
             while let Some(c) = curr {
                 let node = self.tree_junction_node(&c);
