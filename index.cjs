@@ -518,7 +518,14 @@ class AvoidRouter {
   }
 
   addConnector(id, srcX, srcY, dstX, dstY, numericId) {
-    return this.addConnectorWithConnEnds(id, [srcX, srcY], [dstX, dstY], numericId);
+    return this.#inner.addConnector(
+      str(id, "id"),
+      num(srcX, "srcX"),
+      num(srcY, "srcY"),
+      num(dstX, "dstX"),
+      num(dstY, "dstY"),
+      optNum(numericId, "numericId"),
+    );
   }
 
   addConnectorWithEndpointDirections(id, src, srcDirections, dst, dstDirections, numericId) {

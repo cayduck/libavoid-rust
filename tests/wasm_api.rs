@@ -581,6 +581,21 @@ fn hyperedge_rerouting_results_use_string_ids() {
         ),
         None
     );
+    // Free points, duplicates and fewer than three terminals are refused.
+    let refused = |r2: &mut AvoidRouter, kinds: Vec<f64>, objs: Vec<&str>| {
+        let n = kinds.len();
+        r2.register_hyperedge_for_rerouting(
+            kinds,
+            objs.into_iter().map(String::from).collect(),
+            vec![String::new(); n],
+            vec![0.0; n],
+            vec![0.0; n],
+            vec![1.0; n],
+        )
+    };
+    assert_eq!(refused(&mut r2, vec![1.0, 1.0, 0.0], vec!["a", "b", ""]), None);
+    assert_eq!(refused(&mut r2, vec![1.0, 1.0, 1.0], vec!["a", "b", "b"]), None);
+    assert_eq!(refused(&mut r2, vec![1.0, 1.0], vec!["a", "b"]), None);
     let idx = r2.register_hyperedge_for_rerouting(
         vec![1.0, 3.0, 1.0],
         vec!["a".into(), "b".into(), "c".into()],

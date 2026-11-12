@@ -2047,9 +2047,10 @@ impl AvoidRouter {
     }
 
     /// `hyperedgeRerouter()->registerHyperedgeForRerouting(terminals)` with
-    /// raw ConnEnds in parallel arrays.  Shape-pin terminals need at least
-    /// one pin of their class (upstream dereferences a null vertex
-    /// otherwise).
+    /// raw ConnEnds in parallel arrays.  Refused (undefined) unless there are
+    /// at least 3 distinct shape-pin / junction terminals and every shape-pin
+    /// terminal has a pin of its class: otherwise upstream's rerouting
+    /// dereferences a null vertex / tree root (abort).
     #[wasm_bindgen(js_name = registerHyperedgeForRerouting)]
     pub fn register_hyperedge_for_rerouting(
         &mut self,
@@ -2067,6 +2068,16 @@ impl AvoidRouter {
         let mut ends = Vec::with_capacity(n);
         for i in 0..n {
             let e = self.conn_end(RawEnd { kind: kinds[i], object_id: &object_ids[i], pin_id: &pin_ids[i], x: xs[i], y: ys[i], num: nums[i] })?;
+            // Free-point terminals can leave the minimum terminal spanning
+            // tree disconnected (null tree root, which upstream asserts and
+            // then dereferences): refused.
+            if e.type_() == ConnEndType::ConnEndPoint {
+                return None;
+            }
+            // Duplicate terminals collapse onto one vertex (same failure).
+            if ends.iter().any(|x: &ConnEnd| x.m_anchor_obj == e.m_anchor_obj && x.pin_class_id() == e.pin_class_id()) {
+                return None;
+            }
             if e.type_() == ConnEndType::ConnEndShapePin {
                 let o = e.m_anchor_obj?;
                 let has_pin = self.router.obstacles[o]
@@ -2078,6 +2089,11 @@ impl AvoidRouter {
                 }
             }
             ends.push(e);
+        }
+        // Fewer than three terminals need no junction: upstream's MTST then
+        // has no root junction and performRerouting() dereferences null.
+        if ends.len() < 3 {
+            return None;
         }
         Some(self.router.hyperedge_rerouter().register_hyperedge_for_rerouting(ends) as u32)
     }
