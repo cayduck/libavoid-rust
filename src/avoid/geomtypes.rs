@@ -93,6 +93,13 @@ impl Default for Point {
 }
 
 impl Point {
+    /// Port addition: both coordinates finite (see "Public-API misuse"
+    /// in the router.rs module docs: non-finite input is rejected).
+    #[inline]
+    pub fn is_finite(&self) -> bool {
+        self.x.is_finite() && self.y.is_finite()
+    }
+
     // upstream: geomtypes.cpp Point::Point(const double xv, const double yv)
     #[inline]
     pub const fn new(xv: f64, yv: f64) -> Point {

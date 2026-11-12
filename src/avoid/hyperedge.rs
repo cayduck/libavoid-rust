@@ -66,6 +66,9 @@ pub struct HyperedgeRerouter {
     pub m_deleted_connectors_vector: ConnRefListVector,
     pub m_terminal_vertices_vector: VertexSetVector,
     pub m_added_vertices: VertexList,
+    /// Port addition: set by `find_attached_objects_*` when the registered
+    /// hyperedge contains a cycle (see there).
+    pub m_cycle_detected: bool,
 }
 
 impl HyperedgeRerouter {
@@ -97,7 +100,19 @@ impl HyperedgeRerouter {
 
     // upstream: hyperedge.cpp HyperedgeRerouter::newAndDeletedObjectLists()
     pub fn new_and_deleted_object_lists(&self, index: usize) -> HyperedgeNewAndDeletedObjectLists {
-        debug_assert!(index <= self.count());
+        // Upstream: COLA_ASSERT(index <= count()).  Not ported: count() is 0
+        // after every transaction (performRerouting() clears the terminals)
+        // while the result vectors stay filled, so the assert fails on the
+        // intended use (querying results after processTransaction()); it
+        // is also off by one.  MISUSE: an index without results gives
+        // empty lists (upstream reads out of bounds).
+        if index >= self.m_new_junctions_vector.len()
+            || index >= self.m_deleted_junctions_vector.len()
+            || index >= self.m_new_connectors_vector.len()
+            || index >= self.m_deleted_connectors_vector.len()
+        {
+            return HyperedgeNewAndDeletedObjectLists::default();
+        }
 
         HyperedgeNewAndDeletedObjectLists {
             new_junction_list: self.m_new_junctions_vector[index].clone(),
@@ -121,6 +136,16 @@ impl HyperedgeRerouter {
         hyperedge_conns: &mut ConnRefSet,
     ) -> bool {
         let mut valid_hyperedge = false;
+
+        // MISUSE / upstream bug (port addition): the traversal only ignores
+        // the object it came from, so a hyperedge containing a cycle
+        // (e.g. two junctions joined by two connectors) recurses forever
+        // upstream.  A connector reached a second time is a cycle: stop
+        // and let calc_hyperedge_connectors treat the hyperedge as invalid.
+        if router.m_hyperedge_rerouter.m_deleted_connectors_vector[index].contains(&connector) {
+            router.m_hyperedge_rerouter.m_cycle_detected = true;
+            return false;
+        }
 
         ConnRef::assign_connection_pin_visibility(router, connector, true);
 
@@ -229,7 +254,14 @@ impl HyperedgeRerouter {
         let num_hyperedges = this.count();
         for i in 0..num_hyperedges {
             if let Some(root_junction) = router.m_hyperedge_rerouter.m_root_junction_vector[i] {
+                // MISUSE: a junction freed since registration is invalid.
+                if !router.obstacles.contains(root_junction.0) {
+                    let this = &mut router.m_hyperedge_rerouter;
+                    this.m_terminals_vector[i].clear();
+                    continue;
+                }
                 // Follow objects attached to junction to find the hyperedge.
+                router.m_hyperedge_rerouter.m_cycle_detected = false;
                 let valid = HyperedgeRerouter::find_attached_objects_junction(
                     router,
                     i,
@@ -237,6 +269,7 @@ impl HyperedgeRerouter {
                     None,
                     &mut all_registered_hyperedge_conns,
                 );
+                let valid = valid && !router.m_hyperedge_rerouter.m_cycle_detected;
                 if !valid {
                     eprint!(
                         "Warning: Hyperedge {} registered with HyperedgeRerouter is invalid and will be ignored.\n",
@@ -304,7 +337,16 @@ impl HyperedgeRerouter {
             // Slightly slower, better quality results.
             mtst.construct_interleaved(router);
 
-            let tree_root = mtst.root_junction().expect("performRerouting(): null tree root");
+            // MISUSE / upstream bug (port addition): with fewer than three
+            // distinct terminal vertices (one or two terminals, coincident
+            // terminals) or terminals the MTST cannot connect, no junction
+            // is ever created and the root is null; upstream dereferences
+            // it.  The hyperedge is skipped: no new objects; old ones (if
+            // registered by junction) keep their routes.
+            let Some(tree_root) = mtst.root_junction() else {
+                mtst.destruct();
+                continue;
+            };
 
             // Fill in connector information and join them to junctions of endpoints
             // of original connectors.

@@ -179,9 +179,12 @@ impl MinimumTerminalSpanningTree {
     // upstream: mtst.cpp MinimumTerminalSpanningTree::~MinimumTerminalSpanningTree()
     pub fn destruct(&mut self) {
         // Free the temporary hyperedge tree representation.
-        let root = self
-            .m_root_junction
-            .expect("MinimumTerminalSpanningTree::~MinimumTerminalSpanningTree(): null root junction");
+        // (Upstream dereferences a null root junction here; see
+        // HyperedgeRerouter::perform_rerouting.  The tree nodes live in
+        // `self.tree` and are dropped with it.)
+        let Some(root) = self.m_root_junction else {
+            return;
+        };
         self.tree.node_delete_edges_except(root, None);
         self.tree.delete_node(root);
         self.m_root_junction = None;
@@ -842,7 +845,14 @@ impl MinimumTerminalSpanningTree {
                 }
             }
         }
-        debug_assert!(self.orig_terminals.len() == 1);
+        // Upstream: COLA_ASSERT(origTerminals.size() == 1).  Not ported
+        // (assert policy, router.rs module docs): it fails on valid input
+        // whenever a terminal cannot reach the others -- e.g. a free point
+        // terminal under orthogonal-only routing gets no orthogonal edges
+        // (ConnEnd::getHyperedgeVertex), or a terminal enclosed by shapes;
+        // the release build continues (the unreachable terminal is left
+        // out of the tree).  Covered by tests/robustness.rs
+        // (hyperedge_with_coincident_terminals).
 
         // Free Root Vertex Points from all vertices.
         for p in std::mem::take(&mut self.root_vertex_pointers) {

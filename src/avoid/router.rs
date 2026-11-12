@@ -114,6 +114,52 @@
 //! (`tools/oracle/build_hyperedge_oracle.sh`) patches exactly this rule into
 //! its copy of upstream, so the scenes that hit the use-after-free are
 //! compared byte for byte instead of being dropped.
+//!
+//! ## Public-API misuse
+//! The release WASM build aborts on panic, so input that upstream leaves
+//! undefined (or crashes on) must not panic here either.  Where upstream's
+//! behaviour is defined the port reproduces it; elsewhere it does the
+//! following (sites are marked `MISUSE`; exercised by
+//! `tests/robustness.rs` in all routing/transaction modes):
+//! * Handles of freed objects: `Router` delete/move calls and handle
+//!   methods are no-ops (getters return empty/default values).  Deleting
+//!   twice is a no-op.
+//! * A shape/junction deleted in the transaction that created it: the
+//!   queued add is cancelled and the object is freed by
+//!   `processActions()`.  Moving an object queued for deletion, adding one
+//!   already in the scene, or moving a shape to a polygon with a different
+//!   number of points is ignored.
+//! * `ConnEnd`s (copies in user code, queued actions, hyperedge terminal
+//!   lists) whose shape/junction was freed become free point ends at the
+//!   position stored when they were made; references to freed pins are
+//!   dropped (`ConnEnd::forget_dead_refs`).
+//! * Non-finite coordinates: a shape with them, or with an empty polygon,
+//!   is *inert* (never added to the scene, moves ignored, deletable);
+//!   moves and endpoints with them are ignored; such checkpoints are
+//!   dropped; a junction gets 0 for the non-finite components.
+//! * Transactions off: a `processTransaction()` nested inside
+//!   `processActions()` is a no-op (upstream recurses forever when moving
+//!   an obstacle with attached connectors, and dereferences null when
+//!   deleting one with pins); the queued action is handled by the running
+//!   transaction.
+//! * Hyperedges: a registered hyperedge whose MTST has no junction (fewer
+//!   than three distinct terminals, unreachable terminals) is skipped; one
+//!   that contains a cycle is treated as invalid (upstream recurses
+//!   forever); a freed root junction is ignored.
+//! * `splitAtSegment(0)` is a no-op; splitting a connector whose
+//!   destination is a free point uses a point end for the new connector.
+//! * `removeJunctionAndMergeConnectors()` on a junction holding both ends
+//!   of one connector is a no-op.
+//!
+//! ## Asserts
+//! `COLA_ASSERT` becomes `debug_assert!`, with one exception: an assert
+//! that upstream itself violates on valid input (or whose violation
+//! upstream's release build tolerates for accepted API input) is not
+//! ported, so that debug builds never panic where upstream's release build
+//! works.  Each such site carries a comment `Upstream: COLA_ASSERT(..).
+//! Not ported (assert policy)` with the evidence (the nudging oracle's 29
+//! `#assert` scenes run in debug builds too).  Asserts on API misuse are
+//! made unreachable by the `MISUSE` handling above.
 
 #![allow(dead_code)]
 // Keep upstream statement shapes.
@@ -928,6 +974,11 @@ impl Router {
     /// Upstream default for `conn_pin_move_update` is false.
     // upstream: router.cpp Router::modifyConnector(ConnRef *, unsigned int, const ConnEnd&, bool)
     pub fn modify_connector_end(&mut self, conn: ConnIdx, type_: u32, conn_end: &ConnEnd, conn_pin_move_update: bool) {
+        // MISUSE (port addition): an endpoint at non-finite coordinates is
+        // ignored (the connector keeps its previous end, if any).
+        if !conn_end.position(self).is_finite() {
+            return;
+        }
         let mut mod_info = ActionInfo::new_conn(self, ActionType::ConnChange, conn);
 
         match find_action(&self.action_list, &mod_info) {
@@ -980,6 +1031,12 @@ impl Router {
 
     // upstream: router.cpp Router::addShape()
     pub fn add_shape(&mut self, shape: ShapeRef) {
+        // MISUSE (port addition): adding a shape that is already in the
+        // scene is ignored (upstream re-activates it: assert / corrupt
+        // lists).
+        if self.obstacles[shape.0].m_active {
+            return;
+        }
         // There shouldn't be remove events or move events for the same shape
         // already in the action list.
         // XXX: Possibly we could handle this by ordering them intelligently.
@@ -1090,8 +1147,21 @@ impl Router {
     /// `first_move` is false.
     // upstream: router.cpp Router::moveShape(ShapeRef *, const Polygon&, const bool)
     pub fn move_shape(&mut self, shape: ShapeRef, new_poly: &Polygon, first_move: bool) {
-        // MISUSE: a handle of an already freed shape is ignored.
-        if !self.obstacles.contains(shape.0) {
+        // MISUSE: a handle of an already freed shape is ignored, and so is
+        // an inert shape (empty polygon, see ShapeRef::new).
+        if !self.obstacles.get(shape.0).is_some_and(|o| o.m_first_vert.is_some()) {
+            return;
+        }
+        // MISUSE: the new polygon must have as many points as the old one
+        // (upstream asserts in Obstacle::setNewPoly() and otherwise leaves
+        // the shape's vertices out of step with its polygon).  Such a move
+        // is ignored; delete the shape and create a new one instead.
+        if self.obstacles[shape.0].m_polygon.size() != new_poly.size() {
+            return;
+        }
+        // MISUSE: so is a move to non-finite coordinates (and any move of
+        // a shape created with them, which is inert: ShapeRef::new).
+        if !new_poly.ps.iter().all(|p| p.is_finite()) || !self.obstacles[shape.0].m_active && !self.action_list.iter().any(|a| a.type_ == ActionType::ShapeAdd && a.obstacle() == shape.0) {
             return;
         }
         // There shouldn't be remove events or add events for the same shape
@@ -1399,6 +1469,13 @@ impl Router {
 
     // upstream: router.cpp Router::addJunction()
     pub fn add_junction(&mut self, junction: JunctionRef) {
+        // MISUSE / upstream bug (port addition): adding a junction that is
+        // already in the scene is ignored.  Upstream re-activates it; this
+        // happens in ConnRef::splitAtSegment() with transactions off
+        // (the JunctionRef constructor already added it).
+        if self.obstacles[junction.0].m_active {
+            return;
+        }
         // There shouldn't be remove events or move events for the same junction
         // already in the action list.
         // XXX: Possibly we could handle this by ordering them intelligently.
@@ -1489,7 +1566,11 @@ impl Router {
         // There shouldn't be remove events or add events for the same junction
         // already in the action list.
         // XXX: Possibly we could handle this by ordering them intelligently.
-        // (MISUSE: moving a junction queued for deletion is ignored.)
+        // (MISUSE: moving a junction queued for deletion, or to non-finite
+        // coordinates, is ignored.)
+        if !new_position.is_finite() {
+            return;
+        }
         if find_action(&self.action_list, &ActionInfo::new_junction(self, ActionType::JunctionRemove, junction))
             .is_some()
         {

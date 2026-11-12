@@ -65,6 +65,13 @@ impl ShapeRef {
     pub fn new(router: &mut Router, poly: &Polygon, id: u32) -> ShapeRef {
         let o = Obstacle::new_base(router, poly.clone(), id, ObstacleKind::Shape);
         let shape = ShapeRef(o);
+        // MISUSE (port addition): a shape with an empty polygon is "inert":
+        // it is never added to the scene (upstream dereferences null while
+        // constructing it).  It can be deleted; moves are ignored.
+        // Likewise for a polygon with non-finite coordinates.
+        if router.obstacles[o].m_first_vert.is_none() || !poly.ps.iter().all(|p| p.is_finite()) {
+            return shape;
+        }
         router.add_shape(shape);
         shape
     }

@@ -127,7 +127,13 @@ pub struct UnsignedPair {
 impl UnsignedPair {
     // upstream: orthogonal.cpp UnsignedPair::UnsignedPair()
     pub fn new(ind1: u32, ind2: u32) -> UnsignedPair {
-        debug_assert!(ind1 != ind2);
+        // Upstream: COLA_ASSERT(ind1 != ind2).  Not ported (assert policy,
+        // router.rs module docs): the asserting upstream build fails it on
+        // valid input (4 of the 400 random scenes of the nudging oracle,
+        // tests/golden/nudging_oracle.txt `#assert ... orthogonal.cpp:75`:
+        // two overlapping segments of one connector that cannot be
+        // aligned, e.g. because of checkpoints); (x, x) is a valid key and
+        // the NDEBUG build works.
         // Assign the lesser value to m_index1.
         let m_index1 = (if ind1 < ind2 { ind1 } else { ind2 }) as u16;
         // Assign the greater value to m_index2.
@@ -363,7 +369,12 @@ impl LineSegment {
             vert_infs: VertSet::new(),
             break_points: BreakpointSet::new(),
         };
-        debug_assert!(seg.begin < seg.finish);
+        // Upstream: COLA_ASSERT(begin < finish).  Not ported (assert
+        // policy): zero-width obstacles (a zero-width shape, or a junction
+        // while idealNudgingDistance == 0) with shapeBufferDistance == 0
+        // are valid input and give begin == finish; the NDEBUG build
+        // continues with the degenerate segment (tests/robustness.rs
+        // zero_size_shapes).
 
         if let Some(bvi) = bvi {
             seg.vert_infs.insert(VertKey::of(verts, bvi));
@@ -2895,7 +2906,13 @@ impl ImproveOrthogonalRoutes {
                                     // range begins at the previous variable
                                     // which should be a left channel side.
                                     debug_assert!(i > 0);
-                                    debug_assert!(vs[i - 1].id == CHANNEL_LEFT_ID);
+                                    // Upstream: COLA_ASSERT(vs[i - 1]->id ==
+                                    // channelLeftID).  Not ported (assert
+                                    // policy): fails on valid input when the
+                                    // segment has no left channel variable
+                                    // (5 nudging-oracle scenes, `#assert
+                                    // orthogonal.cpp:2958` of the oracle build
+                                    // = vendored :2925); NDEBUG works.
                                     unsatisfied_ranges.push_back((i - 1, i));
                                 } else {
                                     // Expand the existing range to include index.
@@ -2993,16 +3010,14 @@ impl ImproveOrthogonalRoutes {
                         debug_assert!(!unsatisfied_ranges.is_empty());
                         // Reduce the separation distance.
                         sep_dist -= base_sep_dist / reduction_steps;
-                        if cfg!(debug_assertions) {
-                            // (Upstream reads vs[it->second] out of bounds
-                            // when a range was started by the last
-                            // variable, a channelLeft one; treat that as
-                            // passing instead of panicking.)
-                            for it in unsatisfied_ranges.iter() {
-                                debug_assert!(vs.get(it.0).map_or(true, |v| v.id != FREE_SEGMENT_ID));
-                                debug_assert!(vs.get(it.1).map_or(true, |v| v.id != FREE_SEGMENT_ID));
-                            }
-                        }
+                        // Upstream: COLA_ASSERT(vs[it->first]->id !=
+                        // freeSegmentID) and the same for it->second, for
+                        // every unsatisfied range.  Not ported (assert
+                        // policy): fails on valid input as a consequence of
+                        // the case above (18 nudging-oracle scenes, `#assert
+                        // orthogonal.cpp:3074` = vendored :3040; two more
+                        // crash reading vs[it->second] out of bounds); the
+                        // NDEBUG build works.
                         // And rewrite all the gap constraints to have the new
                         // reduced separation distance.
                         let mut within_unsatisfied_group = false;

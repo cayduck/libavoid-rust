@@ -193,7 +193,8 @@ impl ConnEnd {
             m_active_pin: None,
             serial: 0,
         };
-        debug_assert!(ce.m_connection_pin_class_id > 0);
+        // Upstream: COLA_ASSERT(m_connection_pin_class_id > 0).  Not ported
+        // (assert policy): see ShapeConnectionPin::common_init_for_shape_connection.
 
         // MISUSE: a freed shape leaves the default position.
         if router.obstacles.contains(shape_ref.0) {

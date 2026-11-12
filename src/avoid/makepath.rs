@@ -402,17 +402,11 @@ fn cost(
                 continue;
             }
             debug_assert!(c_boundary.ps[0] != c_boundary.ps[c_boundary.size() - 1]);
-            for j in 0..c_boundary.size() {
-                // Non-orthogonal cluster boundary points should correspond to
-                // shape vertices and hence already be in the list of vertices.
-                debug_assert!(
-                    is_orthogonal
-                        || router
-                            .vertices
-                            .get_vertex_by_pos(&router.vert_infs, &c_boundary.ps[j])
-                            .is_some()
-                );
-            }
+            // Upstream also asserts that every non-orthogonal cluster
+            // boundary point is a router vertex ("should correspond to shape
+            // vertices").  Not ported (assert policy): ClusterRef accepts any
+            // polygon, the check has no effect on the result and the NDEBUG
+            // build works (tests/robustness.rs clusters).
 
             let is_conn = false;
             let mut dynamic_conn_route = conn_route.clone();
@@ -742,7 +736,10 @@ fn estimated_cost_specific(
         // Orthogonal
         // Really doesn't make sense to route orthogonal paths without
         // a segment penalty.
-        debug_assert!(router.routing_parameter(RoutingParameter::SegmentPenalty) > 0.0);
+        // (Upstream asserts segmentPenalty > 0.  Not ported (assert
+        // policy): setRoutingParameter(segmentPenalty, 0) is accepted API
+        // and the NDEBUG build routes; tests/robustness.rs
+        // extreme_penalties.)
 
         let dist = manhattan_dist(curr, &cost_tar_point);
 

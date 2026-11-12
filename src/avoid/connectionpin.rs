@@ -155,7 +155,10 @@ impl ShapeConnectionPin {
     fn common_init_for_shape_connection(router: &mut Router, pin: PinIdx) {
         let p = router.pins[pin].clone();
         let shape = p.m_shape.expect("pin without shape");
-        debug_assert!(p.m_class_id > 0);
+        // Upstream: COLA_ASSERT(m_class_id > 0).  Not ported (assert
+        // policy, router.rs module docs): class id 0 is not special anywhere
+        // else and the NDEBUG build routes with it (tests/robustness.rs
+        // pin_with_class_id_zero).
 
         if p.m_using_proportional_offsets {
             // Parameter checking

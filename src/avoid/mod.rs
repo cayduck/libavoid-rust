@@ -27,12 +27,18 @@
 //! * **Floating point.**  Keep upstream expression order and operations
 //!   (no `mul_add`, no algebraic simplification, same epsilon constants) so
 //!   results are bit-comparable with the C++ oracle.
-//! * **Asserts.**  `COLA_ASSERT` becomes `debug_assert!`.
+//! * **Asserts.**  `COLA_ASSERT` becomes `debug_assert!`, except asserts
+//!   upstream itself violates on valid input (see "Asserts" in the
+//!   `router.rs` module docs).
+//! * **Misuse.**  Never panic on API misuse; see "Public-API misuse" and
+//!   "Dangling handles" in the `router.rs` module docs.
 //! * **Debug/SVG output code** (`outputInstanceToSVG`, timers, db_printf)
 //!   is out of scope unless needed by a test.
 //! * **Verification.**  `tools/oracle/build.sh` builds the vendored C++ and
 //!   writes full-precision golden routes for every upstream fixture to
-//!   `tests/golden/`.  Ported fixtures must reproduce those routes.
+//!   `tests/golden/` (`ORACLE_ALLOC=bump`: `tests/golden-bump/`, the goldens
+//!   the fixture tests compare with).  Ported fixtures must reproduce those
+//!   routes.
 
 pub mod actioninfo;
 pub mod arena;

@@ -314,7 +314,9 @@ impl ConnRef {
 
     // upstream: connector.cpp ConnRef::setRoutingCheckpoints()
     pub fn set_routing_checkpoints(router: &mut Router, c: ConnIdx, checkpoints: &[Checkpoint]) {
-        router.conns[c].m_checkpoints = checkpoints.to_vec();
+        // MISUSE (port addition): checkpoints with non-finite coordinates
+        // are dropped.
+        router.conns[c].m_checkpoints = checkpoints.iter().filter(|cp| cp.point.is_finite()).cloned().collect();
 
         // Clear previous checkpoint vertices.
         let old = std::mem::take(&mut router.conns[c].m_checkpoint_vertices);
@@ -649,7 +651,10 @@ impl ConnRef {
 
     // upstream: connector.cpp ConnRef::setFixedExistingRoute()
     pub fn set_fixed_existing_route(router: &mut Router, c: ConnIdx) {
-        debug_assert!(router.conns[c].m_route.size() >= 2);
+        // Upstream: COLA_ASSERT(m_route.size() >= 2).  Not ported (assert
+        // policy): the NDEBUG build fixes the (short) route, exactly what
+        // the accepted setFixedRoute(PolyLine) with fewer than two points
+        // does (tests/robustness.rs fixed_routes).
         router.conns[c].m_has_fixed_route = true;
         router.register_settings_change();
     }
@@ -731,6 +736,11 @@ impl ConnRef {
         let mut new_conn = None;
         let mut new_junction = None;
 
+        // MISUSE: upstream reads m_display_route.at(segmentN - 1), which
+        // throws std::out_of_range for segmentN == 0 (size_t wrap).  Ignored.
+        if segment_n == 0 {
+            return (None, None);
+        }
         if router.conns[c].m_display_route.size() > segment_n {
             // Position the junction at the midpoint of the desired segment.
             let (a, b) = {
@@ -748,10 +758,16 @@ impl ConnRef {
             // Create a new connection routing from the junction to the original
             // connector's endpoint.
             let new_conn_src = ConnEnd::from_junction(router, nj);
-            let new_conn_dst = router.conns[c]
-                .m_dst_connend
-                .clone()
-                .expect("ConnRef::splitAtSegment(): destination is not a pin connection");
+            // Upstream copies *m_dst_connend, which is null when the
+            // destination is a free point (null dereference).  The port uses
+            // a point end at the destination vertex instead.
+            let new_conn_dst = match router.conns[c].m_dst_connend.clone() {
+                Some(ce) => ce,
+                None => match router.conns[c].m_dst_vert {
+                    Some(v) => ConnEnd::from_point_dirs(router.vert_infs[v].point, router.vert_infs[v].vis_directions),
+                    None => ConnEnd::from_point(b),
+                },
+            };
             new_conn = Some(ConnRef::new_with_ends(router, &new_conn_src, &new_conn_dst, 0));
 
             // Reroute the endpoint of the original connector to attach to the

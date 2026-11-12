@@ -782,7 +782,15 @@ fn process_shift_event<C: ?Sized, S: ShiftSegment<C>>(
 
         let key = nodes.key(v);
         let result = scanline.erase(&key);
-        debug_assert!(result == 1);
+        // Upstream: COLA_ASSERT(result == 1).  Not ported (assert policy,
+        // router.rs module docs): an obstacle of zero extent in the sweep
+        // direction (valid input, tests/robustness.rs zero_size_shapes)
+        // has its Close event processed (pass 2) before its Open event
+        // (pass 3) at the same position, so nothing is erased and the node
+        // stays in the scanline.  The NDEBUG build continues (upstream then
+        // keeps a pointer to the deleted node; here the node stays in the
+        // arena until the sweep ends, which is what upstream reads).
+        let _ = result;
         // (`delete v`: the node stays in the arena until the sweep ends.)
     }
 }
@@ -870,7 +878,8 @@ pub fn build_orthogonal_channel_info<C: ?Sized, S: ShiftSegment<C>>(
         let pass = 1;
         process_shift_event(&mut nodes, &mut scanline, segment_list, &events[i], dim, pass);
     }
-    debug_assert!(scanline.is_empty());
+    // Upstream: COLA_ASSERT(scanline.empty()).  Not ported (assert
+    // policy): fails for zero-extent obstacles, see process_shift_event.
 }
 
 #[cfg(test)]

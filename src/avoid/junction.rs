@@ -54,6 +54,14 @@ impl JunctionRef {
     /// for addition to the router scene.  `id` 0 means "assign one".
     // upstream: junction.cpp JunctionRef::JunctionRef()
     pub fn new(router: &mut Router, position: Point, id: u32) -> JunctionRef {
+        // MISUSE (port addition): non-finite coordinates are replaced by 0.
+        let mut position = position;
+        if !position.x.is_finite() {
+            position.x = 0.0;
+        }
+        if !position.y.is_finite() {
+            position.y = 0.0;
+        }
         let rect = JunctionRef::make_rectangle(router, &position);
         let o = Obstacle::new_base(
             router,
