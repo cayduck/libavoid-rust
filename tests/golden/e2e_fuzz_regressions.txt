@@ -184,3 +184,20 @@ dst 756 J 838
 #out
 #exclude crash timeout (upstream never returns: HyperedgeTreeNode::spliceEdgesFrom(self) on a zero-length self-loop tree edge; port must terminate)
 #end
+#scene reg-improver-split-parallel-edges
+router 3
+junction 3401 150.6455 173.61750000000001 0
+conn 0 P 293.28961058155829 56.333333333333336 15 J L
+conn 4570 J L P 172.27874 220.72914249999999 8
+conn 12530 J 488 J 128
+conn 14122 J L P 223 57.820460474039969 1
+conn 15917 J L P 219.39368941844162 84.763510910381996 1
+conn 0 P 221.03262705391839 52.910538160720492 2 J L
+conn 17817 J L P 143.90475000000001 47.771687499999999 2
+conn 21292 S 1 1 S 1 1
+conn 23053 P 219.39368941844162 56.065864434000495 2 P 266.51675466666666 106.77967959318669 15
+cps 47 3 191.358 57.928312499999997 15 15 57.506750000000004 177.66666666666666 0 0 122 19.315124999999998 15 0
+option 5 1
+#out
+#exclude crash timeout (upstream never returns: moveJunctionAlongCommonEdge split case calls spliceEdgesFrom(targetNode) on itself; port must terminate)
+#end

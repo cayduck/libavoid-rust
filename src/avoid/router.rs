@@ -203,6 +203,14 @@
 //!   not mergeable (what upstream does when it terminates: both nodes are
 //!   junctions without major changes) and continues the traversal
 //!   (`reg-improver-self-loop-edge-splice`).
+//! * `HyperedgeImprover::moveJunctionAlongCommonEdge()`, split case: when
+//!   two of the common edges lead to the same node (parallel edges, e.g.
+//!   from a connector with both ends on one junction),
+//!   `targetNode->spliceEdgesFrom(targetNode)` never returns.  The port
+//!   treats the split case as not applicable for such a junction
+//!   (`reg-improver-split-parallel-edges`).  `spliceEdgesFrom()` itself is
+//!   a no-op for oldNode == this (upstream loops forever unless the node
+//!   has no edges).
 //!
 //! ## Asserts
 //! `COLA_ASSERT` becomes `debug_assert!`, with one exception: an assert
