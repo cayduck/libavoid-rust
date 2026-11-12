@@ -257,7 +257,9 @@ export class AvoidRouter {
   /**
    * Connectors whose upstream callback fired (i.e. were rerouted) in the last
    * transaction (with transaction use off: in all transactions run by the
-   * last call).  Built on `ConnRef::setCallback()`.
+   * last call), followed by the connectors the router itself created in it
+   * (hyperedge rerouting / improvement), which upstream creates without a
+   * callback.  Built on `ConnRef::setCallback()`.
    */
   lastTransactionUpdatedConnectorIds(): string[];
 
