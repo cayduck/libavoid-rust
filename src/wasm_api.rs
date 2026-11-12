@@ -696,6 +696,16 @@ impl AvoidRouter {
             return false;
         };
         let t0 = self.begin();
+        // Upstream's two-ConnEnd constructor registers the connector's
+        // reroute flag only after setEndpoints(); with transaction use off,
+        // setEndpoints() already routes the connector and generatePath()
+        // asserts on (release: dereferences) the missing flag.  The
+        // wrapper therefore queues the construction and processes it as one
+        // transaction afterwards.
+        let immediate = !self.router.transaction_use();
+        if immediate && ends.is_some() {
+            self.router.set_transaction_use(true);
+        }
         let c = match &ends {
             Some((s, d)) => ConnRef::new_with_ends(&mut self.router, s, d, nid),
             None => ConnRef::new(&mut self.router, nid),
@@ -703,6 +713,10 @@ impl AvoidRouter {
         let serial = self.router.conns[c].serial;
         self.register(id.to_string(), Obj::Conn(c), serial);
         self.set_conn_callback(c);
+        if immediate && ends.is_some() {
+            self.router.set_transaction_use(false);
+            self.router.process_transaction();
+        }
         self.end(t0);
         true
     }
@@ -1933,6 +1947,12 @@ impl AvoidRouter {
             return "null".into();
         }
         let t0 = self.begin();
+        // splitAtSegment() uses the two-ConnEnd ConnRef constructor: queue
+        // it with transaction use off (see `add_conn_internal`).
+        let immediate = !self.router.transaction_use();
+        if immediate {
+            self.router.set_transaction_use(true);
+        }
         let (j, nc) = c.split_at_segment(&mut self.router, n);
         let mut out = "null".to_string();
         if let (Some(j), Some(nc)) = (j, nc) {
@@ -1946,6 +1966,10 @@ impl AvoidRouter {
                 ("connectorId", json::string(&connector_id)),
                 ("position", json::point(&j.position(&self.router))),
             ]);
+        }
+        if immediate {
+            self.router.set_transaction_use(false);
+            self.router.process_transaction();
         }
         self.end(t0);
         out
