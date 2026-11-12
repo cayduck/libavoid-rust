@@ -172,3 +172,15 @@ regj 844
 #out
 #exclude crash heap-use-after-free (one junction registered twice: rerouting the first hyperedge frees terminal vertices of the second; upstream reads them in MinimumTerminalSpanningTree::constructInterleaved; port must not panic)
 #end
+#scene reg-improver-self-loop-edge-splice
+router 1
+option 5 1
+conn 6730 P 240 70 15 S 1 1
+cps 290 3 180 110 0 0 10 40 0 0 100 40 15 0
+junction 8209 120 50 0
+conn 9346 P 60 30 8 J L
+src 612 J 405
+dst 756 J 838
+#out
+#exclude crash timeout (upstream never returns: HyperedgeTreeNode::spliceEdgesFrom(self) on a zero-length self-loop tree edge; port must terminate)
+#end

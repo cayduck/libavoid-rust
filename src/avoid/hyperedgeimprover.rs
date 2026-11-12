@@ -623,7 +623,20 @@ impl HyperedgeImprover {
         let mut i = 0;
         while let Some(&edge) = self.m_tree.node(this).edges.get(i) {
             if Some(edge) != ignored {
-                if !self.m_tree.edge(edge).has_fixed_route && self.m_tree.edge_zero_length(edge) {
+                // UPSTREAM NON-TERMINATION (port addition; router.rs,
+                // "Upstream non-termination"): a zero-length edge whose both
+                // ends are this node (left by a connector with both ends on
+                // one junction) gives other == self, so target == source
+                // whenever upstream merges, and spliceEdgesFrom(self) then
+                // disconnects and re-appends the same edge forever.  Upstream
+                // only terminates here when it does not merge (both nodes
+                // junctions without major changes), i.e. it goes straight
+                // to the recursive call; the port does that for every such
+                // edge.
+                if !self.m_tree.edge(edge).has_fixed_route
+                    && self.m_tree.edge_zero_length(edge)
+                    && self.m_tree.edge_follow_from(edge, this) != this
+                {
                     let other = self.m_tree.edge_follow_from(edge, this);
                     let mut target: Option<HeNodeIdx> = None;
                     let mut source: Option<HeNodeIdx> = None;
