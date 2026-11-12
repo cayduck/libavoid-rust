@@ -60,3 +60,18 @@ D p2: 135 235
 D 
 D 
 #end
+#scene reg-nested-reroute
+router 2
+nowrap
+option 5 1
+junction 4082 67.658999999999992 144.7468125 0
+conn 5394 P 160.31862999999998 140.77822749999999 4 J L
+conn 7167 P 32.090539999999997 70.333333333333329 4 J L
+junction 0 212.60275000000001 42.253124999999997 0
+conn 0 J L J 384
+conn 11190 J 372 P 39.599670000000003 49.564082499999998 15
+txn 0
+process
+#out
+#exclude crash timeout (upstream never returns: nested processTransaction from hyperedge improvement in immediate mode)
+#end

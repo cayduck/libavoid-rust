@@ -494,6 +494,9 @@ pub struct Router {
     /// True while `processActions()` runs (port addition; see
     /// `process_transaction`).
     pub m_in_process_actions: bool,
+    /// Nesting depth of `processTransaction()` reroutes (port addition;
+    /// see `process_transaction`).
+    pub m_transaction_reroute_depth: u32,
 }
 
 /// Transaction clock (stand-in for `clock()`).
@@ -911,6 +914,7 @@ impl Router {
             m_callback_log: Vec::new(),
             m_progress_callback: None,
             m_in_process_actions: false,
+            m_transaction_reroute_depth: 0,
         }
     }
 
@@ -1475,7 +1479,20 @@ impl Router {
         // (null dereference).  A nested call is a no-op here: the action
         // just queued is appended to the list being processed and handled
         // by the running processActions() exactly as in transaction mode.
-        if self.m_in_process_actions {
+        //
+        // Likewise for a call nested in the rerouting phase.  With
+        // transactions off, hyperedge rerouting / improvement creates and
+        // deletes junctions (JunctionRef ctor / deleteJunction ->
+        // processTransaction) from inside rerouteAndCallbackConnectors();
+        // upstream then runs a whole nested transaction, which regenerates
+        // the orthogonal visibility graph and frees vertices the outer
+        // reroute is still using, and can re-delete forever (found by the
+        // e2e fuzzer: tests/golden/e2e_fuzz_regressions.txt,
+        // reg-nested-reroute -- upstream never returns; the port used freed
+        // handles or overflowed its stack).  MISUSE (port addition): the
+        // nested call is a no-op; the queued action waits for the next
+        // transaction, as in transaction mode.
+        if self.m_in_process_actions || self.m_transaction_reroute_depth > 0 {
             return false;
         }
         // If SimpleRouting, then don't update here.
@@ -1491,7 +1508,9 @@ impl Router {
         self.process_actions();
 
         self.m_static_orthogonal_graph_invalidated = true;
+        self.m_transaction_reroute_depth += 1;
         self.reroute_and_callback_connectors();
+        self.m_transaction_reroute_depth -= 1;
 
         true
     }
