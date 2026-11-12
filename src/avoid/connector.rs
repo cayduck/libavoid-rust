@@ -1109,8 +1109,12 @@ impl ConnRef {
                     let pnt = curr_route.at(existing_path_start);
                     let v_id = VertID::new(pnt.id, pnt.vn, 0);
 
-                    router.conns[c].m_start_vert = router.vertices.get_vertex_by_id(&router.vert_infs, &v_id);
-                    debug_assert!(router.conns[c].m_start_vert.is_some());
+                    // (Port addition: upstream asserts the vertex exists and later
+                    // dereferences it; a route point without a vertex -- e.g.
+                    // a fixed route through arbitrary points -- restarts the
+                    // search from the source instead.)
+                    router.conns[c].m_start_vert =
+                        router.vertices.get_vertex_by_id(&router.vert_infs, &v_id).or(Some(src_vert));
                 }
             }
         }
@@ -1129,8 +1133,12 @@ impl ConnRef {
                 let props: VertIDProps = if existing_path_start > 0 { 0 } else { VertID::PROP_CONN_POINT };
                 let v_id = VertID::new(pnt.id, pnt.vn, props);
 
-                router.conns[c].m_start_vert = router.vertices.get_vertex_by_id(&router.vert_infs, &v_id);
-                debug_assert!(router.conns[c].m_start_vert.is_some());
+                // (Port addition: upstream asserts the vertex exists and later
+                // dereferences it; a route point without a vertex -- e.g.
+                // a fixed route through arbitrary points -- restarts the
+                // search from the source instead.)
+                router.conns[c].m_start_vert =
+                    router.vertices.get_vertex_by_id(&router.vert_infs, &v_id).or(Some(src_vert));
             } else if router.rubber_band_routing {
                 // found.
                 let mut unwind = false;
@@ -1160,8 +1168,12 @@ impl ConnRef {
                     let props: VertIDProps = if existing_path_start > 0 { 0 } else { VertID::PROP_CONN_POINT };
                     let v_id = VertID::new(pnt.id, pnt.vn, props);
 
-                    router.conns[c].m_start_vert = router.vertices.get_vertex_by_id(&router.vert_infs, &v_id);
-                    debug_assert!(router.conns[c].m_start_vert.is_some());
+                    // (Port addition: upstream asserts the vertex exists and later
+                    // dereferences it; a route point without a vertex -- e.g.
+                    // a fixed route through arbitrary points -- restarts the
+                    // search from the source instead.)
+                    router.conns[c].m_start_vert =
+                        router.vertices.get_vertex_by_id(&router.vert_infs, &v_id).or(Some(src_vert));
 
                     pathlen = 0;
                 }
@@ -1776,7 +1788,11 @@ fn mid_vertex_number(p0: &Point, p1: &Point, c: &Point) -> u16 {
         }
         return vn_mid + 4;
     }
-    debug_assert!((p0.x == p1.x) || (p0.y == p1.y));
+    // Upstream: COLA_ASSERT((p0.x == p1.x) || (p0.y == p1.y)).  Not ported
+    // (assert policy, router.rs module docs): the asserting upstream build
+    // fails it on valid input (audit scene tests/audit_scenes/audit_149.ops:
+    // crossing counting between poly-line and orthogonal connectors); the
+    // NDEBUG build continues, as here (the scene matches its golden).
     if p0.vn != K_UNASSIGNED_VERTEX_NUMBER {
         if p0.x == p1.x {
             if (p0.vn == 2) || (p0.vn == 3) {

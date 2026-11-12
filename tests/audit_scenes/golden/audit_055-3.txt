@@ -1,0 +1,8 @@
+rect
+id=2
+x=220
+y=125
+width=25
+height=25
+
+

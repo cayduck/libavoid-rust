@@ -2864,9 +2864,14 @@ impl ImproveOrthogonalRoutes {
             loop {
                 {
                     let mut f = IncSolver::new(&mut vs, &mut cs);
-                    if let Err(e) = f.solve() {
-                        // Upstream throws a `const char *` nobody catches.
-                        panic!("vpsc: unsatisfied constraint {e:?} (uncaught exception upstream)");
+                    if f.solve().is_err() {
+                        // Upstream throws a `const char *` nobody catches
+                        // (the process aborts).  Port addition (robustness,
+                        // router.rs "Public-API misuse"): the region is left
+                        // un-nudged, i.e. treated as unsatisfiable, so no
+                        // positions are written back.
+                        satisfied = false;
+                        break;
                     }
                 }
 

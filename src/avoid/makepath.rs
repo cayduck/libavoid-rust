@@ -975,7 +975,31 @@ impl AStarPathPrivate {
         let mut b_node_found: bool; // Flag if node is found in container
         let mut timestamp: i32 = 1;
 
-        if router.rubber_band_routing && (start != src) {
+        // Port addition (robustness): upstream walks the current route from
+        // its first point until it reaches `start`, dereferencing every
+        // vertex looked up by id.  If a route point has no vertex (e.g. a
+        // fixed route through arbitrary points) or `start` is not on the
+        // route, upstream dereferences null / reads past the route.  That
+        // walk is checked first (read-only); if it would fail, the search
+        // starts afresh from `src` as for a non-rubber-band search.
+        let rubber_band_walk_ok = router.rubber_band_routing && (start != src) && {
+            let curr_route = router.conns[line_ref].route();
+            let mut ok = false;
+            for r_indx in 0..curr_route.size() {
+                let pnt = curr_route.at(r_indx);
+                let props: VertIDProps = if r_indx > 0 { 0 } else { VertID::PROP_CONN_POINT };
+                match router.vertices.get_vertex_by_id(&router.vert_infs, &VertID::new(pnt.id, pnt.vn, props)) {
+                    None => break,
+                    Some(v) if v == start => {
+                        ok = true;
+                        break;
+                    }
+                    Some(_) => {}
+                }
+            }
+            ok
+        };
+        if rubber_band_walk_ok {
             debug_assert!(router.ignore_regions);
 
             let curr_route = router.conns[line_ref].route().clone();

@@ -607,7 +607,12 @@ impl EdgeInf {
         debug_assert!(router.vert_infs[j].id != DUMMY_ORTHOG_ID);
 
         let edge = if known_new {
-            debug_assert!(EdgeInf::existing_edge(router, i, j).is_none());
+            // Upstream: COLA_ASSERT(existingEdge(i, j) == nullptr).  Not
+            // ported (assert policy, router.rs module docs): the asserting
+            // upstream build fails it on valid input (audit scene
+            // tests/audit_scenes/audit_000.ops: mixed poly-line/orthogonal
+            // router, transactions off); the NDEBUG build creates the
+            // duplicate edge, as here (the scene matches its golden).
             EdgeInf::new(router, i, j, false)
         } else {
             match EdgeInf::existing_edge(router, i, j) {

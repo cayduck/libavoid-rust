@@ -185,7 +185,14 @@ def gen(idx, rng):
     for _ in range(nconns):
         cv = sc.v("conn")
         (s, sk), (d, dk) = connend(), connend()
-        e("let %s conn (ConnRefEnds router %s %s 0)" % (cv, s, d))
+        if transactions:
+            e("let %s conn (ConnRefEnds router %s %s 0)" % (cv, s, d))
+        else:
+            # ConnRef(router, src, dst) with transactions off routes before
+            # registering its reroute flag; upstream then crashes in
+            # EdgeInf::alertConns() (null flag; the port registers it first).
+            e("let %s conn (ConnRef router 0)" % cv)
+            e("do (setEndpoints %s %s %s)" % (cv, s, d))
         if poly_allowed and orth_allowed:
             e("do (setRoutingType %s %d)" % (cv, rng.choice([1, 2])))
         if rng.random() < 0.2:
