@@ -254,8 +254,16 @@ test("Router: constructor, parameters, options, defaults", () => {
   assert.match(r.printInfo(), /Visibility Graph info/);
   assert.equal(r.outputDiagramText(), r.outputDiagramText("name"));
   assert.equal(r.outputDiagram(), r.outputDiagramText());
-  assert.throws(() => r.outputInstanceToSVG(), /not yet available/);
-  assert.throws(() => r.outputDiagramSVG(), /not yet available/);
+  assert.match(r.outputInstanceToSVG(), /^<\?xml[\s\S]*<svg[\s\S]*<\/svg>\s*$/);
+  assert.equal(r.outputInstanceToSVG(), r.outputInstanceToSVG("name"));
+  assert.match(r.outputDiagramSVG(), /^<\?xml[\s\S]*<svg[\s\S]*<\/svg>\s*$/);
+  {
+    const rep = new Avoid.LineRep();
+    rep.begin = new Avoid.Point(1, 2);
+    rep.end = new Avoid.Point(30, 40);
+    assert.notEqual(r.outputDiagramSVG("", [rep]), r.outputDiagramSVG("", []));
+    assert.throws(() => r.outputDiagramSVG("", [{}]), TypeError);
+  }
   r.regenerateStaticBuiltGraph();
   r.destroyOrthogonalVisGraph();
   r.setStaticGraphInvalidated(true);

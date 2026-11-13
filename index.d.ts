@@ -89,8 +89,9 @@
 //   `transactionUse()` is false) returns, so a callback may use the
 //   router.  An exception thrown by a callback propagates out of that call;
 //   the remaining callbacks of the transaction are not invoked.
-// * `FILE*` / file-name output returns the text: `outputDiagramText()`,
-//   `outputDiagram()` and `printInfo()` return what upstream writes.
+// * `FILE*` / file-name output returns the text: `outputInstanceToSVG()`,
+//   `outputDiagramSVG()`, `outputDiagramText()`, `outputDiagram()` and
+//   `printInfo()` return what upstream writes.
 //
 // Misuse
 // ------
@@ -459,7 +460,8 @@ export class Router {
   /** The router's HyperedgeRerouter (the same object every time). */
   hyperedgeRerouter(): HyperedgeRerouter;
   /** Not yet available: throws (SVG output is not ported yet). */
-  outputInstanceToSVG(filename?: string): void;
+  /** Returns the SVG upstream writes to `<filename>.svg`. */
+  outputInstanceToSVG(filename?: string): string;
   newObjectId(): number;
   objectIdIsUnused(id: number): boolean;
   /** Virtual: override in a subclass.  Default: true. */
@@ -490,7 +492,8 @@ export class Router {
   existsCrossings(optimisedForConnectorType?: boolean): number;
   existsInvalidOrthogonalPaths(): boolean;
   /** Not yet available: throws (SVG output is not ported yet). */
-  outputDiagramSVG(instanceName?: string, lineReps?: LineRep[] | null): void;
+  /** Returns the SVG upstream writes to `<instanceName>.svg`. */
+  outputDiagramSVG(instanceName?: string, lineReps?: LineRep[] | null): string;
   /** Returns the text upstream writes to `<instanceName>.txt`. */
   outputDiagramText(instanceName?: string): string;
   /** Returns the text upstream writes (outputDiagramText; the SVG part exists only in SVG_OUTPUT debug builds). */

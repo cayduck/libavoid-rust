@@ -222,7 +222,7 @@ as opaque pointers.  They are listed by class in the last table.
 | `Router::routingOption(option)` | `Avoid.Router#routingOption` | 1 | |
 | `Router::setRoutingPenalty(penType, penVal = chooseSensibleParamValue)` | `Avoid.Router#setRoutingPenalty` | 1 | |
 | `Router::hyperedgeRerouter()` | `Avoid.Router#hyperedgeRerouter` | 0 | the same object every time |
-| `Router::outputInstanceToSVG(filename = std::string())` | `Avoid.Router#outputInstanceToSVG` | 0 | not yet available: throws (`TODO(core-svg)`; the core's SVG output is being added) |
+| `Router::outputInstanceToSVG(filename = std::string())` | `Avoid.Router#outputInstanceToSVG` | 0 | returns the SVG upstream writes to `<filename>.svg` |
 | `virtual Router::newObjectId()` | `Avoid.Router#newObjectId` | 0 | virtual: an override supplies the ids of objects constructed through the API with id 0; objects the router creates itself get the built-in id |
 | `Router::objectIdIsUnused(id)` | `Avoid.Router#objectIdIsUnused` | 1 | |
 | `virtual Router::shouldContinueTransactionWithProgress(elapsedTime, phaseNumber, totalPhases, proportion)` | `Avoid.Router#shouldContinueTransactionWithProgress` | 4 | virtual: override by subclassing |
@@ -252,7 +252,7 @@ as opaque pointers.  They are listed by class in the last table.
 | `Router::existsOrthogonalTouchingPaths()` | `Avoid.Router#existsOrthogonalTouchingPaths` | 0 | |
 | `Router::existsCrossings(optimisedForConnectorType = false)` | `Avoid.Router#existsCrossings` | 0 | |
 | `Router::existsInvalidOrthogonalPaths()` | `Avoid.Router#existsInvalidOrthogonalPaths` | 0 | |
-| `Router::outputDiagramSVG(instanceName = std::string(), LineReps *lineReps = nullptr)` | `Avoid.Router#outputDiagramSVG` | 0 | not yet available: throws (`TODO(core-svg)`) |
+| `Router::outputDiagramSVG(instanceName = std::string(), LineReps *lineReps = nullptr)` | `Avoid.Router#outputDiagramSVG` | 0 | returns the SVG upstream writes to `<instanceName>.svg` |
 | `Router::outputDiagramText(instanceName = std::string())` | `Avoid.Router#outputDiagramText` | 0 | returns the text upstream writes to `<instanceName>.txt` |
 | `Router::outputDiagram(instanceName = std::string())` | `Avoid.Router#outputDiagram` | 0 | returns the text diagram; upstream adds `outputInstanceToSVG()` only in builds with the debug define `SVG_OUTPUT` |
 

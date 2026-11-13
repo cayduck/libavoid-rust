@@ -225,7 +225,7 @@ Run everything with `npm test` (Rust tests, WASM build, Node tests).
   `PORTING.md`).
 - **Function inventory.** `docs/PORTING_INVENTORY.md` maps every upstream
   class, function and constant to its Rust counterpart or to the reason it is
-  not ported (debug/SVG output and the like).
+  not ported (dead code, declarations upstream never defines).
 - **JavaScript API.** `test/fixtures-replay.cjs` replays all 83 upstream test
   programs through the JavaScript API of the built package (object for
   object, with upstream's ids) and compares the 80 that compile upstream
@@ -245,8 +245,6 @@ inputs are known to be slow.
 What upstream's public headers declare and this package does not expose
 (details and reasons in `docs/JS_API_COVERAGE.md`):
 
-- SVG output: `Router::outputInstanceToSVG()` and `Router::outputDiagramSVG()`
-  exist but throw, because SVG output is not ported yet.
 - The debug-visualisation hooks: `DebugHandler`, `Router::setDebugHandler()`,
   `Router::debugHandler()`.
 - The topology add-on: `TopologyAddonInterface`,

@@ -125,6 +125,29 @@ function blocks(text) {
   return out;
 }
 
+// --- SVG output against the C++ (tests/golden-svg/manifest.txt: file sha256 bytes) -------
+
+const svgGolden = new Map();
+for (const line of fs.readFileSync(path.join(root, "tests", "golden-svg", "manifest.txt"), "utf8").split("\n")) {
+  const m = /^(\S+\.svg) ([0-9a-f]{64}) \d+$/.exec(line);
+  if (m) svgGolden.set(m[1], m[2]);
+}
+const svgStats = { compared: 0 };
+
+/** `outputInstanceToSVG()` / `outputDiagramSVG()` at a diagram dump must be upstream's bytes. */
+function compareSvg(router, goldenName) {
+  for (const [file, svg] of [
+    [`${goldenName}.svg`, () => router.outputInstanceToSVG()],
+    [`${goldenName}-diagram.svg`, () => router.outputDiagramSVG()],
+  ]) {
+    const want = svgGolden.get(file);
+    if (want === undefined) continue;
+    const got = require("node:crypto").createHash("sha256").update(svg()).digest("hex");
+    assert.equal(got, want, `${file}: SVG differs from the C++`);
+    svgStats.compared++;
+  }
+}
+
 /** tests/common/mod.rs compare_diagram_text(): returns max |diff| or throws. */
 function compareDiagram(ours, golden, name) {
   const ob = blocks(ours);
@@ -1061,6 +1084,7 @@ class Interp {
 
   compare(goldenName) {
     const text = diagramText(this.r());
+    compareSvg(this.r(), goldenName);
     const dir = this.audit ? path.join(root, "tests", "audit_scenes", "golden") : path.join(root, "tests", "golden-bump");
     const golden = fs.readFileSync(path.join(dir, `${goldenName}.txt`), "utf8");
     this.outputs++;
@@ -1168,6 +1192,7 @@ function main() {
       `max |diff| ${totals.maxDiff}; ${totals.stdout} with callback/printf stdout), ${totals.smoke} smoke (no upstream golden)` +
       (totals.skipped.length ? `, ${totals.skipped.length} slow skipped (${totals.skipped.join(", ")}; set LIBAVOID_SLOW_FIXTURES=1)` : ""),
   );
+  console.log(`SVG output: ${svgStats.compared} files identical to the C++ (outputInstanceToSVG, outputDiagramSVG)`);
   console.log(
     `audit scenes: ${audit.compared} compared bit for bit (${audit.outputs} diagrams), ${audit.run} run without golden, ` +
       `${audit.setCentrePos} skipped (private ShapeRef::setCentrePos)`,

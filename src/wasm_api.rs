@@ -818,6 +818,28 @@ impl RawRouter {
         self.router.exists_invalid_orthogonal_paths()
     }
 
+    /// The SVG upstream's `outputInstanceToSVG()` writes.
+    #[wasm_bindgen(js_name = outputInstanceToSVG)]
+    pub fn output_instance_to_svg(&mut self) -> String {
+        self.router.output_instance_to_svg_string()
+    }
+
+    /// The SVG upstream's `outputDiagramSVG()` writes.  `line_reps`: absent
+    /// for upstream's null pointer, else `begin.x, begin.y, end.x, end.y`
+    /// per `LineRep`.
+    #[wasm_bindgen(js_name = outputDiagramSVG)]
+    pub fn output_diagram_svg(&mut self, line_reps: Option<Vec<f64>>) -> String {
+        let reps: Option<crate::avoid::router::LineReps> = line_reps.map(|v| {
+            v.chunks_exact(4)
+                .map(|c| crate::avoid::router::LineRep {
+                    begin: Point::new(c[0], c[1]),
+                    end: Point::new(c[2], c[3]),
+                })
+                .collect()
+        });
+        self.router.output_diagram_svg_string(reps.as_ref())
+    }
+
     /// The text upstream's `outputDiagramText()` writes (`%g` format).
     #[wasm_bindgen(js_name = outputDiagramText)]
     pub fn output_diagram_text(&mut self) -> String {
