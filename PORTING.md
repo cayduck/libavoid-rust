@@ -12,7 +12,8 @@ is ported from it function by function.
 | --- | --- |
 | `src/avoid/<name>.rs` | Port of upstream `libavoid/<name>.{h,cpp}`. Every function carries an `// upstream: file.cpp Class::method()` comment. |
 | `src/avoid/arena.rs` | Arenas and `Copy` handles that stand in for upstream pointers. |
-| `src/wasm_api.rs`, `lib/adapter.cjs`, `index.cjs`, `index.mjs`, `index.d.ts` | The JavaScript-facing `AvoidRouter`, a string-id adapter over the core with no routing logic of its own. `index.cjs` (Node) and `index.mjs` (browsers) apply the one adapter to the `nodejs` and `web` wasm-pack builds. |
+| `src/wasm_api.rs` | `RawRouter`, the low-level wasm-bindgen layer: router-owned objects named by numeric keys, values as flat numeric arrays, upstream's documented preconditions checked before the core is called. It is not public API and has no routing logic of its own. |
+| `lib/adapter.cjs`, `index.cjs`, `index.mjs`, `index.d.ts` | The JavaScript API: upstream's public classes of `namespace Avoid` (`Router`, `ShapeRef`, `ConnRef`, `ConnEnd`, ...) implemented in `lib/adapter.cjs` over `RawRouter`. `index.cjs` (Node) and `index.mjs` (browsers) apply the one adapter to the `nodejs` and `web` wasm-pack builds. `index.d.ts` documents the rules that map C++ to JavaScript; `docs/JS_API_COVERAGE.md` lists every upstream public item and its JavaScript counterpart. A JavaScript subclass of `Router` overrides the virtual `shouldContinueTransactionWithProgress()`; a stop request has upstream's effect. |
 | `demo/` | The interactive demo page (see the README). |
 | `docs/PORTING_INVENTORY.md` | Generated function-level inventory: every upstream class, function and constant, mapped to its Rust counterpart or to the reason it is not ported. |
 | `tests/` | Upstream fixtures, differential oracles, robustness tests and API tests. |
@@ -69,7 +70,9 @@ tests. The pieces are:
 | `tests/*_oracle.rs` | Per-module differential tests against recorded C++ output: geometry, objects and router state, crossings, visibility and path search, orthogonal visibility graph, nudging, hyperedges, VPSC (in `src/avoid/vpsc.rs`). |
 | `tests/audit_scenes.rs` | 146 generated scenes covering router flags, every routing option and extreme parameter values, compared with the C++. |
 | `tests/e2e_fuzz.rs` | End-to-end fuzz scenes that mix every feature over long transaction sequences. Of the 1,000 committed scenes, the 865 on which upstream is well defined must match the C++ exactly; the other 135 (upstream crashes, undefined behaviour or runs out of memory) and a set of regression scenes must run without panicking. Debug builds check a tenth of the scenes. |
-| `tests/wasm_api_fixtures.rs`, `tests/wasm_api.rs`, `test/*.cjs` | The fixtures again through the string-id wrapper, wrapper API contracts, and the built WASM package from Node. |
+| `test/fixtures-replay.cjs` | All 83 upstream fixtures and the audit scenes replayed through the JavaScript API of the built package (with upstream's ids), compared with the C++ output like `tests/fixtures_ops.rs`, including the stdout printed by connector callbacks. |
+| `test/api-conformance.cjs`, `test/api-sync.cjs` | Every row of `docs/JS_API_COVERAGE.md` (exports, methods, properties, constant values, required argument counts); overloads, defaults, callbacks, subclassing, object identity and misuse; `index.d.ts` and the adapter in step with the modules and the wasm exports. |
+| `test/node-smoke.cjs`, `test/esm-entry.mjs`, `test/failure-containment.cjs` | Hand-written fixture translations and the README examples; the ES-module entry; failure containment and `shouldContinueTransactionWithProgress()` overridden by subclassing. |
 | `tests/robustness.rs`, `tests/core_findings.rs` | Misuse of the public API must not panic or hang. |
 | `tools/audit/inventory.py --check` | Every upstream item is accounted for, and every `// upstream:` comment names something that exists. |
 | `tools/wasm/run_wasm_tests.sh` | The integration tests on `wasm32-wasip1`, where `usize` is 32 bits. |
@@ -202,18 +205,16 @@ differences are confined to the following.
   upstream itself violates on valid input; those are not ported, so that debug
   builds do not panic where upstream's release build works. Each site cites
   its evidence.
-- **Callbacks.** A connector callback is a closure that receives the
-  connector handle and has no access to the router. The JavaScript API
-  reports the connectors updated by the last transaction instead.
+- **Callbacks.** In the Rust core, a connector callback is a closure that
+  receives the connector handle and has no access to the router. In
+  JavaScript, `ConnRef.setCallback(cb, ptr)` is upstream's: `RawRouter`
+  records the callbacks the core performs, and the adapter invokes `cb(ptr)`
+  for each, in the core's order, after the transaction has finished and
+  before the call that ran it returns. Upstream invokes the callbacks inside
+  the transaction, before its last `shouldContinueTransactionWithProgress()`
+  call.
 - **Uncaught exceptions.** Where upstream's VPSC solver would throw an
   exception nothing catches, the port leaves that nudging region unchanged.
-- **Cancelled transactions (JavaScript API).** Upstream's
-  `shouldContinueTransactionWithProgress()` is exposed unchanged, so a stop
-  request only skips the rest of the crossing improvement. Upstream then
-  leaves connectors whose crossing reroute was cut short without a route,
-  and `processTransaction()` does nothing until another change is queued.
-  The wrapper makes the next `processTransaction()` run the rerouting phase
-  again, which finishes that work.
 
 ## Known slow cases
 
@@ -269,7 +270,7 @@ like a hang in an interactive application.
   time. The fixed amount comes from the faithful junction-adding behaviour
   above.
 
-A transaction time limit or progress callback (JavaScript API) does not
-shorten these cases: upstream polls its continuation hook during nudging and
+Overriding `shouldContinueTransactionWithProgress()` (JavaScript API) does
+not shorten these cases: upstream polls its continuation hook during nudging and
 route search but acts on a stop request only during crossing improvement.
 Run such scenes in a worker if the thread must stay responsive.
