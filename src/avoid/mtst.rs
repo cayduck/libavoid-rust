@@ -749,16 +749,16 @@ impl MinimumTerminalSpanningTree {
                 e_pop_heap(router, &mut self.be_heap);
                 self.be_heap.pop();
 
-                #[cfg(debug_assertions)]
-                {
-                    let ends = self.real_vertices_counting_partners(router, e);
-                    debug_assert!(self
-                        .orig_terminals
-                        .contains(&vert_key(router, VertInf::tree_root(router, ends.0).unwrap())));
-                    debug_assert!(self
-                        .orig_terminals
-                        .contains(&vert_key(router, VertInf::tree_root(router, ends.1).unwrap())));
-                }
+                // Upstream: COLA_ASSERT(origTerminals.find(ends.first->treeRoot())
+                // != origTerminals.end()) and the same for ends.second.  Not
+                // ported (assert policy): a registered hyperedge whose MTST
+                // tree contains a cycle violates them (e2e fuzz regression
+                // scene reg-hyperedge-cyclic-mtst-tree: upstream's asserting
+                // build, without the currVert assert of
+                // buildHyperedgeTreeToRoot() that is not ported either,
+                // fails mtst.cpp:704; its NDEBUG build overflows the stack).
+                // The port skips such a hyperedge ("Public-API misuse" in
+                // router.rs), so debug builds must get there as well.
 
                 self.commit_to_bridging_edge(router, e);
 

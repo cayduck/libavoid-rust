@@ -150,7 +150,8 @@
 //!   contains a cycle is skipped (upstream's recursive `addConns()`
 //!   overflows the stack).  A hyperedge tree edge without an end node
 //!   (both ends are the node it is entered from) is left alone by
-//!   `updateConnEnds()` (upstream dereferences null).  A hyperedge whose
+//!   `updateConnEnds()` (upstream dereferences null), and deleting the
+//!   tree deletes it once (upstream deletes it twice).  A hyperedge whose
 //!   terminal vertices were freed by rerouting an earlier registered
 //!   hyperedge sharing its objects (e.g. one junction registered twice)
 //!   is skipped (upstream: use-after-free in the MTST).
@@ -219,6 +220,17 @@
 //!   their display routes tripled on every transaction, and nudging the
 //!   resulting overlapping segments took hours
 //!   (`reg-improver-junction-self-loop-rewrite`, from fuzz scene s1-123).
+//!   A self-loop that only arises during improvement (e.g. a connector with
+//!   both ends on a junction first gives that junction two tree nodes,
+//!   which a zero-length edge then merges) cannot be skipped that way; the
+//!   guard above records when it meets such an edge that upstream would
+//!   merge (major changes allowed, or a node without junction), and from
+//!   then on `writeEdgesToConns()` does not re-enter a node through a
+//!   self-loop edge.  Without that, a fixed connector's display route
+//!   tripled on every transaction until routing took exponential time and
+//!   the recursion overflowed the stack (`reg-improver-self-loop-route-growth`,
+//!   from fuzz scene s21-739).  Both rules fire only where upstream never
+//!   returns.
 //! * `HyperedgeImprover::moveJunctionAlongCommonEdge()`, split case: when
 //!   two of the common edges lead to the same node (parallel edges, e.g.
 //!   from a connector with both ends on one junction),
@@ -235,8 +247,14 @@
 //! ported, so that debug builds never panic where upstream's release build
 //! works.  Each such site carries a comment `Upstream: COLA_ASSERT(..).
 //! Not ported (assert policy)` with the evidence (the nudging oracle's 29
-//! `#assert` scenes run in debug builds too).  Asserts on API misuse are
-//! made unreachable by the `MISUSE` handling above.
+//! `#assert` scenes and the e2e fuzzer's `#assert` scenes run in debug
+//! builds too).  Asserts on API misuse are made unreachable by the
+//! `MISUSE` handling above; an invariant assert that the documented
+//! handling of input upstream leaves undefined (or never finishes) would
+//! violate, and that upstream's asserting build fails on that input as
+//! well, is not ported either, so debug and release builds behave the same
+//! (hyperedge validation with a connector whose both ends are on one
+//! junction; MTST bridging edges of a hyperedge whose tree has a cycle).
 
 #![allow(dead_code)]
 // Keep upstream statement shapes.

@@ -847,7 +847,14 @@ impl AStarPathPrivate {
         let other_point = router.vert_infs[other].point;
         let target_point = router.vert_infs[target].point;
         let this_dirs = orthogonal_direction(&other_point, &target_point);
-        debug_assert!(orthogonal_directions_count(this_dirs) > 0);
+        // Upstream: COLA_ASSERT(orthogonalDirectionsCount(thisDirs) > 0).
+        // Not ported (assert policy): upstream's asserting build fails it on
+        // valid input -- a junction at (50,0) between point ends at (0,0)
+        // and (100,0), orthogonal routing (e2e fuzz regression scene
+        // reg-assert-endpoint-direction, and 24 `#assert` scenes of the
+        // committed e2e fuzz golden) -- while its NDEBUG build routes the
+        // scene (thisDirs == 0 only weakens the cost estimate); the port
+        // matches that output.
         let displacement = manhattan_dist(&other_point, &target_point);
 
         self.m_cost_targets.push(other);

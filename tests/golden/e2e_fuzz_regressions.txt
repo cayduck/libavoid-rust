@@ -132,7 +132,7 @@ conn 18507 P 95 265 3 J L
 conn 0 J L P 305 230 15
 regj 37
 #out
-#exclude crash [debug-assert] stack-overflow (MTST tree of a registered hyperedge contains a cycle: upstream's recursive addConns() overflows the stack; port skips the hyperedge, must not overflow or panic)
+#exclude crash stack-overflow (MTST tree of a registered hyperedge contains a cycle: upstream's recursive addConns() overflows the stack; port skips the hyperedge, must not overflow or panic)
 #end
 #scene reg-improver-edge-without-end-node
 router 2
@@ -145,7 +145,7 @@ fixroute 234 2 200 130 200 155
 option 5 1
 src 438 J 762
 #out
-#exclude crash [debug-assert] null HyperedgeTreeNode (hyperedge tree edge whose ends are both the node it is entered from: upstream dereferences null in HyperedgeTreeEdge::updateConnEnds; port must not panic)
+#exclude crash null HyperedgeTreeNode (hyperedge tree edge whose ends are both the node it is entered from: upstream dereferences null in HyperedgeTreeEdge::updateConnEnds; port must not panic)
 #end
 #scene reg-hyperedge-terminal-shape-freed
 router 2
@@ -182,7 +182,7 @@ conn 9346 P 60 30 8 J L
 src 612 J 405
 dst 756 J 838
 #out
-#exclude crash [debug-assert] timeout (upstream never returns: HyperedgeTreeNode::spliceEdgesFrom(self) on a zero-length self-loop tree edge; port must terminate)
+#exclude crash timeout (upstream never returns: HyperedgeTreeNode::spliceEdgesFrom(self) on a zero-length self-loop tree edge; port must terminate)
 #end
 #scene reg-improver-split-parallel-edges
 router 3
@@ -200,6 +200,89 @@ cps 47 3 191.358 57.928312499999997 15 15 57.506750000000004 177.66666666666666 
 option 5 1
 #out
 #exclude crash timeout (upstream never returns: moveJunctionAlongCommonEdge split case calls spliceEdgesFrom(targetNode) on itself; port must terminate)
+#end
+#scene reg-assert-endpoint-direction
+router 2
+junction 1 50 0 0
+conn 2 P 0 0 15 J 0
+conn 3 J 0 P 100 0 15
+process
+#out
+#assert exit=134 libavoid/makepath.cpp:938: Assertion `orthogonalDirectionsCount(thisDirs) > 0' failed (upstream asserting build on valid input; not ported, NDEBUG output compared in debug builds too)
+T 0 ret=1
+cb 3 2
+H nj=[] nc=[] dj=[] dc=[] cc=[]
+J 1 50,0 f=0
+C 3 t=2 f=0 src=J50,0 dst=P100,0
+  raw 2: 50,0 100,0
+  disp 2: 50,0 100,0
+C 2 t=2 f=0 src=P0,0 dst=J50,0
+  raw 2: 0,0 50,0
+  disp 2: 0,0 50,0
+Q ovl=00 fovl=00 touch=0 cross=0,0 invalid=0
+A 1 [2][] [3][] [3 2][]
+D path
+D id=3
+D p0: 50 0 
+D p1: 100 0 
+D 
+D path
+D id=2
+D p0: 0 0 
+D p1: 50 0 
+D 
+D 
+#end
+#scene reg-improver-self-loop-route-growth
+router 1
+option 5 1
+rect 0 0 100 90 170
+rect 1347 30 120 60 140
+rect 3228 40 170 80 240
+pin 2 1 0.75 1 1 0 0
+pin 2 3 0 20 0 0 15
+junction 0 180 40 0
+conn 4452 J L P -20 70 15
+conn 0 P 30 140 8 J L
+conn 6024 J L P 130 -10 8
+conn 0 S 2 1 J L
+conn 7691 P 70 170 1 S 2 4
+conn 0 P 70 200 11 S 2 4
+conn 0 J L J 809
+cps 111 3 200 70 0 0 120 110 15 0 200 120 0 0
+process
+process
+conn 0 S 2 3 J 459
+delconn 15
+process
+fixexist 242
+process
+conn 0 S 2 4 S 2 1
+process
+pin 5 4 0.5 0.38100000000000001 1 5 0
+process
+settings
+process
+delshape 3
+process
+settings
+process
+settings
+process
+settings
+process
+settings
+process
+settings
+process
+settings
+process
+settings
+process
+settings
+process
+#out
+#exclude crash timeout (upstream never returns: HyperedgeImprover merges a self-loop tree edge's node into itself; the port must not re-enter the node through the self-loop when writing routes back, else a fixed connector's display route triples on every transaction)
 #end
 #scene reg-improver-junction-self-loop-rewrite
 router 3
@@ -600,4 +683,68 @@ D p2: 296 1240
 D p3: 500 1240 
 D 
 D 
+#end
+#scene reg-driver-stale-connector-handle
+router 2
+param 5 36.899999999999999
+option 2 0
+option 5 1
+rect 1728 226.22324999999998 92.189062499999991 251.24996999999999 140.84802249999998
+pin 0 4 0 0.5 1 0 15
+pinexcl 0 68 0
+pin 0 2 0.25 1 1 0 15
+pin 0 3 0.75 0.58499999999999996 1 0 0
+pinexcl 0 38 0
+rect 3377 235.95325 124.69912500000001 274.95325000000003 176.53472500000001
+rect 0 210.369 180.69525000000002 236.08859999999999 238.49743000000001
+pin 2 1 0 9.124478728259998 0 5 0
+pin 2 2 2.0716366211999988 35.721920646539992 0 5 0
+rect 4631 132.30674999999999 130.33333333333334 221.77218999999999 165.16835333333336
+pin 3 1 0.5 0 1 5 0
+pin 3 3 0 0.5 1 0 0
+junction 6294 117.73975 111.8805 0
+conn 7615 S 0 2 J L
+conn 0 J L S 0 3
+conn 0 S 0 3 J L
+conn 9137 J L P 215.26611471839999 238.49743000000001 1
+junction 10968 2.21875 158.23612499999999 0
+conn 0 J L P 187.58096 92.058594999999997 1
+conn 12245 P 4.188369999999999 158.2764775 8 J L
+conn 13618 S 3 3 S 2 1
+conn 15421 J 887 P 217.2264509936 165.16835333333336 15
+conn 16580 P 239.22122740607998 110.79211279239999 4 P 149.66666666666666 151.68998739493335 15
+type L 1
+process
+type 237 1
+fixroute L 2 6.2679999999999998 173.27474999999998 6.2679999999999998 92.881124999999997
+param 0 200
+process
+fixroute 26 2 70.524249999999995 26.333333333333332 70.524249999999995 52.646062499999999
+conn 18364 P 238.72971999999999 90.939400000000006 8 P 251.24996999999999 125.17025156487999 15
+conn 0 J 611 P 198.55837 102.6186775 8
+fixj 619 0
+moveby 2 24.031619999999997 -18.315239999999999
+rect 19564 238.9025 95.617687500000002 326.71586000000002 133.64488750000001
+process
+txn 0
+moveby 3 3 -12.29346
+process
+invalid 503
+process
+txn 1
+settings
+hate 850 1
+moveto 4 0 4 272.90250000000003 95.617687500000002 272.90250000000003 131.58328749999998 238.9025 131.58328749999998 238.9025 95.617687500000002
+process
+txn 0
+moveby 1 11.1096 -22.64124
+process
+txn 1
+param 6 8
+process
+txn 0
+split L 1
+process
+#out
+#exclude crash stale connector handle (the transaction run before a command in immediate mode frees a connector still in the driver list; the C++ driver then uses the freed ConnRef: use-after-free; the interpreter treats the handle as a no-op and must not panic)
 #end

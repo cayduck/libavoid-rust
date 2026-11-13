@@ -20,6 +20,17 @@
 // page is released.  Upstream reads of freed objects are use-after-free,
 // which the ASan build reports, so such scenes are excluded anyway.)
 //
+// Double frees are detected here: the header's second word holds a "live"
+// tag that free() checks and clears; freeing a block that is not live
+// aborts with "ERROR: double-free (bump allocator)".  The ASan build can
+// miss these: its own allocator gives a different pointer order, and some
+// upstream paths that free an object twice (e.g. a connector deleted by the
+// hyperedge improver but still in the router's list) depend on it.  Such a
+// double free also corrupts the bump builds' page accounting (a page with
+// live objects is released and then reads as zeros), so it shows as a
+// heap-layout-dependent crash or divergence otherwise (fuzz scene
+// s24-1167).
+//
 // The ASan/UBSan variant (-DE2E_SANITIZE) does not use this allocator: it
 // runs on ASan's own malloc (with a small quarantine), so its pointer order
 // -- and possibly its execution -- can differ from the bump builds; it is
@@ -41,6 +52,8 @@ static uint32_t *g_page_live = nullptr;   // live blocks per page
 static const size_t kPage = 4096;
 static const size_t kStride = (sizeof(Avoid::Node) % 16 == 0) ?
         sizeof(Avoid::Node) : 2 * sizeof(Avoid::Node);
+
+static const size_t kLiveTag = 0x4c49564542554d50ULL;   // header word 1 of a live block
 
 static void capExceeded(void)
 {
@@ -68,6 +81,7 @@ static void *oracleAlloc(size_t n)
     char *base = g_arena + g_arena_off;
     g_arena_off += total;
     *(size_t *) base = total;
+    ((size_t *) base)[1] = kLiveTag;
     size_t p0 = (size_t) (base - g_arena) / kPage;
     size_t p1 = (size_t) (base + total - 1 - g_arena) / kPage;
     for (size_t p = p0; p <= p1; ++p) ++g_page_live[p];
@@ -78,6 +92,13 @@ static void oracleFree(void *ptr)
 {
     if (!ptr) return;
     char *base = (char *) ptr - kStride;
+    if (((size_t *) base)[1] != kLiveTag)
+    {
+        static const char msg[] = "ERROR: double-free (bump allocator: free of a block that is not live)\n";
+        (void) !write(2, msg, sizeof(msg) - 1);
+        abort();
+    }
+    ((size_t *) base)[1] = 0;
     size_t total = *(size_t *) base;
     size_t p0 = (size_t) (base - g_arena) / kPage;
     size_t p1 = (size_t) (base + total - 1 - g_arena) / kPage;

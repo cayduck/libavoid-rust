@@ -14,7 +14,8 @@
 //! Scene markers (first output line):
 //!  * `#assert <msg>`: the asserting C++ build fails an upstream
 //!    `COLA_ASSERT`; the expected output is the NDEBUG build's, checked
-//!    only when `debug_assert!` is off (release builds).
+//!    in debug builds too (the port does not keep asserts that upstream
+//!    violates on valid input; see "Asserts" in `src/avoid/router.rs`).
 //!  * `#exclude <reason>`: upstream crashes / has undefined behaviour /
 //!    times out on this scene (see `tools/oracle/e2e_fuzz.sh`); skipped.
 //!    `E2E_SOFT=1` also replays these and reports (without failing) how
@@ -30,7 +31,9 @@
 //!    guards against upstream API misuse off (raw immediate mode, missing
 //!    pin classes, cyclic / two-terminal hyperedges, deleting objects with
 //!    queued actions, ...); must not panic (no comparison)
-//!  * `E2E_PROGRESS=1`   print "start NAME" / "done NAME ms" to stderr
+//!  * `E2E_ONLY=path`    only the scenes named in that file (one per line)
+//!  * `E2E_PROGRESS=1`   print "start NAME" / "done NAME ms STATUS" to stderr
+//!    (STATUS as in the report; the campaign driver's watchdog reads these)
 //!  * `E2E_NO_SLOT_REUSE=1` arenas never reuse freed slots (results must
 //!    not change: a difference means a slot index leaks into behaviour)
 
@@ -121,21 +124,26 @@ fn check(scene: &GoldenScene, full: bool, soft: bool) -> Outcome {
             }
         }
     };
-    if first.starts_with("#assert") && cfg!(debug_assertions) {
-        if let Outcome::Panic(m) = &outcome {
-            if m.starts_with("assertion failed") || m.starts_with("assertion `") {
-                // The upstream asserting build fails on this scene too and
-                // the port kept that assert as a debug_assert!: not a
-                // divergence (counted as excluded in debug builds).
-                return Outcome::Excluded { soft_match: None, panic: None };
-            }
-        }
-    }
     if excluded {
         let panic = if let Outcome::Panic(m) = &outcome { Some(m.clone()) } else { None };
         return Outcome::Excluded { soft_match: Some(matches!(outcome, Outcome::Match)), panic };
     }
     outcome
+}
+
+/// One-line status of a scene (report file and progress lines).  An
+/// excluded scene that panicked is "excluded-panic MSG".
+fn status_of(o: &Outcome) -> String {
+    let first_line = |m: &str| m.lines().next().unwrap_or("").to_string();
+    match o {
+        Outcome::Match => "match".to_string(),
+        Outcome::Excluded { panic: Some(m), .. } => format!("excluded-panic {}", first_line(m)),
+        Outcome::Excluded { soft_match: Some(true), .. } => "excluded-match".to_string(),
+        Outcome::Excluded { soft_match: Some(false), .. } => "excluded-differ".to_string(),
+        Outcome::Excluded { soft_match: None, .. } => "excluded".to_string(),
+        Outcome::Differ(_) => "differ".to_string(),
+        Outcome::Panic(m) => format!("panic {}", first_line(m)),
+    }
 }
 
 #[test]
@@ -151,6 +159,9 @@ fn e2e_fuzz_matches_cpp_oracle() {
         libavoid_rust::avoid::arena::NO_SLOT_REUSE.store(true, std::sync::atomic::Ordering::Relaxed);
     }
     let only = std::env::var("E2E_SCENE").ok();
+    let only_set: Option<std::collections::HashSet<String>> = std::env::var("E2E_ONLY")
+        .ok()
+        .map(|p| std::fs::read_to_string(p).expect("E2E_ONLY file").lines().map(|l| l.to_string()).collect());
     let full = std::env::var("E2E_FULL").is_ok();
     let soft = std::env::var("E2E_SOFT").is_ok();
     let raw = std::env::var("E2E_RAW").is_ok();
@@ -163,9 +174,10 @@ fn e2e_fuzz_matches_cpp_oracle() {
     let selected: Vec<&GoldenScene> = scenes
         .iter()
         .enumerate()
-        .filter(|(i, s)| match only.as_ref() {
-            Some(o) => &s.name == o,
-            None => i % subsample == 0,
+        .filter(|(i, s)| match (only.as_ref(), only_set.as_ref()) {
+            (Some(o), _) => &s.name == o,
+            (None, Some(set)) => set.contains(&s.name),
+            (None, None) => i % subsample == 0,
         })
         .map(|(_, s)| s)
         .collect();
@@ -176,7 +188,7 @@ fn e2e_fuzz_matches_cpp_oracle() {
     // Silence the default panic message spam of caught panics.
     // (kept for single-scene runs, where the backtrace is useful)
     let prev_hook = std::panic::take_hook();
-    if only.is_none() {
+    if only.is_none() || only_set.is_some() {
         std::panic::set_hook(Box::new(|_| {}));
     }
     let next = AtomicUsize::new(0);
@@ -190,13 +202,13 @@ fn e2e_fuzz_matches_cpp_oracle() {
                 }
                 let t0 = std::time::Instant::now();
                 if progress {
-                    eprintln!("start {}", selected[i].name);
+                    eprintln!("\nstart {}", selected[i].name);
                 }
                 let o = if raw { check_raw(selected[i]) } else { check(selected[i], full, soft) };
                 let ms = t0.elapsed().as_millis() as u64;
                 max_ms.fetch_max(ms, Ordering::SeqCst);
                 if progress {
-                    eprintln!("done {} {} ms", selected[i].name, ms);
+                    eprintln!("\ndone {} {} ms {}", selected[i].name, ms, status_of(&o));
                 }
                 results.lock().unwrap().push((i, o));
             });
@@ -210,11 +222,9 @@ fn e2e_fuzz_matches_cpp_oracle() {
     let mut report = String::new();
     for (i, o) in results.iter() {
         let name = &selected[*i].name;
-        let status = match o {
-            Outcome::Match => {
-                matched += 1;
-                "match".to_string()
-            }
+        let status = status_of(o);
+        match o {
+            Outcome::Match => matched += 1,
             Outcome::Excluded { soft_match, panic } => {
                 excluded += 1;
                 if let Some(m) = panic {
@@ -223,26 +233,14 @@ fn e2e_fuzz_matches_cpp_oracle() {
                     failures.push(format!("{}: (excluded scene) panicked: {}", name, m));
                 }
                 match soft_match {
-                    Some(true) => {
-                        soft_ok += 1;
-                        "excluded-match".to_string()
-                    }
-                    Some(false) => {
-                        soft_bad += 1;
-                        "excluded-differ".to_string()
-                    }
-                    None => "excluded".to_string(),
+                    Some(true) => soft_ok += 1,
+                    Some(false) => soft_bad += 1,
+                    None => {}
                 }
             }
-            Outcome::Differ(m) => {
-                failures.push(format!("{}: {}", name, m));
-                "differ".to_string()
-            }
-            Outcome::Panic(m) => {
-                failures.push(format!("{}: panicked: {}", name, m));
-                format!("panic {}", m.lines().next().unwrap_or(""))
-            }
-        };
+            Outcome::Differ(m) => failures.push(format!("{}: {}", name, m)),
+            Outcome::Panic(m) => failures.push(format!("{}: panicked: {}", name, m)),
+        }
         report.push_str(&format!("{}\t{}\n", name, status));
     }
     if let Ok(p) = std::env::var("E2E_REPORT") {
@@ -275,17 +273,10 @@ fn e2e_fuzz_regressions() {
     let mut failures = Vec::new();
     for scene in scenes.iter() {
         // (soft: "#exclude crash" scenes -- upstream crashes or never
-        // returns -- must run to completion without panicking)
-        // A scene marked "[debug-assert]" reaches a kept debug_assert!
-        // (MTST / hyperedge-tree invariants) on its misuse input in debug
-        // builds; upstream's asserting build fails on it too (assert or
-        // crash).  Release builds must still run it without panicking.
-        let debug_assert_ok = cfg!(debug_assertions)
-            && scene.out.first().is_some_and(|l| l.contains("[debug-assert]"));
+        // returns -- must run to completion without panicking, in debug
+        // builds too)
         match check(scene, false, true) {
             Outcome::Match | Outcome::Excluded { soft_match: None | Some(true), panic: None } => {}
-            Outcome::Excluded { panic: Some(m), .. }
-                if debug_assert_ok && (m.starts_with("assertion failed") || m.starts_with("assertion `")) => {}
             Outcome::Differ(m) => failures.push(format!("{}: {}", scene.name, m)),
             Outcome::Panic(m) => failures.push(format!("{}: panicked: {}", scene.name, m)),
             Outcome::Excluded { panic: Some(m), .. } => failures.push(format!("{}: panicked: {}", scene.name, m)),
