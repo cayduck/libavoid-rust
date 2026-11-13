@@ -34,7 +34,9 @@ const path = require("node:path");
 const Avoid = require("../index.cjs");
 
 const root = path.join(__dirname, "..");
-const SLOW = new Set(["performance01", "slowrouting", "reallyslowrouting", "unsatisfiableRangeAssertion"]);
+// unsatisfiableRangeAssertion takes ~2 minutes in wasm (the others marked slow in
+// tests/fixtures_ops.rs take about a second here).
+const SLOW = new Set(["unsatisfiableRangeAssertion"]);
 const runSlow = !!process.env.LIBAVOID_SLOW_FIXTURES && process.env.LIBAVOID_SLOW_FIXTURES !== "0";
 const only = process.env.FIXTURE || null;
 const TOLERANCE = 1e-9;

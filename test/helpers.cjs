@@ -1,7 +1,7 @@
 "use strict";
 
 // Golden-file helpers shared by the Node tests (node-smoke.cjs,
-// failure-containment.cjs, esm-entry.mjs).
+// failure-containment.cjs, esm-entry.mjs, api-conformance.cjs).
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -30,48 +30,53 @@ function goldenPaths(text) {
   return paths;
 }
 
-/** Diagram text and every display route must equal the golden; returns the number of routes compared. */
+/**
+ * Every connector's displayRoute() must equal the golden's path of the
+ * same id (exactly), and every golden path must belong to a connector;
+ * returns the number of routes compared.
+ */
 function assertGolden(router, name) {
-  const expected = golden(name);
-  assert.equal(router.outputDiagramText(true), expected, `diagram ${name}`);
-  const byNumeric = new Map(router.connectorIds().map((id) => [router.objectNumericId(id), id]));
-  let compared = 0;
-  for (const [nid, pts] of goldenPaths(expected)) {
-    const route = router.displayConnectorRoute(byNumeric.get(nid));
+  const expected = goldenPaths(golden(name));
+  const conns = router.connRefs.filter((c) => !c.displayRoute().empty());
+  assert.deepEqual(conns.map((c) => c.id()).sort((a, b) => a - b), [...expected.keys()].sort((a, b) => a - b), `${name}: connector ids`);
+  for (const c of conns) {
     assert.deepEqual(
-      route.map((p) => [p.x, p.y]),
-      pts,
-      `${name}: route of connector ${nid}`,
+      c.displayRoute().ps.map((p) => [p.x, p.y]),
+      expected.get(c.id()),
+      `${name}: route of connector ${c.id()}`,
     );
-    compared++;
   }
-  return compared;
+  return conns.length;
 }
 
 /**
- * Upstream fixture connectionpin01 (tests/connectionpin01.cpp) through the
- * given API object (index.cjs or index.mjs exports), checked against its
- * goldens; returns the number of routes compared.
+ * Upstream fixture connectionpin01 (tests/connectionpin01.cpp), statement
+ * by statement through the given API object (index.cjs or index.mjs
+ * exports), checked against its goldens; returns the number of routes
+ * compared.
  */
-function connectionPin01(api) {
-  const { AvoidRouter, ConnDir, RouterFlag } = api;
-  const router = new AvoidRouter(RouterFlag.OrthogonalRouting);
+function connectionPin01(Avoid) {
+  const router = new Avoid.Router(2);
   let compared = 0;
-  router.addShape("shapeRef1", 0, 0, 10, 10, 0);
-  router.addShape("shapeRef2", 40, 20, 50, 30, 0);
-  assert.equal(router.addShapeConnectionPin("shapeRef1", "p", 1, 0.5, 0.5, true, 0, ConnDir.None), true);
-  assert.equal(router.addShapeConnectionPin("shapeRef2", "p", 1, 0.5, 0.5, true, 0, ConnDir.None), true);
-  router.addConnectorWithConnEnds("conn", { shapeId: "shapeRef2", classId: 1 }, { shapeId: "shapeRef1", classId: 1 }, 0);
+  const shapeRect1 = new Avoid.Rectangle(new Avoid.Point(0, 0), new Avoid.Point(10, 10));
+  const shapeRef1 = new Avoid.ShapeRef(router, shapeRect1, 0);
+  const shapeRect2 = new Avoid.Rectangle(new Avoid.Point(40, 20), new Avoid.Point(50, 30));
+  const shapeRef2 = new Avoid.ShapeRef(router, shapeRect2, 0);
+  new Avoid.ShapeConnectionPin(shapeRef1, 1, 0.5, 0.5, true, 0.0, 0);
+  new Avoid.ShapeConnectionPin(shapeRef2, 1, 0.5, 0.5, true, 0.0, 0);
+  const dstEnd = new Avoid.ConnEnd(shapeRef1, 1);
+  const srcEnd = new Avoid.ConnEnd(shapeRef2, 1);
+  new Avoid.ConnRef(router, srcEnd, dstEnd);
   router.processTransaction();
   compared += assertGolden(router, "connectionpin01-1");
-  router.moveShapeBy("shapeRef2", 5, 0);
+  router.moveShape(shapeRef2, 5, 0);
   router.processTransaction();
   compared += assertGolden(router, "connectionpin01-2");
-  router.moveShapeBy("shapeRef1", 0, -10);
+  router.moveShape(shapeRef1, 0, -10);
   router.processTransaction();
   compared += assertGolden(router, "connectionpin01-3");
   compared += assertGolden(router, "connectionpin01-final");
-  router.free();
+  router.delete();
   return compared;
 }
 
