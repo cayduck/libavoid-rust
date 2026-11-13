@@ -84,10 +84,18 @@ python3 tools/audit/inventory.py     # regenerate docs/PORTING_INVENTORY.md
 tools/oracle/e2e_fuzz.sh --seed 42 --scenes 2000   # fuzz fresh scenes against the C++
 ```
 
-Beyond the committed fuzz scenes, 2,000 further scenes from two other seeds
-were run: 1,775 were comparable and all but one matched. The exception
-turned out to be undefined behaviour upstream (erasing the `std::set` element
-being iterated), which the fuzzer now detects and excludes.
+Beyond the committed fuzz scenes, 20,000 further scenes from eight other
+seeds were run (`tools/oracle/e2e_fuzz_campaign.log`): 17,684 were
+comparable and 17,669 matched. Twelve more took the port longer than the
+campaign's 20-second limit per scene; all of them are hyperedge
+improvement scenes that gain junctions on every transaction, and they
+matched when run to completion. The remaining three turned out to be
+undefined behaviour upstream that the sanitizer build had missed, which
+the fuzzer now detects and excludes: erasing the `std::set` element being
+iterated, a double free (detected by the bump allocator), and a connector
+used by the test driver after a transaction had freed it. All 20,000 scenes,
+including the excluded ones, run on the final port without a panic or an
+abort.
 
 The oracle scripts need `g++` and the vendored upstream source, which is not
 checked in (`vendor/adaptagrams` is a checkout of the Adaptagrams repository
@@ -117,7 +125,10 @@ differences are confined to the following.
   (`HyperedgeTreeNode::spliceEdgesFrom` called on its own node). The port
   detects that exact condition and carries on. When such a connector already
   forms a self-loop edge in the hyperedge tree and major changes are on, the
-  port skips that hyperedge, as it would a cyclic one. The guards cannot fire
+  port skips that hyperedge, as it would a cyclic one; when the self-loop
+  only appears during improvement, the port does not re-enter the junction
+  through it when it writes the routes back (which would triple a route on
+  every transaction). The guards cannot fire
   on a run that finishes upstream. See "Upstream non-termination" in
   `src/avoid/router.rs`.
 - **Asserts.** `COLA_ASSERT` is `debug_assert!`, except for asserts that

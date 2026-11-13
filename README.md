@@ -176,7 +176,8 @@ Run everything with `npm test` (Rust tests, WASM build, Node tests).
 - **End-to-end fuzzing.** `tests/e2e_fuzz.rs` replays 1,000 generated scenes
   that mix every feature over long transaction sequences. The 865 on which
   the C++ is well defined must match it exactly; the rest must run without
-  panicking.
+  panicking. A further 20,000 fuzz scenes were checked the same way (see
+  `PORTING.md`).
 - **Function inventory.** `docs/PORTING_INVENTORY.md` maps every upstream
   class, function and constant to its Rust counterpart or to the reason it is
   not ported (debug/SVG output and the like).
