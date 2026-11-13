@@ -36,6 +36,11 @@
 //!    (STATUS as in the report; the campaign driver's watchdog reads these)
 //!  * `E2E_NO_SLOT_REUSE=1` arenas never reuse freed slots (results must
 //!    not change: a difference means a slot index leaks into behaviour)
+//!  * `E2E_TRACE=1`      per command: run time, object counts, guard firings
+//!  * `E2E_PROV=1`       per command: provenance of new/deleted junctions and
+//!    connectors (creator, hyperedge component, taint by a skipped
+//!    rerouter registration); `E2E_PROV_TAINT=id,..` taints junction ids
+//!    from the start (see `prov_step` in `tests/e2e_fuzz_dsl/mod.rs`)
 
 #![allow(clippy::uninlined_format_args)]
 
@@ -298,6 +303,15 @@ fn e2e_fuzz_regressions() {
         if let Some(n) = marker_value(scene, "[stable ") {
             if let Err(m) = check_linear_growth(&scene.dsl, n, true) {
                 failures.push(format!("{}: {}", scene.name, m));
+            }
+        }
+        // "[junctions N]": the last transaction's dump lists exactly N
+        // junctions (e.g. no junction left behind by a skipped hyperedge).
+        if let Some(n) = marker_value(scene, "[junctions ") {
+            let totals = transaction_totals(&run_scene(&scene.dsl, true));
+            match totals.last() {
+                Some(t) if t[2] == n => {}
+                t => failures.push(format!("{}: last transaction has {:?} junctions, expected {}", scene.name, t.map(|t| t[2]), n)),
             }
         }
     }

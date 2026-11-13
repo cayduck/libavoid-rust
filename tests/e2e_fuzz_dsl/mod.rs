@@ -902,9 +902,25 @@ fn run_scene_mode(dsl: &[String], full: bool, raw: bool) -> Vec<String> {
     // its run time and the router's object counts.
     let trace = std::env::var("E2E_TRACE").is_ok();
     let mut guards_before = libavoid_rust::avoid::router::e2e_guard_counts();
+    let prov_on = std::env::var("E2E_PROV").is_ok();
+    let mut prov = Prov { reroute_count: e2e_reroute_count(), ..Prov::default() };
+    if prov_on {
+        libavoid_rust::avoid::router::e2e_object_log_enable();
+    }
+    // E2E_PROV_TAINT=id,id,..: junction ids tainted from the start (to
+    // follow the same hyperedge in a variant of the scene without the
+    // skipped registration).
+    if let Ok(v) = std::env::var("E2E_PROV_TAINT") {
+        prov.tainted.extend(v.split(',').filter_map(|s| s.trim().parse::<u32>().ok()));
+    }
     for (i, line) in dsl.iter().enumerate() {
         let t0 = std::time::Instant::now();
         sc.run_command(line);
+        if prov_on {
+            if let Some(r) = sc.router.as_ref() {
+                prov_step(&mut prov, r, i, line.split_whitespace().next().unwrap_or(""));
+            }
+        }
         if trace {
             let g = libavoid_rust::avoid::router::e2e_guard_counts();
             if g != guards_before {
@@ -940,6 +956,181 @@ fn run_scene_mode(dsl: &[String], full: bool, raw: bool) -> Vec<String> {
         }
     }
     res
+}
+
+/// `E2E_PROV=1` (triage of growing scenes, Rust only): provenance of every
+/// junction and connector.  After each command one stderr line
+/// `prov CMD_INDEX CMD +J[..] -J[..] +C[..] -C[..]` lists the objects
+/// created / deleted by that command (ids), each new one tagged with its
+/// creator (`h`: hyperedge improver new-object list, `r`: rerouter list,
+/// `u`: anything else, i.e. the DSL command) and with `*` if it lies in a
+/// *tainted* hyperedge.  Hyperedges are the connected components of the
+/// junction/connector graph; a component is tainted if it contains a
+/// junction listed as deleted by a rerouter entry that created nothing
+/// (a hyperedge the port's rerouter guard skipped: the port leaves its old
+/// objects in `m_deleted_*_vector`) or a junction created in a tainted
+/// component.  `comp` lines then give (junctions, connectors) of the
+/// tainted and the other components.
+#[derive(Default)]
+struct Prov {
+    conns: BTreeMap<(usize, u32), u32>,
+    juncs: BTreeMap<(usize, u32), u32>,
+    tainted: std::collections::BTreeSet<u32>,
+    reroute_count: u64,
+}
+
+fn prov_step(p: &mut Prov, r: &Router, i: usize, cmd: &str) {
+    use std::collections::{BTreeMap as M, BTreeSet};
+    let conns: M<(usize, u32), u32> = r.conn_refs.iter().map(|&c| (hk(c), r.conns[c].id())).collect();
+    let mut juncs: M<(usize, u32), u32> = M::new();
+    let mut jhandles = Vec::new();
+    for &o in r.m_obstacles.iter() {
+        if let Some(j) = Obstacle::as_junction(r, o) {
+            juncs.insert(hk(j.0), j.id(r));
+            jhandles.push(j);
+        }
+    }
+    // Creator lists of this command's reroute (if one ran).
+    let mut by_h: BTreeSet<u32> = BTreeSet::new();
+    let mut by_r: BTreeSet<u32> = BTreeSet::new();
+    for (tag, id) in libavoid_rust::avoid::router::e2e_object_log_take() {
+        if tag == 'h' {
+            by_h.insert(id);
+        } else {
+            by_r.insert(id);
+        }
+    }
+    let ran = e2e_reroute_count() != p.reroute_count;
+    p.reroute_count = e2e_reroute_count();
+    if ran {
+        let rr = &r.m_hyperedge_rerouter;
+        for k in 0..rr.m_new_junctions_vector.len() {
+            if rr.m_new_junctions_vector[k].is_empty() && !rr.m_deleted_junctions_vector[k].is_empty() {
+                let ids: Vec<u32> = rr.m_deleted_junctions_vector[k]
+                    .iter()
+                    .filter_map(|j| juncs.get(&hk(j.0)).or_else(|| p.juncs.get(&hk(j.0))).copied())
+                    .collect();
+                eprintln!("prov-skip {} rerouter entry {} left {} junctions: {:?}", i, k, ids.len(), ids);
+                p.tainted.extend(ids);
+            }
+        }
+    }
+    // Components (union-find over junction ids through connectors).
+    let mut parent: M<u32, u32> = juncs.values().map(|&id| (id, id)).collect();
+    fn find(p: &mut M<u32, u32>, x: u32) -> u32 {
+        let mut x = x;
+        while p[&x] != x {
+            let g = p[&p[&x]];
+            p.insert(x, g);
+            x = g;
+        }
+        x
+    }
+    let mut conn_j: M<u32, u32> = M::new();
+    for &j in jhandles.iter() {
+        let jid = j.id(r);
+        for c in j.attached_connectors(r) {
+            let cid = r.conns[c].id();
+            if let Some(&other) = conn_j.get(&cid) {
+                let (a, b) = (find(&mut parent, jid), find(&mut parent, other));
+                if a != b {
+                    parent.insert(a, b);
+                }
+            } else {
+                conn_j.insert(cid, jid);
+            }
+        }
+    }
+    // Taint propagation: whole components.
+    let ids: Vec<u32> = juncs.values().copied().collect();
+    let mut tainted_roots: BTreeSet<u32> = BTreeSet::new();
+    for &id in ids.iter() {
+        if p.tainted.contains(&id) {
+            tainted_roots.insert(find(&mut parent, id));
+        }
+    }
+    for &id in ids.iter() {
+        if tainted_roots.contains(&find(&mut parent, id)) {
+            p.tainted.insert(id);
+        }
+    }
+    let conn_tainted = |cid: u32, parent: &mut M<u32, u32>| -> bool {
+        conn_j.get(&cid).is_some_and(|&j| tainted_roots.contains(&find(parent, j)))
+    };
+    let tag = |id: u32| -> &'static str {
+        if by_h.contains(&id) {
+            "h"
+        } else if by_r.contains(&id) {
+            "r"
+        } else {
+            "u"
+        }
+    };
+    let mut add_j = Vec::new();
+    for (k, &id) in juncs.iter() {
+        if p.juncs.get(k) != Some(&id) {
+            add_j.push(format!("{}{}{}", id, tag(id), if p.tainted.contains(&id) { "*" } else { "" }));
+        }
+    }
+    let del_j: Vec<String> =
+        p.juncs.iter().filter(|(k, id)| juncs.get(*k) != Some(*id)).map(|(_, id)| id.to_string()).collect();
+    let mut add_c = Vec::new();
+    for (k, &id) in conns.iter() {
+        if p.conns.get(k) != Some(&id) {
+            let t = conn_tainted(id, &mut parent);
+            add_c.push(format!("{}{}{}", id, tag(id), if t { "*" } else { "" }));
+        }
+    }
+    let del_c: Vec<String> =
+        p.conns.iter().filter(|(k, id)| conns.get(*k) != Some(*id)).map(|(_, id)| id.to_string()).collect();
+    let (mut tj, mut tc, mut oj, mut oc) = (0, 0, 0, 0);
+    for &id in ids.iter() {
+        if p.tainted.contains(&id) {
+            tj += 1;
+        } else {
+            oj += 1;
+        }
+    }
+    for &cid in conns.values() {
+        if conn_tainted(cid, &mut parent) {
+            tc += 1;
+        } else {
+            oc += 1;
+        }
+    }
+    if !(add_j.is_empty() && del_j.is_empty() && add_c.is_empty() && del_c.is_empty()) {
+        eprintln!(
+            "prov {} {} +J[{}] -J[{}] +C[{}] -C[{}]",
+            i,
+            cmd,
+            add_j.join(" "),
+            del_j.join(" "),
+            add_c.join(" "),
+            del_c.join(" ")
+        );
+        eprintln!("comp {} tainted={}/{} other={}/{}", i, tj, tc, oj, oc);
+        // Every component with more than one junction or any connector:
+        // smallest junction id, junctions, connectors, tainted.
+        let mut comps: M<u32, (u32, usize, usize)> = M::new();
+        for &id in ids.iter() {
+            let root = find(&mut parent, id);
+            let e = comps.entry(root).or_insert((id, 0, 0));
+            e.0 = e.0.min(id);
+            e.1 += 1;
+        }
+        for &j in conn_j.values() {
+            let root = find(&mut parent, j);
+            comps.get_mut(&root).unwrap().2 += 1;
+        }
+        let v: Vec<String> = comps
+            .iter()
+            .filter(|(_, c)| c.1 > 1 || c.2 > 0)
+            .map(|(root, c)| format!("{}:{}/{}{}", c.0, c.1, c.2, if tainted_roots.contains(root) { "*" } else { "" }))
+            .collect();
+        eprintln!("comps {} {}", i, v.join(" "));
+    }
+    p.conns = conns;
+    p.juncs = juncs;
 }
 
 pub struct GoldenScene {

@@ -154,7 +154,19 @@
 //!   tree deletes it once (upstream deletes it twice).  A hyperedge whose
 //!   terminal vertices were freed by rerouting an earlier registered
 //!   hyperedge sharing its objects (e.g. one junction registered twice)
-//!   is skipped (upstream: use-after-free in the MTST).
+//!   is skipped (upstream: use-after-free in the MTST).  A skipped
+//!   hyperedge leaves the router as if it had not been registered, except
+//!   that its connectors are not rerouted in that transaction (upstream's
+//!   own invalid-hyperedge path in `calcHyperedgeConnectors()` does the
+//!   same).  Its deleted-object lists are emptied (nothing is deleted).
+//!   The junctions the MTST construction created are freed.  The
+//!   `pathNext` links that construction wrote are restored.  Earlier, the
+//!   cyclic skip left up to 13 unattached junctions that no list reported,
+//!   and the leftover `pathNext` links put fuzz scene s25-1253 on a
+//!   different, faster-growing trajectory than the same scene without the
+//!   registration (`reg-hyperedge-cyclic-skip-clean`; PORTING.md,
+//!   "Verification").  As upstream, the registered list is cleared after every
+//!   `performRerouting()`, so a skipped hyperedge is not retried.
 //! * `splitAtSegment(0)` is a no-op; splitting a connector whose
 //!   destination is a free point uses a point end for the new connector.
 //! * `removeJunctionAndMergeConnectors()` on a junction holding both ends
@@ -345,6 +357,45 @@ pub fn e2e_guard_fired(name: &'static str) {
 /// Test hook (not upstream): firings per guard on this thread so far.
 pub fn e2e_guard_counts() -> BTreeMap<&'static str, u64> {
     E2E_GUARDS.with(|g| g.borrow().clone())
+}
+
+thread_local! {
+    static E2E_OBJECT_LOG: std::cell::RefCell<Option<Vec<(char, u32)>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Test hook (not upstream; off unless [`e2e_object_log_enable`] was
+/// called on this thread): ids of the junctions and connectors that each
+/// `rerouteAndCallbackConnectors()` reports as new, tagged `'r'`
+/// (`HyperedgeRerouter` lists) or `'h'` (`HyperedgeImprover` lists).
+/// Used by the e2e fuzzer's provenance trace (`E2E_PROV`).
+pub fn e2e_object_log_enable() {
+    E2E_OBJECT_LOG.with(|l| *l.borrow_mut() = Some(Vec::new()));
+}
+
+/// Test hook: takes the entries logged since the last call.
+pub fn e2e_object_log_take() -> Vec<(char, u32)> {
+    E2E_OBJECT_LOG.with(|l| l.borrow_mut().as_mut().map(std::mem::take).unwrap_or_default())
+}
+
+fn e2e_object_log_on() -> bool {
+    E2E_OBJECT_LOG.with(|l| l.borrow().is_some())
+}
+
+fn e2e_object_log_record(router: &Router, tag: char, juncs: &[JunctionRef], conns: &[ConnIdx]) {
+    E2E_OBJECT_LOG.with(|l| {
+        if let Some(log) = l.borrow_mut().as_mut() {
+            for j in juncs.iter() {
+                if router.obstacles.contains(j.0) {
+                    log.push((tag, j.id(router)));
+                }
+            }
+            for &c in conns.iter() {
+                if router.conns.contains(c) {
+                    log.push((tag, router.conns[c].id()));
+                }
+            }
+        }
+    });
 }
 
 /// Arena of all connectors of a router.
@@ -1946,6 +1997,12 @@ impl Router {
 
         // Perform any complete hyperedge rerouting that has been requested.
         HyperedgeRerouter::perform_rerouting(self);
+        if e2e_object_log_on() {
+            let h = &self.m_hyperedge_rerouter;
+            for k in 0..h.m_new_junctions_vector.len() {
+                e2e_object_log_record(self, 'r', &h.m_new_junctions_vector[k], &h.m_new_connectors_vector[k]);
+            }
+        }
 
         // Find and reroute crossing connectors if crossing penalties are set.
         self.improve_crossings();
@@ -1956,6 +2013,10 @@ impl Router {
         if with_minor_improvements || with_major_improvements {
             self.m_hyperedge_improver.clear();
             HyperedgeImprover::execute(self, with_major_improvements);
+            if e2e_object_log_on() {
+                let h = &self.m_hyperedge_improver;
+                e2e_object_log_record(self, 'h', &h.m_new_junctions, &h.m_new_connectors);
+            }
         }
 
         // Perform centring and nudging for orthogonal routes.
