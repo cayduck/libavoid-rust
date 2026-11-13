@@ -246,8 +246,13 @@
 //!   two of the common edges lead to the same node (parallel edges, e.g.
 //!   from a connector with both ends on one junction),
 //!   `targetNode->spliceEdgesFrom(targetNode)` never returns.  The port
-//!   treats the split case as not applicable for such a junction
-//!   (`reg-improver-split-parallel-edges`).  `spliceEdgesFrom()` itself is
+//!   stops moving that junction in that pass, as if it could not be moved
+//!   (`reg-improver-split-parallel-edges`).  Declining only the split and
+//!   trying the junction's other edges, as the port did before, kept
+//!   splitting the hyperedge on every transaction (fuzz scenes s11-263,
+//!   s24-985, s26-508: +18 connectors and junctions per transaction;
+//!   `reg-improver-split-parallel-growth` checks that the state is stable).
+//!   `spliceEdgesFrom()` itself is
 //!   a no-op for oldNode == this (upstream loops forever unless the node
 //!   has no edges).
 //!

@@ -742,6 +742,9 @@ def cmd_campaign(args):
                  "reasons": reasons, "divergent": divergent, "slot_reuse_diff": slot_diff,
                  "slow": slow, "excluded_findings": excl_findings,
                  "slot_reuse_checked": extra}
+        if os.environ.get("E2E_CORE"):
+            # The port commit the replay ran on (re-verification campaigns).
+            entry["core"] = os.environ["E2E_CORE"]
         with open(CAMPAIGN_LOG, "a") as f:
             f.write(sanitize(json.dumps(entry, sort_keys=True)) + "\n")
         done[(args.seed, first, count)] = entry

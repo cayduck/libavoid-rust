@@ -289,7 +289,14 @@ fn e2e_fuzz_regressions() {
         // display-route points, connectors and junctions must grow by the
         // same amount on each of them: no growth that compounds.
         if let Some(n) = linear_marker(scene) {
-            if let Err(m) = check_linear_growth(&scene.dsl, n) {
+            if let Err(m) = check_linear_growth(&scene.dsl, n, false) {
+                failures.push(format!("{}: {}", scene.name, m));
+            }
+        }
+        // "[stable N]": the last N transactions change nothing at all (no
+        // growth of route points, connectors or junctions).
+        if let Some(n) = marker_value(scene, "[stable ") {
+            if let Err(m) = check_linear_growth(&scene.dsl, n, true) {
                 failures.push(format!("{}: {}", scene.name, m));
             }
         }
@@ -298,8 +305,12 @@ fn e2e_fuzz_regressions() {
 }
 
 fn linear_marker(scene: &GoldenScene) -> Option<usize> {
+    marker_value(scene, "[linear ")
+}
+
+fn marker_value(scene: &GoldenScene, tag: &str) -> Option<usize> {
     let first = scene.out.first()?;
-    let start = first.find("[linear ")? + "[linear ".len();
+    let start = first.find(tag)? + tag.len();
     let len = first[start..].find(']')?;
     first[start..start + len].parse().ok()
 }
@@ -323,7 +334,7 @@ fn transaction_totals(out: &[String]) -> Vec<[usize; 3]> {
     res
 }
 
-fn check_linear_growth(dsl: &[String], n: usize) -> Result<(), String> {
+fn check_linear_growth(dsl: &[String], n: usize, zero: bool) -> Result<(), String> {
     let out = run_scene(dsl, true);
     let totals = transaction_totals(&out);
     if totals.len() < n + 1 {
@@ -335,6 +346,9 @@ fn check_linear_growth(dsl: &[String], n: usize) -> Result<(), String> {
         [0, 1, 2].map(|i| b[i] as i64 - a[i] as i64)
     };
     let first = step(0);
+    if zero && first != [0, 0, 0] {
+        return Err(format!("growth per transaction {:?}, expected none (totals {:?})", first, tail));
+    }
     for k in 1..n {
         if step(k) != first {
             return Err(format!(

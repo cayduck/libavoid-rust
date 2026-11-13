@@ -1157,6 +1157,27 @@ impl HyperedgeImprover {
             let self_junction = self.m_tree.node(this).junction.unwrap();
             let self_fixed = self_junction.position_fixed(router) && !self.m_can_make_major_changes;
 
+            // UPSTREAM NON-TERMINATION (port addition; router.rs, "Upstream
+            // non-termination"): in the split case below, when two common
+            // edges lead to the same node (parallel edges), the loop calls
+            // targetNode->spliceEdgesFrom(targetNode), which never returns
+            // while commonEdges[0] is still attached.  Upstream never
+            // finishes then, so the port stops moving this junction in this
+            // pass (as if it could not be moved).  (Merely declining the
+            // split and trying the junction's other edges kept splitting
+            // the hyperedge on every transaction: fuzz scenes s11-263,
+            // s24-985, s26-508.)
+            if self.m_can_make_major_changes
+                && (common_edges.len() > 1)
+                && (other_edges.len() > 1)
+                && (1..common_edges.len()).any(|i| {
+                    self.m_tree.edge_follow_from(common_edges[i], this)
+                        == self.m_tree.edge_follow_from(common_edges[0], this)
+                })
+            {
+                crate::avoid::router::e2e_guard_fired("improver-split-parallel-edges");
+                return None;
+            }
             if (common_edges.len() > 1) && (other_edges.len() <= 1) && !self_fixed {
                 // One of the common nodes becomes the target node, we move
                 // all connections from the other common nodes to this node.
@@ -1189,26 +1210,7 @@ impl HyperedgeImprover {
                 new_self = Some(target_node);
 
                 break;
-            } else if self.m_can_make_major_changes
-                && (common_edges.len() > 1)
-                && (other_edges.len() > 1)
-                // UPSTREAM NON-TERMINATION (port addition; router.rs,
-                // "Upstream non-termination"): when two common edges lead
-                // to the same node (parallel edges), the loop below calls
-                // targetNode->spliceEdgesFrom(targetNode), which never
-                // returns while commonEdges[0] is still attached.  Upstream
-                // never finishes in that case, so the port treats the
-                // split case as not applicable.
-                && !{
-                    let parallel = (1..common_edges.len()).any(|i| {
-                        self.m_tree.edge_follow_from(common_edges[i], this)
-                            == self.m_tree.edge_follow_from(common_edges[0], this)
-                    });
-                    if parallel {
-                        crate::avoid::router::e2e_guard_fired("improver-split-parallel-edges");
-                    }
-                    parallel
-                }
+            } else if self.m_can_make_major_changes && (common_edges.len() > 1) && (other_edges.len() > 1)
             {
                 // Case where this is one junction we need to split into two,
                 // because we have a common path leading to it that we want to
