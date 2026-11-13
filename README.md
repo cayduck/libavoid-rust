@@ -141,6 +141,8 @@ Both entries share one adapter, `lib/adapter.cjs`.
 
 ## Demo
 
+Try it at <https://cayduck.github.io/libavoid-rust/>.
+
 `demo/` is an interactive page that runs the browser entry: drag shapes and
 watch connectors re-route, switch between orthogonal and poly-line routing,
 tune the routing parameters and options, and try presets for nudging, pins
@@ -152,13 +154,6 @@ npm run build:demo   # build pkg-web/ and assemble the site in demo-dist/
 npm run demo         # serve demo-dist/ at http://127.0.0.1:8080/
 npm run test:demo    # browser smoke test (needs Playwright with Chromium)
 ```
-
-`.github/workflows/pages.yml` builds and publishes the same site with GitHub
-Pages on every push to `main`, and can also be run by hand. It needs a
-one-time repository setting: **Settings → Pages → Build and deployment →
-Source: GitHub Actions**. The demo is then served at
-`https://<owner>.github.io/<repository>/`, for this repository
-<https://cayduck.github.io/libavoid-rust/>.
 
 ## Rust usage
 
