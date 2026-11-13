@@ -44,7 +44,11 @@
     "PORTING.md",
     "pkg",
     "pkg-web",
-    "vendor/adaptagrams/cola/libavoid",
+    "src",
+    "Cargo.toml",
+    "Cargo.lock",
+    "scripts/build-wasm.cjs",
+    "scripts/prepare-pkg.cjs",
     "README.md",
     "LICENSE"
   ],

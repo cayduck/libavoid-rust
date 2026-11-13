@@ -16,3 +16,32 @@ function loadInstance() {
 }
 
 module.exports = require("./lib/adapter.cjs")(require("./pkg"), { loadInstance });
+
+// Never executed: the names Node's ES-module loader (cjs-module-lexer) reads
+// to offer this CommonJS module's exports as named imports, so that
+// `import { AvoidRouter } from "libavoid-rust"` works in Node.  (Such an
+// import is a snapshot: after reset(), read WasmAvoidRouter from the default
+// import.)  test/esm-entry.mjs checks the list against the real exports.
+0 &&
+  (module.exports = {
+    AttachPos,
+    AvoidInternalError,
+    AvoidRouter,
+    ConnDir,
+    ConnEndType,
+    ConnectionPin,
+    ConnectorRelation,
+    ConnType,
+    OrthogonalDimension,
+    PenaltyType,
+    RouterFlag,
+    RoutingOption,
+    RoutingParameter,
+    RoutingParameterValue,
+    ShapeTransformation,
+    TransactionPhase,
+    curvedPolyline,
+    internalError,
+    reset,
+    WasmAvoidRouter,
+  });

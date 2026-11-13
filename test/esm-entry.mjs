@@ -30,6 +30,16 @@ for (const [name, value] of Object.entries(cjs)) {
   if (typeof value !== "function") assert.deepEqual(esm[name], value, `constant ${name}`);
 }
 
+// Node's ES-module view of the CommonJS entry: every export is a named
+// import (index.cjs lists the names for cjs-module-lexer), plus `default`.
+const cjsAsEsm = await import("../index.cjs");
+assert.deepEqual(
+  sorted(Object.keys(cjsAsEsm).filter((n) => n !== "module.exports")),
+  sorted([...Object.keys(cjs), "default"]),
+  "named imports of index.cjs",
+);
+assert.equal(cjsAsEsm.AvoidRouter, cjs.AvoidRouter);
+
 // index.d.mts re-exports index.d.ts and declares the two initialisers.
 const dmts = fs.readFileSync(path.join(root, "index.d.mts"), "utf8");
 assert.match(dmts, /^export \* from "\.\/index\.js";$/m);
