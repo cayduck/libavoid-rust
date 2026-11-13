@@ -453,6 +453,29 @@ impl HyperedgeTreeStore {
     /// `root` contains an edge without a fixed route whose two ends are the
     /// same node (left by a connector with both ends on one junction and a
     /// two-point display route).  Iterative; does not touch `visited`.
+    /// Port addition: the junctions of all nodes reachable from `root`
+    /// (iterative; does not touch `visited`).
+    pub fn junctions_reachable_from(&self, root: HeNodeIdx) -> Vec<JunctionRef> {
+        let mut seen = vec![false; self.nodes.len()];
+        let mut stack: Vec<HeNodeIdx> = vec![root];
+        let mut res = Vec::new();
+        seen[root.0] = true;
+        while let Some(node) = stack.pop() {
+            if let Some(j) = self.nodes[node.0].junction {
+                res.push(j);
+            }
+            for &e in self.nodes[node.0].edges.iter() {
+                for other in [self.edges[e.0].ends.0, self.edges[e.0].ends.1].into_iter().flatten() {
+                    if !seen[other.0] {
+                        seen[other.0] = true;
+                        stack.push(other);
+                    }
+                }
+            }
+        }
+        res
+    }
+
     pub fn contains_unfixed_self_loop_from(&self, root: HeNodeIdx) -> bool {
         let mut seen = vec![false; self.nodes.len()];
         let mut stack: Vec<HeNodeIdx> = vec![root];
@@ -647,6 +670,7 @@ impl HyperedgeTreeStore {
         // upstream never returns unless the list is empty.  The callers
         // avoid this case; should another path reach it, it is a no-op.
         if old_node == this {
+            crate::avoid::router::e2e_guard_fired("splice-edges-from-self");
             return;
         }
         while let Some(&curr) = self.nodes[old_node.0].edges.first() {
@@ -706,6 +730,7 @@ impl HyperedgeTreeStore {
         // heap-use-after-free in HyperedgeTreeEdge::deleteNodesExcept);
         // reg-improver-self-loop-edge-splice, reg-improver-edge-without-end-node.
         if self.edges[this.0].deleted {
+            crate::avoid::router::e2e_guard_fired("tree-edge-deleted-twice");
             return;
         }
         self.edges[this.0].deleted = true;
@@ -827,6 +852,7 @@ impl HyperedgeTreeStore {
         // each of the edge's two entries in the node's edge list, tripling
         // their routes on every transaction.
         if self.upstream_self_merge_seen && next_node == prev_node {
+            crate::avoid::router::e2e_guard_fired("write-back-self-loop");
             return;
         }
         self.node_write_edges_to_conns(router, next_node, Some(this), pass);
@@ -913,6 +939,7 @@ impl HyperedgeTreeStore {
         // both ends on one junction) has no end node; upstream dereferences null (UBSan:
         // hyperedgetree.cpp:638).  Nothing to update for it.
         let Some(end_node) = end_node else {
+            crate::avoid::router::e2e_guard_fired("update-conn-ends-no-end-node");
             return;
         };
         if let Some(end_junction) = self.nodes[end_node.0].junction {

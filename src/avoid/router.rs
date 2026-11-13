@@ -213,7 +213,15 @@
 //!   (unless the edge has a fixed route, which it skips): `spliceEdgesFrom`
 //!   then never returns, or, when the self-loop was the node's only edge,
 //!   the traversal continues on the freed node.  `HyperedgeImprover::execute()` skips such a
-//!   hyperedge, like a cyclic one.  Continuing with the self-loop in place
+//!   hyperedge entirely: its root leaves the root set and all its junctions
+//!   leave the junction map, so no improver pass touches it in that
+//!   transaction (zero-length edges, common-edge moves and splits, which
+//!   iterate all junctions rather than the roots, nudging, write-back of
+//!   routes and of recommended junction positions); its connectors and
+//!   junctions keep the routes and positions they had.  (Skipping only the
+//!   root, as upstream does for a cyclic hyperedge, still let the junction
+//!   pass split the tree, adding junctions and connectors on every
+//!   transaction: fuzz scene s21-739, 104 s.)  Continuing with the self-loop in place
 //!   (as the guard above does for self-loops created during improvement)
 //!   is not stable: `writeEdgesToConns()` re-enters the junction node
 //!   through the self-loop and writes the node's other branches again, so
@@ -229,8 +237,11 @@
 //!   self-loop edge.  Without that, a fixed connector's display route
 //!   tripled on every transaction until routing took exponential time and
 //!   the recursion overflowed the stack (`reg-improver-self-loop-route-growth`,
-//!   from fuzz scene s21-739).  Both rules fire only where upstream never
-//!   returns.
+//!   from fuzz scene s21-739).  That second rule is the fallback for what
+//!   the up-front skip cannot see: by the time such a self-loop exists, the
+//!   same pass has already queued junction and connector deletions, so
+//!   the hyperedge cannot be left as it was.  Both rules fire only where
+//!   upstream never returns.
 //! * `HyperedgeImprover::moveJunctionAlongCommonEdge()`, split case: when
 //!   two of the common edges lead to the same node (parallel edges, e.g.
 //!   from a connector with both ends on one junction),
@@ -312,6 +323,23 @@ thread_local! {
 /// improver object lists have been regenerated.
 pub fn e2e_reroute_count() -> u64 {
     E2E_REROUTE_COUNT.with(|c| c.get())
+}
+
+thread_local! {
+    static E2E_GUARDS: std::cell::RefCell<BTreeMap<&'static str, u64>> = const { std::cell::RefCell::new(BTreeMap::new()) };
+}
+
+/// Test hook (not upstream): records that the port guard `name` (an
+/// `UPSTREAM NON-TERMINATION` or `MISUSE` site) took its port-specific
+/// branch on this thread.  Read by the e2e fuzzer's slow-scene triage.
+#[inline]
+pub fn e2e_guard_fired(name: &'static str) {
+    E2E_GUARDS.with(|g| *g.borrow_mut().entry(name).or_insert(0) += 1);
+}
+
+/// Test hook (not upstream): firings per guard on this thread so far.
+pub fn e2e_guard_counts() -> BTreeMap<&'static str, u64> {
+    E2E_GUARDS.with(|g| g.borrow().clone())
 }
 
 /// Arena of all connectors of a router.
