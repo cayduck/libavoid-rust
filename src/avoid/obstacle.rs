@@ -137,12 +137,12 @@ impl Obstacle {
         if !router.m_currently_calling_destructors {
             match router.obstacles[o].kind {
                 ObstacleKind::Shape => {
-                    eprint!("ERROR: ShapeRef::~ShapeRef() shouldn't be called directly.\n");
-                    eprint!("       It is owned by the router.  Call Router::deleteShape() instead.\n");
+                    crate::err_printf!("ERROR: ShapeRef::~ShapeRef() shouldn't be called directly.\n");
+                    crate::err_printf!("       It is owned by the router.  Call Router::deleteShape() instead.\n");
                 }
                 ObstacleKind::Junction(_) => {
-                    eprint!("ERROR: JunctionRef::~JunctionRef() shouldn't be called directly.\n");
-                    eprint!("       It is owned by the router.  Call Router::deleteJunction() instead.\n");
+                    crate::err_printf!("ERROR: JunctionRef::~JunctionRef() shouldn't be called directly.\n");
+                    crate::err_printf!("       It is owned by the router.  Call Router::deleteJunction() instead.\n");
                 }
             }
             panic!("Obstacle deleted directly instead of through the Router");
@@ -494,7 +494,16 @@ impl Obstacle {
 
     // (upstream: Obstacle::computeVisibilityNaive()/computeVisibilitySweep()
     // live in visibility.cpp: see `crate::avoid::visibility`.)
-    // (upstream: Obstacle::outputCode() — debug code output, not ported.)
+
+    /// Writes C++ code that recreates this obstacle (pure virtual upstream;
+    /// dispatches to `ShapeRef::outputCode()` / `JunctionRef::outputCode()`).
+    // upstream: obstacle.h Obstacle::outputCode()
+    pub fn output_code(router: &Router, o: ObstacleIdx, fp: &mut dyn std::fmt::Write) -> std::fmt::Result {
+        match router.obstacles[o].kind {
+            ObstacleKind::Shape => ShapeRef(o).output_code(router, fp),
+            ObstacleKind::Junction(_) => JunctionRef(o).output_code(router, fp),
+        }
+    }
 }
 
 /// Public-API convenience methods on obstacle handles.

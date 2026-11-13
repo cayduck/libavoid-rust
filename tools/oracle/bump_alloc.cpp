@@ -17,7 +17,13 @@
 
 static char *g_arena = nullptr;
 static size_t g_arena_off = 0;
+// -DORACLE_ARENA_SIZE=<bytes> reserves less address space, so that the
+// process fits under a `ulimit -v` cap (tools/oracle/svg_oracle.sh).
+#ifdef ORACLE_ARENA_SIZE
+static const size_t g_arena_size = (size_t) ORACLE_ARENA_SIZE;
+#else
 static const size_t g_arena_size = (size_t) 1 << 40;
+#endif
 static const size_t kStride = (sizeof(Avoid::Node) % 16 == 0) ?
         sizeof(Avoid::Node) : 2 * sizeof(Avoid::Node);
 

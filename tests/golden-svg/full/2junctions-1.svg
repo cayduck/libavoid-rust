@@ -1,0 +1,206 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="50632 50632 786 336">
+<!-- Source code to generate this instance:
+#include "libavoid/libavoid.h"
+using namespace Avoid;
+int main(void) {
+    Router *router = new Router(OrthogonalRouting);
+    router->setRoutingParameter((RoutingParameter)0, 50);
+    router->setRoutingParameter((RoutingParameter)1, 0);
+    router->setRoutingParameter((RoutingParameter)2, 200);
+    router->setRoutingParameter((RoutingParameter)3, 4000);
+    router->setRoutingParameter((RoutingParameter)4, 110);
+    router->setRoutingParameter((RoutingParameter)5, 0);
+    router->setRoutingParameter((RoutingParameter)6, 0);
+    router->setRoutingParameter((RoutingParameter)7, 25);
+    router->setRoutingParameter((RoutingParameter)8, 0);
+    router->setRoutingOption((RoutingOption)0, false);
+    router->setRoutingOption((RoutingOption)1, true);
+    router->setRoutingOption((RoutingOption)2, true);
+    router->setRoutingOption((RoutingOption)3, false);
+    router->setRoutingOption((RoutingOption)4, true);
+    router->setRoutingOption((RoutingOption)5, false);
+    router->setRoutingOption((RoutingOption)6, true);
+    Polygon polygon;
+    ConnRef *connRef = nullptr;
+    ConnEnd srcPt;
+    ConnEnd dstPt;
+    ConnEnd heConnPt;
+    PolyLine newRoute;
+    ShapeConnectionPin *connPin = nullptr;
+
+    // shapeRef365249936
+    polygon = Polygon(4);
+    polygon.ps[0] = Point(51410, 50640);
+    polygon.ps[1] = Point(51410, 50960);
+    polygon.ps[2] = Point(51050, 50960);
+    polygon.ps[3] = Point(51050, 50640);
+    ShapeRef *shapeRef365249936 = new ShapeRef(router, polygon, 365249936);
+    connPin = new ShapeConnectionPin(shapeRef365249936, 3, 0, 0.5, true, 10, (ConnDirFlags) 4);
+    connPin = new ShapeConnectionPin(shapeRef365249936, 5, 0, 0.734375, true, 10, (ConnDirFlags) 4);
+
+    // shapeRef386142480
+    polygon = Polygon(4);
+    polygon.ps[0] = Point(50760, 50691);
+    polygon.ps[1] = Point(50760, 50775);
+    polygon.ps[2] = Point(50640, 50775);
+    polygon.ps[3] = Point(50640, 50691);
+    ShapeRef *shapeRef386142480 = new ShapeRef(router, polygon, 386142480);
+    connPin = new ShapeConnectionPin(shapeRef386142480, 2, 0.5, 1, true, 10, (ConnDirFlags) 2);
+
+    JunctionRef *junctionRef328922310 = new JunctionRef(router, Point(50700, 50800), 328922310);
+    junctionRef328922310->setPositionFixed(true);
+    /*
+    // This may be useful if junction pins are modified.
+    connPin = new ShapeConnectionPin(junctionRef328922310, 2147483646, (ConnDirFlags) 15);
+    */
+
+    // connRef386142481
+    connRef = new ConnRef(router, 386142481);
+    srcPt = ConnEnd(shapeRef365249936, 3);
+    connRef->setSourceEndpoint(srcPt);
+    dstPt = ConnEnd(junctionRef328922310);
+    connRef->setDestEndpoint(dstPt);
+    connRef->setRoutingType((ConnType)2);
+
+    // connRef386142482
+    connRef = new ConnRef(router, 386142482);
+    srcPt = ConnEnd(junctionRef328922310);
+    connRef->setSourceEndpoint(srcPt);
+    dstPt = ConnEnd(shapeRef386142480, 2);
+    connRef->setDestEndpoint(dstPt);
+    connRef->setRoutingType((ConnType)2);
+
+    // connRef386142483
+    connRef = new ConnRef(router, 386142483);
+    srcPt = ConnEnd(shapeRef365249936, 5);
+    connRef->setSourceEndpoint(srcPt);
+    dstPt = ConnEnd(junctionRef328922310);
+    connRef->setDestEndpoint(dstPt);
+    connRef->setRoutingType((ConnType)2);
+
+    router->processTransaction();
+    router->outputInstanceToSVG();
+    delete router;
+    return 0;
+};
+-->
+<g inkscape:groupmode="layer" inkscape:label="Clusters">
+</g>
+<g inkscape:groupmode="layer" style="display: none;" inkscape:label="ShapePolygons">
+<path id="poly-386142480" style="stroke-width: 1px; stroke: black; fill: grey; fill-opacity: 0.3;" d="M 50760 50691 L 50760 50775 L 50640 50775 L 50640 50691 Z" />
+<path id="poly-365249936" style="stroke-width: 1px; stroke: black; fill: grey; fill-opacity: 0.3;" d="M 51410 50640 L 51410 50960 L 51050 50960 L 51050 50640 Z" />
+</g>
+<g inkscape:groupmode="layer" style="display: none;" inkscape:label="ObstaclePolygons">
+<path id="poly-386142480" style="stroke-width: 1px; stroke: black; fill: grey; fill-opacity: 0.3;" d="M 50760 50691 L 50760 50775 L 50640 50775 L 50640 50691 Z" />
+<path id="poly-365249936" style="stroke-width: 1px; stroke: black; fill: grey; fill-opacity: 0.3;" d="M 51410 50640 L 51410 50960 L 51050 50960 L 51050 50640 Z" />
+</g>
+<g inkscape:groupmode="layer" style="display: none;" inkscape:label="IdealJunctions">
+<circle id="idealJunction-328922310" cx="50700" cy="50800" r="8" style="stroke: none; fill: green; fill-opacity: 0.5;"  />
+</g>
+<g inkscape:groupmode="layer" inkscape:label="ObstacleRects">
+<rect id="rect-386142480" x="50640" y="50691" width="120" height="84" style="stroke-width: 1px; stroke: black; fill: grey; stroke-opacity: 0.1; fill-opacity: 0.1;" />
+<rect id="rect-365249936" x="51050" y="50640" width="360" height="320" style="stroke-width: 1px; stroke: black; fill: grey; stroke-opacity: 0.1; fill-opacity: 0.1;" />
+</g>
+<g inkscape:groupmode="layer" inkscape:label="VisGraph">
+<g inkscape:groupmode="layer" style="display: none;" inkscape:label="VisGraph-shape">
+</g>
+<g inkscape:groupmode="layer" style="display: none;" inkscape:label="VisGraph-conn">
+</g>
+</g>
+<g inkscape:groupmode="layer" style="display: none;" inkscape:label="OrthogVisGraph">
+<path d="M 50640 50640 L 50640 50691" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50640 50691 L 50640 50775" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50640 50775 L 50640 50799" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50640 50799 L 50640 50800" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50640 50800 L 50640 50801" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50640 50801 L 50640 50875" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50640 50875 L 50640 50960" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50699 50775 L 50699 50799" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50699 50799 L 50699 50800" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50699 50800 L 50699 50801" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50699 50801 L 50699 50875" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50699 50875 L 50699 50960" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50700 50765 L 50700 50775" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 50700 50775 L 50700 50799" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50700 50799 L 50700 50800" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 50700 50800 L 50700 50801" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 50700 50801 L 50700 50875" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50700 50875 L 50700 50960" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50701 50775 L 50701 50799" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50701 50799 L 50701 50800" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50701 50800 L 50701 50801" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50701 50801 L 50701 50875" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50701 50875 L 50701 50960" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50760 50640 L 50760 50691" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50760 50691 L 50760 50775" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50760 50775 L 50760 50799" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50760 50799 L 50760 50800" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50760 50800 L 50760 50801" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50760 50801 L 50760 50875" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50760 50875 L 50760 50960" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50640 50691 L 50760 50691" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50760 50691 L 51050 50691" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50640 50775 L 50699 50775" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50699 50775 L 50700 50775" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50700 50775 L 50701 50775" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50701 50775 L 50760 50775" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50760 50775 L 51050 50775" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50640 50799 L 50699 50799" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50699 50799 L 50700 50799" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50700 50799 L 50701 50799" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50701 50799 L 50760 50799" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50760 50799 L 51050 50799" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50640 50801 L 50699 50801" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50699 50801 L 50700 50801" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50700 50801 L 50701 50801" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50701 50801 L 50760 50801" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50760 50801 L 51050 50801" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 51050 50640 L 51050 50691" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 51050 50691 L 51050 50775" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 51050 50775 L 51050 50799" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 51050 50799 L 51050 50800" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 51050 50800 L 51050 50801" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 51050 50801 L 51050 50875" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 51050 50875 L 51050 50960" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50640 50800 L 50699 50800" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50699 50800 L 50700 50800" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 50700 50800 L 50701 50800" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 50701 50800 L 50760 50800" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50760 50800 L 51050 50800" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 51050 50800 L 51060 50800" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 50640 50875 L 50699 50875" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50699 50875 L 50700 50875" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50700 50875 L 50701 50875" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50701 50875 L 50760 50875" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50760 50875 L 51050 50875" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 51050 50875 L 51060 50875" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 51410 50640 L 51410 50960" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50640 50640 L 50760 50640" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50760 50640 L 51050 50640" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 51050 50640 L 51410 50640" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50640 50960 L 50699 50960" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50699 50960 L 50700 50960" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50700 50960 L 50701 50960" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50701 50960 L 50760 50960" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50760 50960 L 51050 50960" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 51050 50960 L 51410 50960" style="fill: none; stroke: red; stroke-width: 1px;" />
+</g>
+<g inkscape:groupmode="layer" style="display: none;" inkscape:label="RawConnectors">
+<path id="raw-386142483" d="M 51060 50875 L 51050 50875 L 50760 50875 L 50701 50875 L 50700 50875 L 50700 50801 L 50700 50800 " debug="src: 0 dst: 0" style="fill: none; stroke: black; stroke-width: 1px;" />
+<path id="raw-386142482" d="M 50700 50800 L 50700 50799 L 50700 50775 L 50700 50765 " debug="src: 0 dst: 0" style="fill: none; stroke: black; stroke-width: 1px;" />
+<path id="raw-386142481" d="M 51060 50800 L 51050 50800 L 50760 50800 L 50701 50800 L 50700 50800 " debug="src: 0 dst: 0" style="fill: none; stroke: black; stroke-width: 1px;" />
+</g>
+<g inkscape:groupmode="layer" style="display: none;" inkscape:label="CurvedDisplayConnectors">
+<path id="curved-386142483" d="M 51060 50875 L 50708 50875 C 50704 50875 50700 50871 50700 50867L 50700 50800 " debug="src: 0 dst: 0" style="fill: none; stroke: black; stroke-width: 1px;" />
+<path id="curved-386142482" d="M 50700 50800 L 50700 50765 " debug="src: 0 dst: 0" style="fill: none; stroke: black; stroke-width: 1px;" />
+<path id="curved-386142481" d="M 51060 50800 L 50700 50800 " debug="src: 0 dst: 0" style="fill: none; stroke: black; stroke-width: 1px;" />
+</g>
+<g inkscape:groupmode="layer" inkscape:label="DisplayConnectors">
+<path id="disp-386142483" d="M 51060 50875 L 50700 50875 L 50700 50800 " debug="src: 0 dst: 0" style="fill: none; stroke: black; stroke-width: 1px;" />
+<path id="disp-386142482" d="M 50700 50800 L 50700 50765 " debug="src: 0 dst: 0" style="fill: none; stroke: black; stroke-width: 1px;" />
+<path id="disp-386142481" d="M 51060 50800 L 50700 50800 " debug="src: 0 dst: 0" style="fill: none; stroke: black; stroke-width: 1px;" />
+</g>
+<g inkscape:groupmode="layer" inkscape:label="ConnectorCheckpoints">
+</g>
+</svg>

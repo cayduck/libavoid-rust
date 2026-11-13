@@ -22,9 +22,6 @@ assertions.h COLA_ASSERT | subsumed | becomes `debug_assert!` (src/avoid/mod.rs 
 assertions.h COLA_UNUSED | subsumed | unused-variable silencer; not needed in Rust
 assertions.h NOMINMAX | not-applicable | MSVC-only guard against windows.h min/max macros
 debug.h NOMINMAX | not-applicable | MSVC-only guard against windows.h min/max macros
-debug.h db_printf | debug-output | debug printf (no-op unless LIBAVOID_DEBUG); not ported (mod.rs)
-debug.h err_printf | debug-output | stderr diagnostics macro; the warnings upstream prints through it are reproduced with eprint! at the call sites that matter (e.g. ConnEnd::assignPinVisibilityTo), others are dropped
-debug.h PREC | debug-output | printf precision for SVG debug output
 
 # --- trivial ctors/dtors, Rust Drop/Default/Clone ----------------------------
 actioninfo.h ActionInfo::~ActionInfo | subsumed | empty destructor
@@ -135,26 +132,8 @@ visibility.cpp isBoundingShape::operator= | declared-undefined | private, never 
 visibility.cpp isBoundingShape::isBoundingShape() | declared-undefined | private default ctor, never defined (MSVC workaround)
 
 # --- debug output -------------------------------------------------------------
-connectionpin.h ShapeConnectionPin::outputCode | debug-output | emits C++ reproduction code (noted in connectionpin.rs)
-connector.h ConnRef::outputCode | debug-output | emits C++ reproduction code (noted in connector.rs)
-connend.h ConnEnd::outputCode | debug-output | emits C++ reproduction code (noted in connend.rs)
-junction.h JunctionRef::outputCode | debug-output | emits C++ reproduction code (noted in junction.rs)
-obstacle.h Obstacle::outputCode | debug-output | emits C++ reproduction code (noted in obstacle.rs)
-shape.h ShapeRef::outputCode | debug-output | emits C++ reproduction code (noted in shape.rs)
-graph.h EdgeInf::db_print | debug-output | db_printf debug dump
-hyperedge.h HyperedgeRerouter::outputInstanceToSVG | debug-output | SVG debug output
-hyperedgeimprover.h HyperedgeImprover::outputHyperedgesToSVG | debug-output | SVG debug output (MAJOR_HYPEREDGE_IMPROVEMENT_DEBUG only)
-hyperedgetree.h HyperedgeTreeNode::outputEdgesExcept | debug-output | SVG debug output
-hyperedgetree.h HyperedgeTreeEdge::outputNodesExcept | debug-output | SVG debug output
-makepath.cpp printDirections | debug-output | ESTIMATED_COST_DEBUG-only debug print
-mtst.h MinimumTerminalSpanningTree::drawForest | debug-output | debug drawing, only called under DEBUGHANDLER (its fprintf is commented out)
-router.h Router::setDebugHandler | debug-output | DebugHandler is not ported (noted in router.rs)
-router.h Router::debugHandler | debug-output | DebugHandler is not ported (noted in router.rs)
-router.h Router::outputInstanceToSVG | debug-output | SVG debug output, out of scope (mod.rs)
-router.h Router::outputDiagramSVG | debug-output | SVG debug output, out of scope (mod.rs)
-router.h Router::outputDiagram | subsumed | wrapper calling outputDiagramText() (+ SVG under SVG_OUTPUT); the port exposes Router::output_diagram_text() returning a String
-router.cpp LIMIT | debug-output | coordinate clamp used only by the SVG output functions
-router.cpp reduceRange | debug-output | coordinate clamp used only by the SVG output functions
-vpsc.h IncSolver::printBlocks | debug-output | LIBVPSC_LOGGING-only (body empty otherwise)
-vpsc.h Constraint::toString | debug-output | debug string formatting
-vpsc.h operator<< | debug-output | ostream debug printing of Block/Variable/Constraint
+# (Ported; see src/avoid/debug.rs, debughandler.rs and timer.rs.  These
+# entries map the items that have no function of their own.)
+debughandler.h DEBUGHANDLER | ported | Cargo feature `debug-handler` (Cargo.toml, off by default; debughandler.rs module docs)
+debughandler.h DebugHandler::DebugHandler | subsumed | empty ctor; DebugHandler is a Rust trait (debughandler.rs)
+debughandler.h DebugHandler::~DebugHandler | subsumed | empty virtual dtor; DebugHandler is a Rust trait (debughandler.rs)

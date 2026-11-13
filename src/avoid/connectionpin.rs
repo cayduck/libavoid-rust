@@ -33,6 +33,7 @@
 use std::collections::BTreeSet;
 
 use crate::avoid::arena::{Arena, ObstacleIdx, PinIdx, PtrKey, VertIdx};
+use crate::avoid::debug::{g, pg};
 use crate::avoid::connend::{
     ConnDirFlags, ConnEnd, ConnEndRef, CONN_DIR_ALL, CONN_DIR_DOWN, CONN_DIR_LEFT, CONN_DIR_NONE,
     CONN_DIR_RIGHT, CONN_DIR_UP,
@@ -163,13 +164,13 @@ impl ShapeConnectionPin {
         if p.m_using_proportional_offsets {
             // Parameter checking
             if (p.m_x_offset < 0.0) || (p.m_x_offset > 1.0) {
-                eprint!(
+                crate::err_printf!(
                     "xPortionOffset value ({}) in ShapeConnectionPin constructor not between 0 and 1.\n",
                     format_g(p.m_x_offset, 6)
                 );
             }
             if (p.m_y_offset < 0.0) || (p.m_y_offset > 1.0) {
-                eprint!(
+                crate::err_printf!(
                     "yPortionOffset value ({}) in ShapeConnectionPin constructor not between 0 and 1.\n",
                     format_g(p.m_y_offset, 6)
                 );
@@ -178,14 +179,14 @@ impl ShapeConnectionPin {
             let shape_box = router.obstacles[shape].m_polygon.offset_bounding_box(0.0);
             // Parameter checking
             if p.m_x_offset > shape_box.width() {
-                eprint!(
+                crate::err_printf!(
                     "xOffset value ({}) in ShapeConnectionPin constructor greater than shape width ({}).\n",
                     format_g(p.m_x_offset, 6),
                     format_g(shape_box.width(), 6)
                 );
             }
             if p.m_y_offset > shape_box.height() {
-                eprint!(
+                crate::err_printf!(
                     "yOffset value ({}) in ShapeConnectionPin constructor greater than shape height ({}).\n",
                     format_g(p.m_y_offset, 6),
                     format_g(shape_box.height(), 6)
@@ -437,8 +438,40 @@ impl ShapeConnectionPin {
         vis_dir
     }
 
-    // (upstream: connectionpin.cpp ShapeConnectionPin::outputCode() — debug
-    // code output, not ported.)
+    /// Writes C++ code that recreates this pin (part of
+    /// `Router::outputInstanceToSVG()`'s reproduction code).
+    // upstream: connectionpin.cpp ShapeConnectionPin::outputCode()
+    pub fn output_code(&self, router: &Router, fp: &mut dyn std::fmt::Write) -> std::fmt::Result {
+        debug_assert!(self.m_shape.is_some() || self.m_junction.is_some());
+        if let Some(shape) = self.m_shape {
+            write!(
+                fp,
+                "    connPin = new ShapeConnectionPin(shapeRef{}, {}, {}, {}, {}, {}, (ConnDirFlags) {});\n",
+                router.obstacles[shape].m_id,
+                self.m_class_id,
+                pg(self.m_x_offset),
+                pg(self.m_y_offset),
+                if self.m_using_proportional_offsets { "true" } else { "false" },
+                g(self.m_inside_offset),
+                self.m_visibility_directions
+            )?;
+        } else if let Some(junction) = self.m_junction {
+            write!(
+                fp,
+                "    connPin = new ShapeConnectionPin(junctionRef{}, {}, (ConnDirFlags) {});\n",
+                router.obstacles[junction].m_id,
+                self.m_class_id,
+                self.m_visibility_directions
+            )?;
+        }
+
+        let vertex_vis_directions = self.m_vertex.map(|v| router.vert_infs[v].vis_directions);
+        if (vertex_vis_directions != Some(CONN_DIR_ALL)) && !self.m_exclusive {
+            // Directional port is not exclusive (the default), so output this.
+            fp.write_str("    connPin->setExclusive(false);\n")?;
+        }
+        Ok(())
+    }
 
     // upstream: connectionpin.cpp ShapeConnectionPin::ids()
     pub fn ids(&self, obstacles: &ObstacleArena) -> ConnectionPinIds {

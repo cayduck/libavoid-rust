@@ -31,10 +31,12 @@
 //! `store.node_method(this, ..)`); methods that touch connectors or
 //! junctions take the `Router`.
 //!
-//! (`outputEdgesExcept` / `outputNodesExcept` are SVG debug output and are
-//! not ported.  `validateHyperedge` only contains assertions and
-//! `MAJOR_HYPEREDGE_IMPROVEMENT_DEBUG` output; the assertions are ported as
-//! `debug_assert!`.)
+//! (`outputEdgesExcept` / `outputNodesExcept` write SVG to a
+//! `std::fmt::Write` (`HyperedgeImprover::outputHyperedgesToSVG()`).
+//! `validateHyperedge` contains assertions, ported as `debug_assert!`, and
+//! `MAJOR_HYPEREDGE_IMPROVEMENT_DEBUG` output, compiled in with the
+//! `major-hyperedge-improvement-debug` feature like the other topology
+//! reports of that define.)
 
 #![allow(dead_code)]
 #![allow(clippy::collapsible_if, clippy::collapsible_else_if, clippy::new_without_default)]
@@ -54,6 +56,7 @@ use std::ops::Bound;
 use crate::avoid::arena::{ConnIdx, PtrKey, VertIdx};
 use crate::avoid::connend::{ConnEnd, ConnEndType};
 use crate::avoid::connector::ConnRef;
+use crate::avoid::debug::g;
 use crate::avoid::geomtypes::{Point, PolygonInterface};
 use crate::avoid::junction::JunctionRef;
 use crate::avoid::router::Router;
@@ -363,6 +366,34 @@ impl HyperedgeTreeStore {
         self.nodes[n.0].edges.get(i).copied()
     }
 
+    // This method traverses the hyperedge tree and outputs each of the edges
+    // and junction positions as SVG objects to the file fp.
+    // upstream: hyperedgetree.cpp HyperedgeTreeNode::outputEdgesExcept()
+    pub fn node_output_edges_except(
+        &self,
+        this: HeNodeIdx,
+        fp: &mut dyn std::fmt::Write,
+        ignored: Option<HeEdgeIdx>,
+    ) -> std::fmt::Result {
+        let node = &self.nodes[this.0];
+        if node.junction.is_some() {
+            write!(
+                fp,
+                "<circle cx=\"{}\" cy=\"{}\" r=\"6\" style=\"fill: green; stroke: none;\" />\n",
+                g(node.point.x),
+                g(node.point.y)
+            )?;
+        }
+        let mut i = 0;
+        while let Some(curr) = self.node_edge_at(this, i) {
+            if Some(curr) != ignored {
+                self.edge_output_nodes_except(curr, fp, Some(this))?;
+            }
+            i += 1;
+        }
+        Ok(())
+    }
+
     // This method traverses the hyperedge tree and removes from treeRoots any
     // junction nodes (other than this one).
     // upstream: hyperedgetree.cpp HyperedgeTreeNode::removeOtherJunctionsFrom()
@@ -566,6 +597,16 @@ impl HyperedgeTreeStore {
                     let existing_ends = router.conns[edge_conn].endpoint_conn_ends(router);
                     let existing_end = if forward { &existing_ends.0 } else { &existing_ends.1 };
                     if existing_end.junction(router) != Some(junction) {
+                        #[cfg(feature = "major-hyperedge-improvement-debug")]
+                        crate::avoid::debug::err_printf!(
+                            "HyperedgeImprover: changed {} of connector {} (from junction {} to {})\n",
+                            if forward { "src" } else { "tar" },
+                            router.conns[edge_conn].m_id,
+                            // (Upstream dereferences null for an end without
+                            // a junction; the port prints 0.)
+                            existing_end.junction(router).map_or(0, |j| j.id(router)),
+                            junction.id(router)
+                        );
                         let end = if forward { VertID::SRC } else { VertID::TAR } as u32;
                         let connend = ConnEnd::from_junction(router, junction);
                         ConnRef::update_end_point(router, edge_conn, end, &connend);
@@ -605,8 +646,32 @@ impl HyperedgeTreeStore {
 
     // upstream: hyperedgetree.cpp HyperedgeTreeNode::validateHyperedge()
     pub fn node_validate_hyperedge(&self, router: &Router, this: HeNodeIdx, ignored: Option<HeEdgeIdx>, dist: usize) {
-        let new_dist = dist;
+        #[allow(unused_mut)]
+        let mut new_dist = dist;
         let node = &self.nodes[this.0];
+        #[cfg(feature = "major-hyperedge-improvement-debug")]
+        {
+            use crate::avoid::debug::err_printf;
+            if let Some(junction) = node.junction {
+                if new_dist == 0 {
+                    err_printf!("\nHyperedge topology:\n");
+                } else {
+                    new_dist += 1;
+                }
+                for _ in 0..new_dist {
+                    err_printf!("  ");
+                }
+                err_printf!("j({})\n", junction.id(router) as i32);
+                new_dist += 1;
+            } else if node.edges.len() == 1 {
+                new_dist += 1;
+                for _ in 0..new_dist {
+                    err_printf!("  ");
+                }
+                err_printf!("t()\n");
+                new_dist += 1;
+            }
+        }
         let mut i = 0;
         while let Some(edge) = self.node_edge_at(this, i) {
             let conn = self.edges[edge.0].conn.expect("hyperedge tree edge without connector");
@@ -736,6 +801,36 @@ impl HyperedgeTreeStore {
         self.edges[this.0].deleted = true;
     }
 
+    // This method traverses the hyperedge tree and outputs each of the edges
+    // and junction positions as SVG objects to the file fp.
+    // upstream: hyperedgetree.cpp HyperedgeTreeEdge::outputNodesExcept()
+    pub fn edge_output_nodes_except(
+        &self,
+        this: HeEdgeIdx,
+        fp: &mut dyn std::fmt::Write,
+        ignored: Option<HeNodeIdx>,
+    ) -> std::fmt::Result {
+        let ends = self.edges[this.0].ends;
+        let (first, second) = (ends.0.expect("edge without end"), ends.1.expect("edge without end"));
+        write!(
+            fp,
+            "<path d=\"M {} {} L {} {}\" style=\"fill: none; stroke: {}; stroke-width: 2px; stroke-opacity: 0.5;\" />\n",
+            g(self.nodes[first.0].point.x),
+            g(self.nodes[first.0].point.y),
+            g(self.nodes[second.0].point.x),
+            g(self.nodes[second.0].point.y),
+            "purple"
+        )?;
+        if ends.0 != ignored {
+            self.node_output_edges_except(first, fp, Some(this))?;
+        }
+
+        if ends.1 != ignored {
+            self.node_output_edges_except(second, fp, Some(this))?;
+        }
+        Ok(())
+    }
+
     // Given one endpoint of the hyperedge tree edge, returns the other endpoint.
     // upstream: hyperedgetree.cpp HyperedgeTreeEdge::followFrom()
     pub fn edge_follow_from(&self, this: HeEdgeIdx, from: HeNodeIdx) -> HeNodeIdx {
@@ -842,6 +937,9 @@ impl HyperedgeTreeStore {
                     router.conns[conn].m_display_route.ps.reverse();
                 }
             }
+
+            #[cfg(feature = "debug-handler")]
+            router.call_debug_handler(|h, r| h.update_connector_route(r, conn, -1, -1));
         }
 
         // UPSTREAM NON-TERMINATION (port addition; router.rs, "Upstream
@@ -950,6 +1048,16 @@ impl HyperedgeTreeStore {
             let existing_ends = router.conns[conn].endpoint_conn_ends(router);
             let existing_end = if forward { &existing_ends.1 } else { &existing_ends.0 };
             if existing_end.junction(router) != Some(end_junction) {
+                #[cfg(feature = "major-hyperedge-improvement-debug")]
+                crate::avoid::debug::err_printf!(
+                    "HyperedgeImprover: changed {} of connector {} (from junction {} to {})\n",
+                    if forward { "tar" } else { "src" },
+                    router.conns[conn].m_id,
+                    // (Upstream dereferences null for an end without a
+                    // junction; the port prints 0.)
+                    existing_end.junction(router).map_or(0, |j| j.id(router)),
+                    end_junction.id(router)
+                );
                 let connend = ConnEnd::from_junction(router, end_junction);
                 let end = if forward { VertID::TAR } else { VertID::SRC } as u32;
                 ConnRef::update_end_point(router, conn, end, &connend);
@@ -990,6 +1098,16 @@ impl HyperedgeTreeStore {
     // upstream: hyperedgetree.cpp HyperedgeTreeEdge::validateHyperedge()
     pub fn edge_validate_hyperedge(&self, router: &Router, this: HeEdgeIdx, ignored: Option<HeNodeIdx>, dist: usize) {
         let edge = &self.edges[this.0];
+        #[cfg(feature = "major-hyperedge-improvement-debug")]
+        {
+            for _ in 0..dist {
+                crate::avoid::debug::err_printf!("  ");
+            }
+            crate::avoid::debug::err_printf!(
+                "-({})\n",
+                router.conns[edge.conn.expect("hyperedge tree edge without connector")].m_id as i32
+            );
+        }
         if edge.ends.0 != ignored {
             self.node_validate_hyperedge(router, edge.ends.0.unwrap(), Some(this), dist);
         } else if edge.ends.1 != ignored {

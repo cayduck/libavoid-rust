@@ -32,8 +32,13 @@
 //!   `router.rs` module docs).
 //! * **Misuse.**  Never panic on API misuse; see "Public-API misuse" and
 //!   "Dangling handles" in the `router.rs` module docs.
-//! * **Debug/SVG output code** (`outputInstanceToSVG`, timers, db_printf)
-//!   is out of scope unless needed by a test.
+//! * **Debug output** is ported like everything else.  Upstream's
+//!   `FILE *` writers take a `&mut dyn std::fmt::Write` (with string forms,
+//!   and the upstream-named method writing the file with `std::fs`).  Code
+//!   behind upstream debug defines (`LIBAVOID_DEBUG`, `DEBUGHANDLER`,
+//!   `AVOID_PROFILE`, `HYPEREDGE_DEBUG`, ...) is behind Cargo features that
+//!   are off by default (table in `debug.rs`), so default builds compile it
+//!   out exactly as upstream's default build does.
 //! * **Verification.**  `tools/oracle/build.sh` builds the vendored C++ and
 //!   writes full-precision golden routes for every upstream fixture to
 //!   `tests/golden/` (`ORACLE_ALLOC=bump`: `tests/golden-bump/`, the goldens
@@ -45,6 +50,8 @@ pub mod arena;
 pub mod connectionpin;
 pub mod connector;
 pub mod connend;
+pub mod debug;
+pub mod debughandler;
 pub mod geometry;
 pub mod geomtypes;
 pub mod graph;
@@ -59,6 +66,7 @@ pub mod orthogonal;
 pub mod router;
 pub mod scanline;
 pub mod shape;
+pub mod timer;
 pub mod vertices;
 pub mod viscluster;
 pub mod visibility;

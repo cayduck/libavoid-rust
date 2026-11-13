@@ -44,6 +44,11 @@ fn poly_str(p: &Polygon) -> String {
     s
 }
 
+/// Also dump the SVG debug output after every transaction (the C++
+/// driver's `E2E_SVG`; set by tests/e2e_svg_oracle.rs).
+#[allow(dead_code)]
+pub static SVG_OUTPUT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 pub fn fnv(lines: &[String]) -> u64 {
     let mut h: u64 = 1469598103934665603;
     for s in lines {
@@ -420,6 +425,15 @@ impl Scene {
                 o.push(format!("D {}", &text[start..nl]));
                 start = nl + 1;
             }
+        }
+        // E2E_SVG (`SVG_OUTPUT` below): the SVG debug output too, as the C++
+        // driver writes it (tests/e2e_svg_oracle.rs).
+        if SVG_OUTPUT.load(std::sync::atomic::Ordering::Relaxed) {
+            let r = self.router.as_mut().unwrap();
+            let svg = r.output_instance_to_svg_string();
+            o.push(format!("V {:016x} {}", fnv(std::slice::from_ref(&svg)), svg.len()));
+            let svg = r.output_diagram_svg_string(None);
+            o.push(format!("W {:016x} {}", fnv(std::slice::from_ref(&svg)), svg.len()));
         }
         self.stages.push(o);
         self.stage += 1;

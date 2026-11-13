@@ -28,6 +28,7 @@
 use crate::avoid::arena::{EdgeIdx, RerouteFlagIdx, VertIdx};
 use crate::avoid::geometry::{euclidean_dist, in_valid_region, segment_shape_intersect, vec_dir};
 use crate::avoid::geomtypes::Point;
+use crate::avoid::debug::db_printf;
 use crate::avoid::router::Router;
 use crate::avoid::vertices::{
     EdgeArena, EdgeEnd, EdgeInfList, EdgeListLink, EdgePos, ShapeSet, VertArena, VertID, DUMMY_ORTHOG_ID,
@@ -519,9 +520,35 @@ impl EdgeInf {
         (verts[self.m_vert1].point, verts[self.m_vert2].point)
     }
 
+    /// Prints the edge with `db_printf` (only with the `libavoid-debug`
+    /// feature, upstream's `LIBAVOID_DEBUG`).
+    // upstream: graph.cpp EdgeInf::db_print()
+    #[inline]
+    pub fn db_print(router: &Router, e: EdgeIdx) {
+        if !cfg!(feature = "libavoid-debug") {
+            return;
+        }
+        let edge = &router.edge_infs[e];
+        db_printf!("Edge(");
+        router.vert_infs[edge.m_vert1].id.db_print();
+        db_printf!(",");
+        router.vert_infs[edge.m_vert2].id.db_print();
+        db_printf!(")\n");
+    }
+
     // upstream: graph.cpp EdgeInf::checkVis()
-    // (db_printf/db_print debug output omitted.)
     pub fn check_vis(router: &mut Router, e: EdgeIdx) {
+        {
+            let edge = &router.edge_infs[e];
+            if edge.m_added && !edge.m_visible {
+                db_printf!("\tChecking visibility for existing invisibility edge...\n\t\t");
+                EdgeInf::db_print(router, e);
+            } else if edge.m_added && edge.m_visible {
+                db_printf!("\tChecking visibility for existing visibility edge...\n\t\t");
+                EdgeInf::db_print(router, e);
+            }
+        }
+
         let mut blocker = 0;
         let mut cone1 = true;
         let mut cone2 = true;
@@ -551,6 +578,7 @@ impl EdgeInf {
             let ss = router.contains.entry(i_id).or_default();
 
             if !j_id.is_conn_pt() && ss.contains(&j_id.obj_id) {
+                db_printf!("1: Edge of bounding shape\n");
                 // Don't even check this edge, it should be zero,
                 // since a point in a shape can't see it's corners
                 cone1 = false;
@@ -575,6 +603,7 @@ impl EdgeInf {
                 let ss = router.contains.entry(j_id).or_default();
 
                 if !i_id.is_conn_pt() && ss.contains(&i_id.obj_id) {
+                    db_printf!("2: Edge of bounding shape\n");
                     // Don't even check this edge, it should be zero,
                     // since a point in a shape can't see it's corners
                     cone2 = false;
@@ -587,11 +616,18 @@ impl EdgeInf {
             blocker == 0
         } {
             // if i and j see each other, add edge
+            db_printf!("\tSetting visibility edge... \n\t\t");
+            EdgeInf::db_print(router, e);
+
             let d = euclidean_dist(&i_point, &j_point);
 
             EdgeInf::set_dist(router, e, d);
         } else if router.invisibility_grph {
+            // (An `#if 0` block upstream printed cone1/cone2/blocker.)
+
             // if i and j can't see each other, add blank edge
+            db_printf!("\tSetting invisibility edge... \n\t\t");
+            EdgeInf::db_print(router, e);
             EdgeInf::add_blocker(router, e, blocker);
         }
     }
@@ -632,6 +668,7 @@ impl EdgeInf {
             if k_id.obj_id != last_id {
                 if ss.contains(&k_id.obj_id) {
                     let shape_id = k_id.obj_id;
+                    db_printf!("Endpoint is inside shape {} so ignore shape edges.\n", k_id.obj_id);
                     // One of the endpoints is inside this shape so ignore it.
                     while let Some(kk) = k {
                         if verts[kk].id.obj_id != shape_id {

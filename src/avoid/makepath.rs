@@ -515,6 +515,27 @@ const COST_DIRECTION_W: u32 = 8;
 
 /// Returns the number of directions for the argument.
 // upstream: makepath.cpp orthogonalDirectionsCount() (static)
+/// Writes the direction flags as `N E S W ` (upstream: only with
+/// `ESTIMATED_COST_DEBUG`, here the `estimated-cost-debug` feature, which
+/// prints the A* cost targets to stderr).
+// upstream: makepath.cpp printDirections() (static)
+#[cfg_attr(not(feature = "estimated-cost-debug"), allow(dead_code))]
+fn print_directions(fp: &mut dyn std::fmt::Write, directions: u32) -> std::fmt::Result {
+    if (directions & COST_DIRECTION_N) != 0 {
+        fp.write_str("N ")?;
+    }
+    if (directions & COST_DIRECTION_E) != 0 {
+        fp.write_str("E ")?;
+    }
+    if (directions & COST_DIRECTION_S) != 0 {
+        fp.write_str("S ")?;
+    }
+    if (directions & COST_DIRECTION_W) != 0 {
+        fp.write_str("W ")?;
+    }
+    Ok(())
+}
+
 fn orthogonal_directions_count(directions: u32) -> u32 {
     let mut count = 0;
     if directions & COST_DIRECTION_N != 0 {
@@ -842,6 +863,7 @@ impl AStarPathPrivate {
         other: VertIdx,
         level: i32,
     ) {
+        #[cfg(not(feature = "estimated-cost-debug"))]
         let _ = (dist, start, level);
 
         let other_point = router.vert_infs[other].point;
@@ -860,6 +882,20 @@ impl AStarPathPrivate {
         self.m_cost_targets.push(other);
         self.m_cost_targets_directions.push(this_dirs);
         self.m_cost_targets_displacements.push(displacement);
+
+        #[cfg(feature = "estimated-cost-debug")]
+        {
+            use crate::avoid::debug::g;
+            let mut fp = String::new();
+            fp.push_str(&format!(" - {} {} ", g(other_point.x), g(other_point.y)));
+            if manhattan_dist(&router.vert_infs[start].point, &other_point) > dist {
+                fp.push_str("far ");
+            }
+            fp.push_str(if level == 1 { "--" } else { "- " });
+            let _ = print_directions(&mut fp, this_dirs);
+            fp.push('\n');
+            eprint!("{}", fp);
+        }
     }
 
     // upstream: makepath.cpp AStarPathPrivate::estimatedCost()
@@ -910,6 +946,9 @@ impl AStarPathPrivate {
             Some(s) => s,
         };
 
+        #[cfg(feature = "debug-handler")]
+        router.call_debug_handler(|h, r| h.beginning_search_with_endpoints(r, start, tar));
+
         // Find a target point to use for cost estimate for orthogonal routing.
         //
         // If the connectivity is only on the far side we need to estimate to the
@@ -917,6 +956,12 @@ impl AStarPathPrivate {
         // all the space in between before we pay the extra cost to explore this
         // area.  This is especially true given many orthogonal routes have
         // equivalent costs.
+        #[cfg(feature = "estimated-cost-debug")]
+        eprint!(
+            "== aStar  {} {} ==\n",
+            crate::avoid::debug::g(router.vert_infs[tar].point.x),
+            crate::avoid::debug::g(router.vert_infs[tar].point.y)
+        );
         let tar_id = router.vert_infs[tar].id;
         if is_orthogonal && tar_id.is_conn_pt() && !tar_id.is_conn_checkpoint() {
             // The target is a connector endpoint and the connector is orthogonal.
@@ -959,6 +1004,19 @@ impl AStarPathPrivate {
             self.m_cost_targets_directions
                 .push(COST_DIRECTION_N | COST_DIRECTION_E | COST_DIRECTION_S | COST_DIRECTION_W);
             self.m_cost_targets_displacements.push(0.0);
+        }
+
+        #[cfg(feature = "estimated-cost-debug")]
+        {
+            use crate::avoid::debug::g;
+            let mut fp = String::from("------------\n");
+            for i in 0..self.m_cost_targets.len() {
+                let p = router.vert_infs[self.m_cost_targets[i]].point;
+                fp.push_str(&format!("== {} {} - ", g(p.x), g(p.y)));
+                let _ = print_directions(&mut fp, self.m_cost_targets_directions[i]);
+                fp.push('\n');
+            }
+            eprint!("{}", fp);
         }
 
         let dist: fn(&Point, &Point) -> f64 = if is_orthogonal { manhattan_dist } else { euclidean_dist };
@@ -1017,6 +1075,8 @@ impl AStarPathPrivate {
                 let props: VertIDProps = if r_indx > 0 { 0 } else { VertID::PROP_CONN_POINT };
                 let v_id = VertID::new(pnt.id, pnt.vn, props);
 
+                #[cfg(feature = "pathdebug")]
+                crate::avoid::debug::db_printf!("/// {} {}\n", pnt.id as i32, pnt.vn);
                 let curr = router.vertices.get_vertex_by_id(&router.vert_infs, &v_id);
                 debug_assert!(curr.is_some());
                 let curr = curr.unwrap();
@@ -1127,9 +1187,22 @@ impl AStarPathPrivate {
             // Set the Node with lowest f value to BESTNODE.
             // Since the ANode operator< is reversed, the head of the
             // heap is the node with the lowest f value.
+            crate::avoid::timer::timer_var_add!(router, 0, 1);
             let bn = pending[0];
             // (upstream assigns bestNode here; `bn` plays that role below.)
             let best_node_inf = inf_of(&self.m_available_nodes, bn);
+
+            #[cfg(feature = "debug-handler")]
+            if router.has_debug_handler() {
+                let mut current_search_path = crate::avoid::geomtypes::PolyLine::new();
+
+                let mut curr = Some(bn);
+                while let Some(c) = curr {
+                    current_search_path.ps.push(router.vert_infs[inf_of(&self.m_available_nodes, c)].point);
+                    curr = self.m_available_nodes[c.0 as usize].prev_node;
+                }
+                router.call_debug_handler(|h, r| h.update_current_search_path(r, current_search_path));
+            }
 
             // Remove this node from the aStarPendingList
             {
@@ -1158,17 +1231,47 @@ impl AStarPathPrivate {
 
             let bn_node = self.m_available_nodes[bn.0 as usize];
             let prev_inf: Option<VertIdx> = bn_node.prev_node.map(|p| inf_of(&self.m_available_nodes, p));
+            #[cfg(feature = "astar-debug")]
+            {
+                use crate::avoid::debug::{db_printf, g};
+                db_printf!("Considering... ");
+                let p = router.vert_infs[best_node_inf].point;
+                db_printf!(" {} {}  ", g(p.x), g(p.y));
+                router.vert_infs[best_node_inf].id.db_print();
+                db_printf!(" - g: {:3.1} h: {:3.1} back: ", bn_node.g, bn_node.h);
+                if let Some(prev_inf) = prev_inf {
+                    let p = router.vert_infs[prev_inf].point;
+                    db_printf!(" {} {}", g(p.x), g(p.y));
+                    //prevInf->id.db_print();
+                }
+                db_printf!("\n");
+            }
 
             if best_node_inf == tar {
+                crate::avoid::timer::timer_var_add!(router, 1, pending.len() as u32);
                 // This node is our goal.
+                #[cfg(feature = "astar-debug")]
+                crate::avoid::debug::db_printf!(
+                    "LINE {:10}  Steps: {:4}  Cost: {}\n",
+                    router.conns[line_ref].m_id as i32,
+                    explored_count as i32,
+                    crate::avoid::debug::g(bn_node.f)
+                );
 
                 // Correct all the pathNext pointers.
                 let mut curr = bn;
                 while let Some(prev) = self.m_available_nodes[curr.0 as usize].prev_node {
                     let c_inf = inf_of(&self.m_available_nodes, curr);
+                    #[cfg(feature = "astar-debug")]
+                    {
+                        let p = router.vert_infs[c_inf].point;
+                        crate::avoid::debug::db_printf!("[{:.12}, {:.12}]\n", p.x, p.y);
+                    }
                     router.vert_infs[c_inf].path_next = Some(inf_of(&self.m_available_nodes, prev));
                     curr = prev;
                 }
+                #[cfg(feature = "astar-debug")]
+                crate::avoid::debug::db_printf!("\n");
 
                 // Exit from the search
                 break;
@@ -1336,6 +1439,15 @@ impl AStarPathPrivate {
 
                 // The A* formula
                 node.f = node.g + node.h;
+
+                #[cfg(feature = "astar-debug")]
+                {
+                    use crate::avoid::debug::{db_printf, g};
+                    let p = router.vert_infs[node_inf].point;
+                    db_printf!("-- Adding: {} {}  ", g(p.x), g(p.y));
+                    router.vert_infs[node_inf].id.db_print();
+                    db_printf!(" - g: {:3.1} h: {:3.1} \n", node.g, node.h);
+                }
 
                 b_node_found = false;
 

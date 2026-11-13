@@ -1370,7 +1370,11 @@ pub fn generate_static_orthogonal_vis_graph(router: &mut Router) {
         events.push(Event::new(EventType::Close, v, bbox.max.y));
     }
 
-    // (DEBUGHANDLER obstacle-box reporting is not ported.)
+    #[cfg(feature = "debug-handler")]
+    if router.has_debug_handler() {
+        let obstacle_boxes = router.debug_obstacle_boxes();
+        router.call_debug_handler(|h, r| h.update_obstacle_boxes(r, obstacle_boxes));
+    }
 
     let mut curr = router.vertices.conns_begin();
     while let Some(c) = curr {
@@ -1825,7 +1829,6 @@ impl NudgingShiftSegment {
 
     // upstream: orthogonal.cpp NudgingShiftSegment::updatePositionsFromSolver()
     pub fn update_positions_from_solver(&self, router: &mut Router, vs: &[Variable], just_unifying: bool) {
-        let _ = just_unifying; // (only used by the DEBUGHANDLER build)
         if self.fixed {
             return;
         }
@@ -1838,11 +1841,24 @@ impl NudgingShiftSegment {
         new_pos = cpp_min(new_pos, self.base.max_space_limit);
 
         let dimension = self.base.dimension;
+        // PTR-ORDER: upstream prints the ConnRef pointer (`%lX`); the port
+        // prints the connector's creation serial in its place.
+        #[cfg(feature = "nudge-debug")]
+        print!("Pos: {:X}, {:.16}\n", router.conns[self.conn_ref].serial, new_pos);
         let route = &mut router.conns[self.conn_ref].m_display_route;
         for it in 0..self.indexes.len() {
             let index = self.indexes[it];
             route.ps[index][dimension] = new_pos;
         }
+
+        #[cfg(feature = "debug-handler")]
+        if !just_unifying {
+            let (conn, first, last) =
+                (self.conn_ref, self.indexes[0] as i32, self.indexes[self.indexes.len() - 1] as i32);
+            router.call_debug_handler(|h, r| h.update_connector_route(r, conn, first, last));
+        }
+        #[cfg(not(feature = "debug-handler"))]
+        let _ = just_unifying;
     }
 
     // upstream: orthogonal.cpp NudgingShiftSegment::fixedOrder()
@@ -2561,6 +2577,8 @@ impl ImproveOrthogonalRoutes {
 
     // upstream: orthogonal.cpp ImproveOrthogonalRoutes::execute()
     fn execute(&mut self, router: &mut Router) {
+        crate::avoid::timer::timer_start!(router, crate::avoid::timer::TimerIndex::TmOrthogNudge);
+
         self.m_shared_path_connectors_with_common_endpoints.clear();
 
         // Simplify routes.
@@ -2613,6 +2631,8 @@ impl ImproveOrthogonalRoutes {
 
         // Clear the segment-checkpoint cache for connectors.
         clear_connector_route_checkpoint_cache(router);
+
+        crate::avoid::timer::timer_stop!(router);
     }
 
     // upstream: orthogonal.cpp ImproveOrthogonalRoutes::nudgeOrthogonalRoutes()
@@ -2725,12 +2745,65 @@ impl ImproveOrthogonalRoutes {
             // Indexes into current_region.
             let mut prev_vars: Vec<usize> = Vec::new();
             let mut sep_dist = base_sep_dist;
+            #[cfg(feature = "nudge-debug")]
+            {
+                eprint!("-------------------------------------------------------\n");
+                eprint!(
+                    "{} -- size: {}\n",
+                    if just_unifying { "Unifying" } else { "Nudging" },
+                    current_region.len() as i32
+                );
+            }
+            #[cfg(feature = "nudge-debug-svg")]
+            print!("\n\n");
             for curr_segment_it in 0..current_region.len() {
                 // Create a solver variable for the position of this segment.
                 current_region[curr_segment_it].create_solver_variable(router, just_unifying, &mut vs);
                 let curr_segment = &current_region[curr_segment_it];
 
                 let index = vs.len() - 1;
+                #[cfg(feature = "nudge-debug")]
+                {
+                    let low = curr_segment.low_point_of(router);
+                    let high = curr_segment.high_point_of(router);
+                    let other = (dimension + 1) % 2;
+                    eprint!(
+                        "line({})  {:.15}  dim: {} pos: {:.16}\nmin: {:.16}  max: {:.16}\nminEndPt: {:.16}  maxEndPt: {:.16} weight: {} cc: {}\n",
+                        router.conns[curr_segment.conn_ref].m_id as i32,
+                        low[dimension],
+                        dimension as i32,
+                        vs[index].desired_position,
+                        curr_segment.base.min_space_limit,
+                        curr_segment.base.max_space_limit,
+                        low[other],
+                        high[other],
+                        crate::avoid::debug::g(vs[index].weight),
+                        curr_segment.checkpoints.len() as i32
+                    );
+                }
+                #[cfg(feature = "nudge-debug-svg")]
+                {
+                    use crate::avoid::debug::g;
+                    // Debugging info:
+                    let min_p = cpp_max(curr_segment.base.min_space_limit, -5000.0);
+                    let max_p = cpp_min(curr_segment.base.max_space_limit, 5000.0);
+                    let low = curr_segment.low_point_of(router);
+                    let high = curr_segment.high_point_of(router);
+                    print!(
+                        "<rect style=\"fill: #f00; opacity: 0.2;\" x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" />\n",
+                        g(low[XDIM]),
+                        g(min_p),
+                        g(high[XDIM] - low[XDIM]),
+                        g(max_p - min_p)
+                    );
+                    print!(
+                        "<line style=\"stroke: #000;\" x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" />\n",
+                        g(low[XDIM]),
+                        g(low[YDIM]),
+                        g(high[XDIM]),
+                        g(high[YDIM])
+                    );
+                }
 
                 if just_unifying {
                     // Just doing centring, not nudging.
@@ -2848,6 +2921,10 @@ impl ImproveOrthogonalRoutes {
                 }
             }
 
+            #[cfg(feature = "nudge-debug")]
+            for (i, v) in vs.iter().enumerate() {
+                eprint!("-vs[{}]={:.6}\n", i as i32, v.desired_position);
+            }
             // Repeatedly try solving this.  There are two cases:
             //  -  When Unifying, we greedily place as many free segments as
             //     possible at the same positions, that way they have more
@@ -2940,6 +3017,11 @@ impl ImproveOrthogonalRoutes {
                     }
                 }
 
+                #[cfg(feature = "nudge-debug")]
+                if !satisfied {
+                    eprint!("unsatisfied\n");
+                }
+
                 if just_unifying {
                     // When we're centring, we'd like to greedily place as many
                     // segments as possible at the same positions, that way they
@@ -3024,6 +3106,13 @@ impl ImproveOrthogonalRoutes {
                         // orthogonal.cpp:3074` = vendored :3040; two more
                         // crash reading vs[it->second] out of bounds); the
                         // NDEBUG build works.
+                        #[cfg(feature = "nudge-debug")]
+                        {
+                            for it in unsatisfied_ranges.iter() {
+                                eprint!("unsatisfiedVarRange({}, {})\n", it.0 as i64, it.1 as i64);
+                            }
+                            eprint!("unsatisfied, trying {}\n", crate::avoid::debug::g(sep_dist));
+                        }
                         // And rewrite all the gap constraints to have the new
                         // reduced separation distance.
                         let mut within_unsatisfied_group = false;
@@ -3090,9 +3179,27 @@ impl ImproveOrthogonalRoutes {
             }
 
             if satisfied {
+                #[cfg(feature = "nudge-debug")]
+                eprint!("satisfied at nudgeDist = {}\n", crate::avoid::debug::g(sep_dist));
                 for curr_segment in current_region.iter() {
                     curr_segment.update_positions_from_solver(router, &vs, just_unifying);
                 }
+            }
+            #[cfg(feature = "nudge-debug")]
+            for (i, v) in vs.iter().enumerate() {
+                eprint!("+vs[{}]={:.6}\n", i as i32, v.final_position);
+            }
+            #[cfg(feature = "nudge-debug-svg")]
+            for segment in current_region.iter() {
+                use crate::avoid::debug::g;
+                let fp = vs[segment.variable.expect("solver variable")].final_position;
+                print!(
+                    "<line style=\"stroke: #00F;\" x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" />\n",
+                    g(segment.low_point_of(router)[XDIM]),
+                    g(fp),
+                    g(segment.high_point_of(router)[XDIM]),
+                    g(fp)
+                );
             }
             // for_each(currentRegion/vs/cs, delete_object()): dropped here.
             let _ = gapcs;

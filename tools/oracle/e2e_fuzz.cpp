@@ -563,6 +563,29 @@ static void dump(Scene& sc, bool ret)
             start = nl + 1;
         }
     }
+    // E2E_SVG: the SVG debug output too (tests/e2e_svg_oracle.rs), as
+    // "V <fnv> <bytes>" (outputInstanceToSVG()) and "W <fnv> <bytes>"
+    // (outputDiagramSVG()); the fnv is fnv() of the file as one line.
+    if (getenv("E2E_SVG"))
+    {
+        char base[128];
+        snprintf(base, sizeof(base), "/tmp/e2e_fuzz_svg_%d", (int) getpid());
+        const char *tags[2] = { "V ", "W " };
+        for (int k = 0; k < 2; ++k)
+        {
+            std::string name = std::string(base) + ((k == 0) ? "" : "-d");
+            if (k == 0) r->outputInstanceToSVG(name);
+            else r->outputDiagramSVG(name);
+            std::string path = name + ".svg";
+            std::string text = readFile(path);
+            unlink(path.c_str());
+            char buf[64];
+            snprintf(buf, sizeof(buf), "%016llx %u",
+                    (unsigned long long) fnv(std::vector<std::string>(1, text)),
+                    (unsigned) text.size());
+            o.push_back(tags[k] + std::string(buf));
+        }
+    }
     sc.stages.push_back(o);
     sc.stage++;
 }

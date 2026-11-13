@@ -13,6 +13,17 @@
 // of src/avoid/vpsc.rs.  Doubles are printed as their IEEE-754 bit pattern
 // (compared by the Rust test) followed by " # %.17g" for readability.
 //
+// With `--print` the driver also prints, at the start of extras() (solver
+// alive, after solving), what IncSolver::printBlocks() means to log
+// (every block and constraint through the ostream operators; upstream's own
+// printBlocks() body is LIBVPSC_LOGGING-only and does not compile) and
+// Constraint::toString() of every constraint, as lines starting with "p ".
+// The golden of the Rust test vpsc_printing_matches_cpp_oracle is that
+// output filtered to the "case"/"p" lines of the first 60 cases:
+//
+//   /tmp/vpsc_oracle --print | awk '/^case /{k=$2} k<60 && /^(case|p) /' \
+//       > tests/golden/vpsc_print_oracle.txt
+//
 // Private/protected members are opened up so that code paths which libavoid
 // itself never reaches from IncSolver::solve() (Blocks::split, mergeLeft,
 // mergeRight, the constraint heaps, the cycle checks, totalOrder) can be
@@ -94,7 +105,24 @@ static bool doSolve(IncSolver &s) {
     }
 }
 
+static bool g_print = false;
+
 static void extras(IncSolver &s, const Variables &vs, const Constraints &cs) {
+    if (g_print) {
+        for (size_t i = 0; i < s.bs->size(); ++i) {
+            std::ostringstream o;
+            o << "  " << *s.bs->at(i);
+            printf("p %s\n", o.str().c_str());
+        }
+        for (unsigned i = 0; i < s.m; ++i) {
+            std::ostringstream o;
+            o << "  " << *s.cs[i];
+            printf("p %s\n", o.str().c_str());
+        }
+        for (size_t j = 0; j < cs.size(); ++j) {
+            printf("p %s\n", cs[j]->toString().c_str());
+        }
+    }
     bool cg = s.constraintGraphIsCyclic(vs.size(), vs.data());
     bool bg = s.blockGraphIsCyclic();
     printf("cyc %d %d\n", (int) cg, (int) bg);
@@ -342,7 +370,8 @@ static void runCase(uint32_t k) {
     for (size_t i = 0; i < cs.size(); ++i) delete cs[i];
 }
 
-int main() {
+int main(int argc, char **argv) {
+    g_print = (argc > 1 && strcmp(argv[1], "--print") == 0);
     const uint32_t NUM_CASES = 600;
     for (uint32_t k = 0; k < NUM_CASES; ++k) {
         runCase(k);
