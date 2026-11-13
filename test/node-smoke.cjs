@@ -6,11 +6,15 @@
 // the C++ (same numeric ids), and compared with the C++ goldens in
 // tests/golden-bump/ (routes), tests/golden/*.exit and *.stdout.  The
 // complete set of fixtures is replayed mechanically by fixtures-replay.cjs;
-// these are the readable examples.
+// these are the readable examples.  Also runs every JavaScript example in
+// README.md: CommonJS ones through index.cjs, the ES-module one through the
+// web entry index.mjs (with the .wasm bytes passed to init()).
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
+const { pathToFileURL } = require("node:url");
 
 const Avoid = require("../index.cjs");
 const helpers = require("./helpers.cjs");
@@ -177,4 +181,80 @@ test("fixture checkpoints01 (junctions, checkpoints, junction moves)", () => {
   router.delete();
 });
 
-console.log(`node smoke tests passed (${scenes} upstream fixtures, ${checks} golden routes compared)`);
+// --- README.md examples ----------------------------------------------------------
+
+const readmeExamples = [...fs.readFileSync(path.join(root, "README.md"), "utf8").matchAll(/```js\n([\s\S]*?)```/g)].map((m) => m[1]);
+
+/** Runs `fn` with console.log captured; returns the logged argument lists. */
+async function capture(fn) {
+  const logs = [];
+  const log = console.log;
+  console.log = (...args) => logs.push(args);
+  try {
+    await fn();
+  } finally {
+    console.log = log;
+  }
+  return logs;
+}
+
+const isRoute = (v) => Array.isArray(v) && v.length >= 2 && v.every((p) => Array.isArray(p) && p.length === 2 && p.every(Number.isFinite));
+
+async function readmeTests() {
+  const cjs = readmeExamples.filter((code) => !/^import /m.test(code));
+  const esm = readmeExamples.filter((code) => /^import /m.test(code));
+  assert.equal(cjs.length, 2, "README: the CommonJS usage and long-transaction examples");
+  assert.equal(esm.length, 1, "README: the ES-module example");
+
+  // The usage example: the callback reports the first route and the route after the move.
+  const usage = cjs[0];
+  assert.match(usage, /require\("libavoid-rust"\)/);
+  const run = (code) => new Function("require", code.replaceAll('require("libavoid-rust")', 'require("../index.cjs")'))(require);
+  let logs = await capture(() => run(usage));
+  assert.equal(logs.length, 2, "README usage example: two callbacks");
+  for (const [label, route] of logs) {
+    assert.match(label, /^connector \d+:$/);
+    assert.ok(isRoute(route), "README usage example prints a route");
+  }
+  assert.notDeepEqual(logs[0][1], logs[1][1], "README usage example: the move changes the route");
+  scenes++;
+  console.log("ok - README usage example (CommonJS)");
+
+  // The long-transaction example: the override is called during the transaction.
+  logs = await capture(() => run(cjs[1]));
+  assert.ok(logs.length > 0 && logs.every(([line]) => /^phase \d+ of \d+: \d+%$/.test(line)), "README: progress lines");
+  scenes++;
+  console.log("ok - README long-transaction example (CommonJS)");
+
+  // The ES-module example, through the web entry.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "libavoid-readme-"));
+  const file = path.join(dir, "example.mjs");
+  const code = esm[0]
+    .replace('from "libavoid-rust"', `from ${JSON.stringify(pathToFileURL(path.join(root, "index.mjs")).href)}`)
+    .replace("await init();", "await init(globalThis.__libavoidReadmeWasm);");
+  assert.notEqual(code, esm[0]);
+  assert.match(code, /__libavoidReadmeWasm/);
+  fs.writeFileSync(file, code);
+  globalThis.__libavoidReadmeWasm = fs.readFileSync(path.join(root, "pkg-web", "libavoid_rust_bg.wasm"));
+  try {
+    logs = await capture(() => import(pathToFileURL(file).href));
+  } finally {
+    delete globalThis.__libavoidReadmeWasm;
+    fs.unlinkSync(file);
+    fs.rmdirSync(dir);
+  }
+  assert.equal(logs.length, 1);
+  assert.ok(isRoute(logs[0][0]), "README ES-module example prints a route");
+  assert.ok(logs[0][0].length > 2, "the route goes around the shape");
+  scenes++;
+  console.log("ok - README ES-module example (web entry)");
+}
+
+readmeTests().then(
+  () => console.log(`node smoke tests passed (${scenes} upstream fixtures and README examples, ${checks} golden routes compared)`),
+  (error) => {
+    console.error("not ok - README examples");
+    console.error(error);
+    process.exitCode = 1;
+  },
+);
