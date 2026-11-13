@@ -195,4 +195,9 @@ inputs are known to be slow.
 
 ## License
 
-LGPL-2.1-or-later, the same as upstream libavoid. See `LICENSE`.
+LGPL-2.1-or-later, the same as upstream libavoid. This is a modified version
+(a translation into Rust) of libavoid, Copyright (C) 2004-2015 Monash
+University, written by Michael Wybrow and others; see `LICENSE` for the
+notices and the licence text. The npm package contains the Rust source of
+the WebAssembly modules it ships (`src/`, `Cargo.toml`, `Cargo.lock`) and
+the scripts that build them.

@@ -1,7 +1,26 @@
-libavoid-rust is a port of libavoid (part of Adaptagrams,
-Copyright (C) 2004-2015 Monash University, https://github.com/mjwybrow/adaptagrams)
-and is distributed under the same terms: the GNU Lesser General Public
-License, version 2.1 or (at your option) any later version.
+libavoid-rust is a translation into Rust of libavoid, the connector-routing
+library of Adaptagrams (https://github.com/mjwybrow/adaptagrams, the source
+at commit 840ebcf), with a JavaScript/WebAssembly interface added.  It is a
+modified version of libavoid, made in 2026 by the libavoid-rust contributors
+(https://github.com/cayduck/libavoid-rust), and is distributed under the
+same terms as libavoid: the GNU Lesser General Public License, version 2.1
+or (at your option) any later version, reproduced below.
+
+Copyright notices of libavoid, which apply to the translated code:
+
+    libavoid - Fast, Incremental, Object-avoiding Line Router
+    Copyright (C) 2004-2015  Monash University
+    Author(s):  Michael Wybrow, Tim Dwyer
+
+    The geometry module is in part based on code published with and/or
+    described in "Computational Geometry in C" (Second Edition),
+    Copyright (C) 1998  Joseph O'Rourke <orourke@cs.smith.edu>, and its
+    segmentIntersectPoint function on Franklin Antonio, "Faster Line
+    Segment Intersection", Graphics Gems III, p. 199-202.
+
+This library is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE.  See the license below for more details.
 
                   GNU LESSER GENERAL PUBLIC LICENSE
                        Version 2.1, February 1999
