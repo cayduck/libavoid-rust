@@ -3,7 +3,13 @@
 //! orthogonal nudging.
 //!
 //! This is the variant compiled when `USELIBVPSC` is *not* defined (the
-//! default libavoid build), with `LIBVPSC_LOGGING` undefined.
+//! default libavoid build), with `LIBVPSC_LOGGING` undefined: at this
+//! upstream commit `LIBVPSC_LOGGING` does not compile (`LOGFILE` is never
+//! defined, and `printBlocks()` iterates `Blocks` as a set, which it no
+//! longer is), so its logging has no reference behaviour to port.  The
+//! debug printers it uses (`operator<<` of `Variable`/`Block`/`Constraint`,
+//! `Constraint::toString()`, `IncSolver::printBlocks()`) are ported as
+//! string writers.
 //!
 //! # Ownership model
 //!
@@ -135,7 +141,27 @@ pub struct Constraint {
     pub creator: Option<usize>,
 }
 
+/// C++ `ostream << double` (default float formatting: `%g`).
+fn g6(v: f64) -> String {
+    crate::avoid::router::format_g(v, 6)
+}
+
 impl Constraint {
+    /// `Constraint: var(<left id>) [+|-] <gap> [==|<=] var(<right id>) `
+    /// (`vs`: the variables the constraint refers to).
+    // upstream: vpsc.cpp Constraint::toString()
+    pub fn to_string(&self, vs: &[Variable]) -> String {
+        let mut stream = format!("Constraint: var({}) ", vs[self.left].id);
+        if self.gap < 0.0 {
+            stream.push_str(&format!("- {} ", g6(-self.gap)));
+        } else {
+            stream.push_str(&format!("+ {} ", g6(self.gap)));
+        }
+        stream.push_str(if self.equality { "==" } else { "<=" });
+        stream.push_str(&format!(" var({}) ", vs[self.right].id));
+        stream
+    }
+
     /// upstream: vpsc.cpp `Constraint::Constraint(left, right, gap,
     /// equality=false)`
     pub fn new(left: VarIdx, right: VarIdx, gap: f64, equality: bool) -> Self {
@@ -911,6 +937,89 @@ impl<'a> IncSolver<'a> {
     /// upstream: vpsc.h Variable::dfdv()
     pub fn dfdv(&self, v: VarIdx) -> f64 {
         dfdv_of(self.vs, &self.bs.arena, v)
+    }
+
+    // ----- debug printing (upstream ostream operators) -------------------
+    //
+    // Upstream's `ostream << double` prints like `%g` (precision 6).
+
+    /// `os << v`: `(id=position)`, or `(id=desiredPosition)` for a variable
+    /// without a block.
+    // upstream: vpsc.cpp operator<<(std::ostream &, const Variable &)
+    pub fn variable_to_string(&self, v: VarIdx) -> String {
+        let var = &self.vs[v];
+        if var.block.is_some() {
+            format!("({}={})", var.id, g6(self.position(v)))
+        } else {
+            format!("({}={})", var.id, g6(var.desired_position))
+        }
+    }
+
+    /// `os << b` for the block `b`.
+    // upstream: vpsc.cpp operator<<(ostream &, const Block &)
+    fn block_to_string(&self, b: BlockIdx) -> String {
+        let block = &self.bs.arena[b];
+        let mut os = format!("Block(posn={}):", g6(block.posn));
+        for &v in block.vars.iter() {
+            os.push(' ');
+            os.push_str(&self.variable_to_string(v));
+        }
+        if block.deleted {
+            os.push_str(" Deleted!");
+        }
+        os
+    }
+
+    /// `os << c`.
+    // upstream: vpsc.cpp operator<<(std::ostream &, const Constraint &)
+    pub fn constraint_to_string(&self, c: ConIdx) -> String {
+        let con = &self.cs[c];
+        let type_ = if con.equality { "=" } else { "<=" };
+        let mut lscale = String::new();
+        let mut rscale = String::new();
+        if self.vs[con.left].scale != 1.0 {
+            lscale = format!("{}*", g6(self.vs[con.left].scale));
+        }
+        if self.vs[con.right].scale != 1.0 {
+            rscale = format!("{}*", g6(self.vs[con.right].scale));
+        }
+        let mut os = format!(
+            "{}{}+{}{}{}{}",
+            lscale,
+            self.variable_to_string(con.left),
+            g6(con.gap),
+            type_,
+            rscale,
+            self.variable_to_string(con.right)
+        );
+        if self.vs[con.left].block.is_some() && self.vs[con.right].block.is_some() {
+            os.push_str(&format!(
+                "({}){}(lm={})",
+                g6(self.slack(c)),
+                if con.active { "-active" } else { "" },
+                g6(con.lm)
+            ));
+        } else {
+            os.push_str("(vars have no position)");
+        }
+        os
+    }
+
+    /// Writes every block and every constraint, one per line (useful in
+    /// debugging).  Upstream's body exists only under `LIBVPSC_LOGGING`
+    /// (appending to its log file), and at this upstream commit that code
+    /// does not compile (`LOGFILE` is undefined and `Blocks` has no
+    /// `begin()`/`end()`); the port writes what it evidently intends --
+    /// the blocks in `Blocks` order, then the constraints -- to `f`.
+    // upstream: vpsc.cpp IncSolver::printBlocks()
+    pub fn print_blocks(&self, f: &mut dyn std::fmt::Write) -> std::fmt::Result {
+        for &b in self.bs.m_blocks.iter() {
+            writeln!(f, "  {}", self.block_to_string(b))?;
+        }
+        for i in 0..self.m {
+            writeln!(f, "  {}", self.constraint_to_string(i))?;
+        }
+        Ok(())
     }
 
     // ----- heap helpers (upstream Heap = std::priority_queue) ----------
@@ -1702,6 +1811,18 @@ mod tests {
     /// Blocks::split, mergeLeft/Right, cycle checks, totalOrder), run on a
     /// solver after solving.  Mirrors `extras()` in the C++ driver.
     fn extras(out: &mut String, s: &mut IncSolver<'_>) {
+        if PRINT.with(|p| p.get()) {
+            // `--print` lines of the C++ driver: printBlocks() and
+            // Constraint::toString().
+            let mut blocks = String::new();
+            s.print_blocks(&mut blocks).unwrap();
+            for line in blocks.lines() {
+                writeln!(out, "p {}", line).unwrap();
+            }
+            for c in s.cs.iter() {
+                writeln!(out, "p {}", c.to_string(s.vs)).unwrap();
+            }
+        }
         let n = s.vs.len();
         let cg = s.constraint_graph_is_cyclic(n);
         let bg = s.block_graph_is_cyclic();
@@ -1955,6 +2076,46 @@ mod tests {
     }
 
     pub const NUM_CASES: u32 = 600;
+
+    thread_local! {
+        /// The C++ driver's `--print` mode (see `extras`).
+        static PRINT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+
+    /// The debug printers (`operator<<` of `Block`/`Variable`/`Constraint`
+    /// through `printBlocks()`, and `Constraint::toString()`) against the C++
+    /// driver's `--print` output for the first 60 cases
+    /// (`tests/golden/vpsc_print_oracle.txt`, see tools/oracle/vpsc_oracle.cpp).
+    #[test]
+    fn vpsc_printing_matches_cpp_oracle() {
+        let golden = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/golden/vpsc_print_oracle.txt"));
+        PRINT.with(|p| p.set(true));
+        let mut out = String::new();
+        for k in 0..60 {
+            run_case(k, &mut out);
+        }
+        PRINT.with(|p| p.set(false));
+        // `Constraint::lm` is uninitialised upstream until compute_dfdv()
+        // writes it, which only happens for active constraints; for the
+        // others the C++ prints whatever the memory held (allocation
+        // dependent).  Their `(lm=...)` is masked on both sides.
+        fn mask_inactive_lm(l: &str) -> String {
+            match (l.contains("-active(lm="), l.rfind("(lm=")) {
+                (false, Some(p)) => format!("{}(lm=?)", &l[..p]),
+                _ => l.to_string(),
+            }
+        }
+        let actual: Vec<String> = out
+            .lines()
+            .filter(|l| l.starts_with("case ") || l.starts_with("p "))
+            .map(mask_inactive_lm)
+            .collect();
+        let expected: Vec<String> = golden.lines().map(mask_inactive_lm).collect();
+        for (i, (e, a)) in expected.iter().zip(actual.iter()).enumerate() {
+            assert_eq!(e, a, "first mismatch at line {}", i + 1);
+        }
+        assert_eq!(expected.len(), actual.len(), "line count differs");
+    }
 
     #[test]
     fn vpsc_matches_cpp_oracle() {

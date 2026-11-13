@@ -31,6 +31,7 @@ use crate::avoid::geometry::{
     segment_intersect, vec_dir, DO_INTERSECT,
 };
 use crate::avoid::geomtypes::{cpp_min, Point};
+use crate::avoid::debug::db_printf;
 use crate::avoid::graph::EdgeInf;
 use crate::avoid::obstacle::Obstacle;
 use crate::avoid::router::Router;
@@ -52,7 +53,10 @@ pub fn compute_visibility_naive(router: &mut Router, obstacle: ObstacleIdx) {
         let cv = curr.unwrap();
         let known_new = true;
 
-        // First Half:
+        db_printf!("-- CONSIDERING --\n");
+        router.vert_infs[cv].id.db_print();
+
+        db_printf!("\tFirst Half:\n");
         let mut j = points_begin;
         while j != curr {
             let jv = j.unwrap();
@@ -66,7 +70,7 @@ pub fn compute_visibility_naive(router: &mut Router, obstacle: ObstacleIdx) {
             j = next;
         }
 
-        // Second Half:
+        db_printf!("\tSecond Half:\n");
         let points_end = router.vertices.end();
         let mut k = shape_end;
         while k != points_end {
@@ -477,6 +481,8 @@ fn vertex_sweep(router: &mut Router, vert: VertIdx) {
 
         if center_id.is_conn_pt() && ss.contains(&inf_id.obj_id) && !inf_id.is_conn_pt() {
             // Don't include edge points of containing shapes.
+            let shape_id = inf_id.obj_id;
+            db_printf!("Center is inside shape {} so ignore shape edges.\n", shape_id);
             inf = next;
             continue;
         }
@@ -554,6 +560,10 @@ fn vertex_sweep(router: &mut Router, vert: VertIdx) {
     }
 
     // Start the actual sweep.
+    db_printf!("SWEEP: ");
+    center_id.db_print();
+    db_printf!("\n");
+
     let _is_bounding = IsBoundingShape { ss: &ss };
     let ignore_regions = router.ignore_regions;
     for t in v.items.iter() {
@@ -603,16 +613,19 @@ fn vertex_sweep(router: &mut Router, vert: VertIdx) {
 
         if !cone1 || !cone2 {
             if router.invisibility_grph {
-                // Setting invisibility edge...
+                db_printf!("\tSetting invisibility edge... \n\t\t");
                 EdgeInf::add_blocker(router, edge, 0);
+                EdgeInf::db_print(router, edge);
             }
         } else {
             if curr_visible {
-                // Setting visibility edge...
+                db_printf!("\tSetting visibility edge... \n\t\t");
                 EdgeInf::set_dist(router, edge, curr_dist);
+                EdgeInf::db_print(router, edge);
             } else if router.invisibility_grph {
-                // Setting invisibility edge...
+                db_printf!("\tSetting invisibility edge... \n\t\t");
                 EdgeInf::add_blocker(router, edge, blocker);
+                EdgeInf::db_print(router, edge);
             }
         }
 

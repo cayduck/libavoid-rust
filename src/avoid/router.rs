@@ -314,7 +314,7 @@ use crate::avoid::connector::{
     CROSSING_SHARES_PATH_AT_END, CROSSING_TOUCHES,
 };
 use crate::avoid::connend::ConnEnd;
-use crate::avoid::debug::g;
+use crate::avoid::debug::{db_printf, g};
 use crate::avoid::debughandler::DebugHandler;
 #[allow(unused_imports)]
 use crate::avoid::timer::{timer_start, timer_stop, TimerIndex};
@@ -1108,11 +1108,17 @@ impl Router {
 
         // Delete remaining connectors.
         while let Some(&conn) = self.conn_refs.first() {
+            db_printf!("Deleting connector {} in ~Router()\n", self.conns[conn].m_id);
             ConnRef::delete(self, conn);
         }
 
         // Remove remaining obstacles (shapes and junctions).
         while let Some(&obstacle) = self.m_obstacles.first() {
+            db_printf!(
+                "Deleting {} {} in ~Router()\n",
+                if self.obstacles[obstacle].is_shape() { "shape" } else { "junction" },
+                self.obstacles[obstacle].m_id
+            );
             if self.obstacles[obstacle].is_active() {
                 Obstacle::remove_from_graph(self, obstacle);
                 Obstacle::make_inactive(self, obstacle);
@@ -2295,7 +2301,9 @@ impl Router {
                     }
                 }
                 if blocked {
+                    db_printf!("\tRemoving newly blocked edge (by shape {:3})... \n\t\t", pid as i32);
                     EdgeInf::alert_conns(self, tmp);
+                    EdgeInf::db_print(self, tmp);
                     if self.invisibility_grph {
                         EdgeInf::add_blocker(self, tmp, pid);
                     } else {
@@ -2544,6 +2552,9 @@ impl Router {
                     end.y = cosv * n_end.y + sinv * n_end.x;
 
                     // This might be slightly off.
+                    if r_p2.y.abs() > 0.0001 {
+                        db_printf!("r_p2.y: {:.6} != 0\n", r_p2.y);
+                    }
                     r_p2.y = 0.0;
 
                     offy = r_p1.y;
@@ -2558,10 +2569,12 @@ impl Router {
 
                 let mut x;
                 if (b + d) == 0.0 {
+                    db_printf!("WARNING: (b + d) == 0\n");
                     d = d * -1.0;
                 }
 
                 if (b == 0.0) && (d == 0.0) {
+                    db_printf!("WARNING: b == d == 0\n");
                     if ((a < min) && (c < min)) || ((a > max) && (c > max)) {
                         // It's going to get adjusted.
                         x = a;

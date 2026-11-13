@@ -25,6 +25,8 @@ hyperedge-debug = []
 # MAJOR_HYPEREDGE_IMPROVEMENT_DEBUG: hyperedge improvement reports its
 # topology changes on stderr.
 major-hyperedge-improvement-debug = []
+# ESTIMATED_COST_DEBUG: the A* search prints its cost targets to stderr.
+estimated-cost-debug = []
 # SVG_OUTPUT: Router::output_diagram() also writes outputInstanceToSVG().
 svg-output = []
 # AVOID_PROFILE: Router::timers and the TIMER_* instrumentation.

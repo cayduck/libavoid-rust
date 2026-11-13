@@ -47,7 +47,7 @@ use std::fmt;
 
 use crate::avoid::arena::{ConnIdx, ObstacleIdx, RerouteFlagIdx, VertIdx};
 use crate::avoid::connend::{ConnDirFlags, ConnEnd, ConnEndRef, CONN_DIR_ALL, CONN_DIR_NONE};
-use crate::avoid::debug::pg;
+use crate::avoid::debug::{db_printf, pg};
 use crate::avoid::geometry::{
     corner_side, euclidean_dist, manhattan_dist, point_on_line, segment_intersect_point, vec_dir, DO_INTERSECT,
 };
@@ -716,8 +716,9 @@ impl ConnRef {
 
     // upstream: connector.cpp ConnRef::set_route()
     pub fn set_route(&mut self, route: &PolyLine) {
-        // (upstream rejects `route` aliasing m_display_route; impossible
-        // here.)
+        // (upstream rejects `route` aliasing m_display_route, with
+        // db_printf("Error:\tTrying to update libavoid route with
+        // itself.\n"); the borrow rules make that impossible here.)
         self.m_display_route.ps = route.ps.clone();
     }
 
@@ -1139,6 +1140,7 @@ impl ConnRef {
                 last_successful_index = i;
             } else if i + 1 == checkpoints.len() {
                 // There is no valid path.
+                db_printf!("Warning: Path not found...\n");
                 router.conns[c].m_needs_reroute_flag = true;
 
                 path.push(router.vert_infs[dst].point);
@@ -1257,6 +1259,7 @@ impl ConnRef {
 
         if pathlen < 2 {
             // There is no valid path.
+            db_printf!("Warning: Path not found...\n");
             router.conns[c].m_needs_reroute_flag = true;
             pathlen = 2;
             router.vert_infs[tar].path_next = Some(src_vert);
@@ -1895,6 +1898,8 @@ fn mid_vertex_number(p0: &Point, p1: &Point, c: &Point) -> u16 {
     }
 
     // Shouldn't both be new (kUnassignedVertexNumber) points.
+    db_printf!("midVertexNumber(): p0.vn and p1.vn both = kUnassignedVertexNumber\n");
+    db_printf!("p0.vn {} p1.vn {}\n", p0.vn, p1.vn);
     K_UNASSIGNED_VERTEX_NUMBER
 }
 

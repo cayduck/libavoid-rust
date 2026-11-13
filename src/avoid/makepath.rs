@@ -515,6 +515,27 @@ const COST_DIRECTION_W: u32 = 8;
 
 /// Returns the number of directions for the argument.
 // upstream: makepath.cpp orthogonalDirectionsCount() (static)
+/// Writes the direction flags as `N E S W ` (upstream: only with
+/// `ESTIMATED_COST_DEBUG`, here the `estimated-cost-debug` feature, which
+/// prints the A* cost targets to stderr).
+// upstream: makepath.cpp printDirections() (static)
+#[cfg_attr(not(feature = "estimated-cost-debug"), allow(dead_code))]
+fn print_directions(fp: &mut dyn std::fmt::Write, directions: u32) -> std::fmt::Result {
+    if (directions & COST_DIRECTION_N) != 0 {
+        fp.write_str("N ")?;
+    }
+    if (directions & COST_DIRECTION_E) != 0 {
+        fp.write_str("E ")?;
+    }
+    if (directions & COST_DIRECTION_S) != 0 {
+        fp.write_str("S ")?;
+    }
+    if (directions & COST_DIRECTION_W) != 0 {
+        fp.write_str("W ")?;
+    }
+    Ok(())
+}
+
 fn orthogonal_directions_count(directions: u32) -> u32 {
     let mut count = 0;
     if directions & COST_DIRECTION_N != 0 {
@@ -842,6 +863,7 @@ impl AStarPathPrivate {
         other: VertIdx,
         level: i32,
     ) {
+        #[cfg(not(feature = "estimated-cost-debug"))]
         let _ = (dist, start, level);
 
         let other_point = router.vert_infs[other].point;
@@ -860,6 +882,20 @@ impl AStarPathPrivate {
         self.m_cost_targets.push(other);
         self.m_cost_targets_directions.push(this_dirs);
         self.m_cost_targets_displacements.push(displacement);
+
+        #[cfg(feature = "estimated-cost-debug")]
+        {
+            use crate::avoid::debug::g;
+            let mut fp = String::new();
+            fp.push_str(&format!(" - {} {} ", g(other_point.x), g(other_point.y)));
+            if manhattan_dist(&router.vert_infs[start].point, &other_point) > dist {
+                fp.push_str("far ");
+            }
+            fp.push_str(if level == 1 { "--" } else { "- " });
+            let _ = print_directions(&mut fp, this_dirs);
+            fp.push('\n');
+            eprint!("{}", fp);
+        }
     }
 
     // upstream: makepath.cpp AStarPathPrivate::estimatedCost()
@@ -920,6 +956,12 @@ impl AStarPathPrivate {
         // all the space in between before we pay the extra cost to explore this
         // area.  This is especially true given many orthogonal routes have
         // equivalent costs.
+        #[cfg(feature = "estimated-cost-debug")]
+        eprint!(
+            "== aStar  {} {} ==\n",
+            crate::avoid::debug::g(router.vert_infs[tar].point.x),
+            crate::avoid::debug::g(router.vert_infs[tar].point.y)
+        );
         let tar_id = router.vert_infs[tar].id;
         if is_orthogonal && tar_id.is_conn_pt() && !tar_id.is_conn_checkpoint() {
             // The target is a connector endpoint and the connector is orthogonal.
@@ -962,6 +1004,19 @@ impl AStarPathPrivate {
             self.m_cost_targets_directions
                 .push(COST_DIRECTION_N | COST_DIRECTION_E | COST_DIRECTION_S | COST_DIRECTION_W);
             self.m_cost_targets_displacements.push(0.0);
+        }
+
+        #[cfg(feature = "estimated-cost-debug")]
+        {
+            use crate::avoid::debug::g;
+            let mut fp = String::from("------------\n");
+            for i in 0..self.m_cost_targets.len() {
+                let p = router.vert_infs[self.m_cost_targets[i]].point;
+                fp.push_str(&format!("== {} {} - ", g(p.x), g(p.y)));
+                let _ = print_directions(&mut fp, self.m_cost_targets_directions[i]);
+                fp.push('\n');
+            }
+            eprint!("{}", fp);
         }
 
         let dist: fn(&Point, &Point) -> f64 = if is_orthogonal { manhattan_dist } else { euclidean_dist };
