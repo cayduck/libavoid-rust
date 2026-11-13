@@ -111,6 +111,35 @@ behaviour). Of the 7 that took a guard, the three that kept growing
 because of what the guard left behind are fixed (see "Upstream
 non-termination" in `src/avoid/router.rs`).
 
+Three more of them take a hyperedge-rerouter guard: s23-1062 (no junction),
+s25-1253 (no junction, then a cyclic MTST tree) and s25-1506 (cyclic MTST
+tree). A provenance trace (`E2E_PROV`, see `tests/e2e_fuzz.rs`) and variants
+of the scenes without the skipped registration settled each case:
+
+- **s23-1062.** Without the registration, the counts are the same as the
+  original at every command. The C++ is clean on the first 145 commands of
+  that variant (NDEBUG and ASan), and the port matches it byte for byte, so
+  the growth is upstream's.
+- **s25-1253, no-junction skip.** Without that registration the counts are
+  the same as the original at every command.
+- **s25-1253 and s25-1506, cyclic skip.** That skip used to leave state
+  behind. In s25-1506 the hyperedge already gained 4 to 5 junctions and
+  connectors per transaction before the skip (`txn 0`: every command is a
+  transaction). Replacing the registration with a no-op transaction gave
+  the same growth, in the same hyperedge, at the same rate. The C++ is
+  clean on the first 77 commands of that variant, and the port matches it
+  byte for byte. The skip, however, kept the junctions the MTST had created
+  (8 and 13, attached to nothing and reported in no list). It also kept the
+  `pathNext` links the MTST had written, which put s25-1253 on a different,
+  faster-growing path (it ran more than 60 s; it now takes about 15 s).
+  The skip now frees those junctions, restores `pathNext`, and reports
+  nothing as deleted (`reg-hyperedge-cyclic-skip-clean`). After that:
+  - s25-1506 has the same counts as the no-op variant after every command
+    except the skipped transaction itself.
+  - s25-1253 grows at about the rate of the variant without the
+    registration (the C++ is clean on the first 175 commands of that
+    variant, and the port matches).
+
 The oracle scripts need `g++` and the vendored upstream source, which is not
 checked in (`vendor/adaptagrams` is a checkout of the Adaptagrams repository
 at the commit above).
@@ -131,7 +160,10 @@ differences are confined to the following.
   - A `pathNext` link to a deleted vertex reads as null.
   - Using a handle after deleting its object is a no-op.
   - A registered hyperedge with fewer than three distinct terminals, or one
-    containing a cycle, is skipped.
+    containing a cycle, is skipped. The router is then left as if that
+    hyperedge had not been registered, except that its connectors are not
+    rerouted in that transaction (as on upstream's own invalid-hyperedge
+    path).
   - With transactions off, a `processTransaction()` nested inside another is
     a no-op.
 - **Infinite loops upstream.** Two loops in hyperedge improvement never
