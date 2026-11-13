@@ -95,7 +95,13 @@ the fuzzer now detects and excludes: erasing the `std::set` element being
 iterated, a double free (detected by the bump allocator), and a connector
 used by the test driver after a transaction had freed it. All 20,000 scenes,
 including the excluded ones, run on the final port without a panic or an
-abort.
+abort. Of the 336 that take the port more than 20 seconds, 328 never take
+one of the port's hyperedge guard branches: there the port runs upstream's
+own algorithm, mostly hyperedge improvement that adds junctions on every
+transaction (in a random sample of 15, the C++ finished 2, both identical,
+ran out of memory on 11, timed out after 5 minutes on 1, and 1 is now
+excluded as undefined behaviour). Six take a guard first and then grow in
+the same way; one more takes it only after it is already slow.
 
 The oracle scripts need `g++` and the vendored upstream source, which is not
 checked in (`vendor/adaptagrams` is a checkout of the Adaptagrams repository
