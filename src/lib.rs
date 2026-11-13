@@ -1,14 +1,14 @@
 //! Rust/WASM port of the libavoid connector-routing library.
 //!
 //! * [`avoid`]: the faithful port of upstream C++ libavoid.
-//! * [`AvoidRouter`]: the wasm-bindgen string-id adapter used by the
-//!   JavaScript package (`index.cjs`).
+//! * [`RawRouter`] and the free functions of `wasm_api`: the low-level
+//!   wasm-bindgen layer under the JavaScript API (`lib/adapter.cjs`
+//!   implements upstream's classes on top of it).
 
 pub mod avoid;
 mod constants;
-mod json;
 mod wasm_api;
 mod wasm_failure;
 
 pub use constants::*;
-pub use wasm_api::{curved_polyline, AvoidRouter};
+pub use wasm_api::RawRouter;

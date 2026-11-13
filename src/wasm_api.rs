@@ -1,219 +1,218 @@
-//! The wasm-bindgen `AvoidRouter`: a thin string-id adapter over
-//! [`crate::avoid::router::Router`] (the faithful port of upstream
-//! libavoid).
+//! The low-level wasm-bindgen layer under the JavaScript API.
 //!
-//! Every method delegates to the upstream-ported function named in its doc
-//! comment; the adapter itself only
+//! `lib/adapter.cjs` implements upstream libavoid's public classes
+//! (`Avoid.Router`, `Avoid.ShapeRef`, `Avoid.ConnRef`, ...) on top of the
+//! functions here; nothing in this file is public JavaScript API.  Every
+//! function delegates to the faithful port in [`crate::avoid`]; this layer
+//! only
 //!
-//! * maps JS string ids to core handles (and back),
-//! * validates JS input so that nothing reaches a core precondition
-//!   (`COLA_ASSERT` = `debug_assert!`, or an `expect`) that would abort the
-//!   wasm instance (`panic = "abort"`),
-//! * converts results to JSON strings (parsed by `index.cjs`), and
-//! * keeps its id maps in sync with objects the core creates/deletes
-//!   itself during a transaction (hyperedge rerouting / improvement).
+//! * names router-owned objects by numeric **keys** (see below),
+//! * converts values to and from flat numeric arrays (no JSON),
+//! * checks upstream's documented preconditions (`COLA_ASSERT`s on
+//!   public-API arguments) and the liveness of every object it is handed,
+//!   returning a JS `Error` instead of reaching a core path that would
+//!   panic (and trap the instance, which is built with `panic = "abort"`),
+//! * records connector callbacks (upstream `ConnRef::setCallback`) in the
+//!   order the core performs them, for the adapter to invoke after the call
+//!   returns, and forwards the virtual
+//!   `Router::shouldContinueTransactionWithProgress()` to JavaScript.
 //!
-//! # Ids
-//! Every shape, junction, connector and cluster has a caller-chosen string
-//! id (unique across all four kinds) and an upstream numeric id
-//! (`unsigned int`).  The numeric id is the optional `numericId` argument of
-//! the creating method; when it is omitted (or 0) the core assigns
-//! `Router::newObjectId()` (largest id assigned so far + 1), i.e. ids are
-//! sequential in creation order exactly as upstream.  An explicit numeric
-//! id is accepted iff upstream `Router::objectIdIsUnused(id)` holds (the
-//! condition upstream asserts).  Objects created by the router itself (new
-//! junctions/connectors of hyperedge rerouting/improvement) get the decimal
-//! string of their numeric id as string id (suffixed with `#2`, `#3`, ...
-//! if that string is taken).
+//! # Keys
+//! A key names one shape, junction, connector, cluster or connection pin
+//! of one `RawRouter` for the router's lifetime: `key = (n << 3) | kind`
+//! with `n` a per-router counter (keys are never reused) and `kind` one of
+//! the `KIND_*` constants.  Key 0 is the null pointer.  Objects the core
+//! creates itself (hyperedge rerouting / improvement, `splitAtSegment`) get
+//! a key the first time they are reported.  Arena handles are
+//! generation-checked, so a key of a freed object stays dead; every
+//! function taking a key fails with "object has been deleted" for it.
 //!
-//! Connection pins are named per owner (shape or junction): the pin id is
-//! a string unique among that owner's pins.  Junctions' built-in centre pin
-//! is not named.
-//!
-//! # Error convention
-//! Nothing a JS caller passes is meant to panic: mutators return `false`
-//! and queries return `null` (raw layer: `"null"` JSON / `undefined`) for
-//! unknown ids, duplicate ids, non-finite numbers, out-of-range enum
-//! values and violated upstream preconditions.  The constructor throws.
-//! (`lib/adapter.cjs` additionally throws `TypeError` for structurally
-//! malformed arguments such as a non-array where an array is expected.)
-//! A panic that happens anyway traps the instance; `crate::wasm_failure`
-//! records its message for the adapter, which reports it as an
-//! `AvoidInternalError` and poisons the instance.  The id maps are not
-//! kept consistent across a trap (nothing is used after one), but every
-//! refused call leaves them unchanged (`check_consistency`).
+//! # Value encodings (all `Float64Array` / `Uint32Array` on the JS side)
+//! * Point: `x, y, id, vn`.
+//! * Polygon: `_id, n, (x, y, id, vn) * n, nts, ts[0..nts] (char codes),
+//!   ncp, (index, x, y, id, vn) * ncp` (`ps`, `ts`, `checkpointsOnRoute`).
+//! * Box: `min (4), max (4)`.
+//! * ConnEnd: `type, x, y, id, vn, directions, pinClassId, anchorKey,
+//!   activePinKey, connRefKey` (all private members of upstream's value
+//!   type, so that a copy returned by `endpointConnEnds()` behaves as
+//!   upstream's copy does).
+//! * Checkpoint: `x, y, id, vn, arrivalDirections, departureDirections`.
 
-use std::cell::{Cell, RefCell};
-use std::collections::{HashMap, HashSet};
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use wasm_bindgen::prelude::*;
 
-use crate::avoid::actioninfo::{ActionObj, ActionType};
 use crate::avoid::arena::{ClusterIdx, ConnIdx, ObstacleIdx, PinIdx};
 use crate::avoid::connectionpin::{ShapeConnectionPin, CONNECTIONPIN_UNSET};
 use crate::avoid::connector::{Checkpoint, ConnRef, ConnType};
 use crate::avoid::connend::{ConnEnd, ConnEndType, CONN_DIR_ALL};
-use crate::avoid::geomtypes::{Point, Polygon, PolygonInterface, Rectangle};
+use crate::avoid::geometry;
+use crate::avoid::geomtypes::{Box as GeomBox, Point, Polygon, PolygonInterface, Rectangle, ReferencingPolygon};
 use crate::avoid::hyperedge::HyperedgeNewAndDeletedObjectLists;
 use crate::avoid::junction::JunctionRef;
+use crate::avoid::obstacle::Obstacle;
 use crate::avoid::router::{
-    Router, RoutingOption, RoutingParameter, CHOOSE_SENSIBLE_PARAM_VALUE, ORTHOGONAL_ROUTING,
-    POLY_LINE_ROUTING, TRANSACTION_PHASE_COMPLETED,
+    Router, RoutingOption, RoutingParameter, LAST_ROUTING_OPTION_MARKER, LAST_ROUTING_PARAMETER_MARKER,
+    ORTHOGONAL_ROUTING, POLY_LINE_ROUTING,
 };
 use crate::avoid::shape::{ShapeRef, ShapeTransformationType};
 use crate::avoid::viscluster::ClusterRef;
-use crate::json;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub const KIND_SHAPE: u32 = 1;
+pub const KIND_JUNCTION: u32 = 2;
+pub const KIND_CONN: u32 = 3;
+pub const KIND_CLUSTER: u32 = 4;
+pub const KIND_PIN: u32 = 5;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum Obj {
     Shape(ObstacleIdx),
     Junction(ObstacleIdx),
     Conn(ConnIdx),
     Cluster(ClusterIdx),
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Kind {
-    Shape,
-    Junction,
-    Conn,
-    Cluster,
+    Pin(PinIdx),
 }
 
 impl Obj {
-    fn kind(self) -> Kind {
+    fn kind(self) -> u32 {
         match self {
-            Obj::Shape(_) => Kind::Shape,
-            Obj::Junction(_) => Kind::Junction,
-            Obj::Conn(_) => Kind::Conn,
-            Obj::Cluster(_) => Kind::Cluster,
+            Obj::Shape(_) => KIND_SHAPE,
+            Obj::Junction(_) => KIND_JUNCTION,
+            Obj::Conn(_) => KIND_CONN,
+            Obj::Cluster(_) => KIND_CLUSTER,
+            Obj::Pin(_) => KIND_PIN,
         }
     }
 }
 
-#[derive(Clone, Debug)]
-struct Entry {
-    obj: Obj,
-    serial: u64,
-}
-
-#[derive(Clone, Debug)]
-struct PinEntry {
-    name: String,
-    pin: PinIdx,
-}
-
-/// String-id form of upstream `HyperedgeNewAndDeletedObjectLists`.
-#[derive(Clone, Debug, Default)]
-struct NdLists {
-    new_junctions: Vec<String>,
-    deleted_junctions: Vec<String>,
-    new_connectors: Vec<String>,
-    deleted_connectors: Vec<String>,
-    changed_connectors: Vec<String>,
-}
-
-impl NdLists {
-    fn to_json(&self) -> String {
-        json::object(&[
-            ("newJunctionIds", json::strings(&self.new_junctions)),
-            ("deletedJunctionIds", json::strings(&self.deleted_junctions)),
-            ("newConnectorIds", json::strings(&self.new_connectors)),
-            ("deletedConnectorIds", json::strings(&self.deleted_connectors)),
-            ("changedConnectorIds", json::strings(&self.changed_connectors)),
-        ])
-    }
-}
-
-type CallbackLog = Rc<RefCell<Vec<(ConnIdx, u64)>>>;
-
 #[wasm_bindgen]
 extern "C" {
-    /// A JS function `(elapsedMs, phase, totalPhases, proportion) => boolean`
-    /// called for upstream `shouldContinueTransactionWithProgress()`.
-    #[wasm_bindgen(typescript_type = "(elapsedMs: number, phase: number, totalPhases: number, proportion: number) => boolean")]
+    /// `(elapsedTime, phaseNumber, totalPhases, proportion) => boolean`,
+    /// the JS side of the virtual `shouldContinueTransactionWithProgress()`.
+    #[wasm_bindgen(typescript_type = "(elapsedTime: number, phaseNumber: number, totalPhases: number, proportion: number) => boolean")]
     pub type ProgressFn;
 
     #[wasm_bindgen(method, catch, js_name = call)]
     fn call4(this: &ProgressFn, this_arg: &JsValue, elapsed: u32, phase: u32, total: u32, proportion: f64) -> Result<JsValue, JsValue>;
 }
 
-type ProgressSlot = Rc<RefCell<Option<ProgressFn>>>;
+type Res<T> = Result<T, JsError>;
 
-/// Libavoid router with string object ids (see the module docs).
-#[wasm_bindgen]
-pub struct AvoidRouter {
-    router: Router,
-    flags: u32,
-    objects: HashMap<String, Entry>,
-    by_obstacle: HashMap<ObstacleIdx, (u64, String)>,
-    by_conn: HashMap<ConnIdx, (u64, String)>,
-    by_cluster: HashMap<ClusterIdx, (u64, String)>,
-    pins: HashMap<String, Vec<PinEntry>>,
-    transactions: Rc<Cell<u64>>,
-    progress: ProgressSlot,
-    callback_log: CallbackLog,
-    last_updated: Vec<String>,
-    hyperedge_results: Option<Vec<NdLists>>,
-    improvement_results: NdLists,
+fn err<T>(msg: &str) -> Res<T> {
+    Err(JsError::new(msg))
 }
 
+const DELETED: &str = "object has been deleted";
+
 // ---------------------------------------------------------------------------
-// Input validation helpers
+// Value encodings
 // ---------------------------------------------------------------------------
 
-fn as_u32(v: f64) -> Option<u32> {
+fn u32_of(v: f64, what: &str) -> Res<u32> {
     if v.is_finite() && v.fract() == 0.0 && (0.0..=u32::MAX as f64).contains(&v) {
-        Some(v as u32)
+        Ok(v as u32)
     } else {
-        None
+        err(&format!("{} must be an unsigned 32-bit integer", what))
     }
 }
 
-fn as_enum(v: f64, count: usize) -> Option<usize> {
-    as_u32(v).map(|i| i as usize).filter(|&i| i < count)
-}
-
-fn as_dirs(v: f64) -> Option<u32> {
-    as_u32(v).filter(|&d| d <= CONN_DIR_ALL)
-}
-
-/// Pin class ids: 1..=u32::MAX (upstream asserts `classId > 0`).
-fn as_class(v: f64) -> Option<u32> {
-    as_u32(v).filter(|&c| c > 0)
-}
-
-fn finite(vs: &[f64]) -> bool {
-    vs.iter().all(|v| v.is_finite())
-}
-
-fn point_list(coords: &[f64]) -> Option<Vec<Point>> {
-    if coords.len() % 2 != 0 || !finite(coords) {
-        return None;
+fn point_at(v: &[f64], i: usize) -> Res<Point> {
+    let id = u32_of(v[i + 2], "Point.id")?;
+    let vn = v[i + 3];
+    if !(vn.is_finite() && vn.fract() == 0.0 && (0.0..=u16::MAX as f64).contains(&vn)) {
+        return err("Point.vn must be an unsigned 16-bit integer");
     }
-    Some(coords.chunks(2).map(|c| Point::new(c[0], c[1])).collect())
+    Ok(Point { x: v[i], y: v[i + 1], id, vn: vn as u16 })
 }
 
-fn polygon_from(coords: &[f64], min_points: usize) -> Option<Polygon> {
-    let ps = point_list(coords)?;
-    if ps.len() < min_points {
-        return None;
+fn push_point(out: &mut Vec<f64>, p: &Point) {
+    out.extend_from_slice(&[p.x, p.y, p.id as f64, p.vn as f64]);
+}
+
+fn enc_point(p: &Point) -> Vec<f64> {
+    let mut out = Vec::with_capacity(4);
+    push_point(&mut out, p);
+    out
+}
+
+fn enc_poly(poly: &Polygon) -> Vec<f64> {
+    let mut out = Vec::with_capacity(4 + 4 * poly.ps.len() + poly.ts.len() + 5 * poly.checkpoints_on_route.len());
+    out.push(poly._id as f64);
+    out.push(poly.ps.len() as f64);
+    for p in &poly.ps {
+        push_point(&mut out, p);
     }
+    out.push(poly.ts.len() as f64);
+    out.extend(poly.ts.iter().map(|&c| c as u32 as f64));
+    out.push(poly.checkpoints_on_route.len() as f64);
+    for (i, p) in &poly.checkpoints_on_route {
+        out.push(*i as f64);
+        push_point(&mut out, p);
+    }
+    out
+}
+
+fn dec_poly(v: &[f64]) -> Res<Polygon> {
+    let bad = || JsError::new("malformed Polygon encoding");
     let mut poly = Polygon::new();
-    poly.ps = ps;
-    Some(poly)
-}
-
-fn rect(left: f64, top: f64, right: f64, bottom: f64) -> Option<Polygon> {
-    if !finite(&[left, top, right, bottom]) {
-        return None;
+    let id = *v.first().ok_or_else(bad)?;
+    if !(id.is_finite() && id.fract() == 0.0 && (i32::MIN as f64..=i32::MAX as f64).contains(&id)) {
+        return err("Polygon._id must be a 32-bit integer");
     }
-    Some(Rectangle::new(&Point::new(left, top), &Point::new(right, bottom)))
+    poly._id = id as i32;
+    let n = *v.get(1).ok_or_else(bad)? as usize;
+    let mut i = 2;
+    if v.len() < i + 4 * n + 1 {
+        return Err(bad());
+    }
+    for _ in 0..n {
+        poly.ps.push(point_at(v, i)?);
+        i += 4;
+    }
+    let nts = v[i] as usize;
+    i += 1;
+    if v.len() < i + nts + 1 {
+        return Err(bad());
+    }
+    for _ in 0..nts {
+        poly.ts.push(char::from_u32(v[i] as u32).ok_or_else(bad)?);
+        i += 1;
+    }
+    let ncp = v[i] as usize;
+    i += 1;
+    if v.len() != i + 5 * ncp {
+        return Err(bad());
+    }
+    for _ in 0..ncp {
+        let idx = v[i];
+        if !(idx.is_finite() && idx.fract() == 0.0 && idx >= 0.0) {
+            return err("checkpointsOnRoute index must be a non-negative integer");
+        }
+        poly.checkpoints_on_route.push((idx as usize, point_at(v, i + 1)?));
+        i += 5;
+    }
+    Ok(poly)
 }
 
-fn opt_json(v: Option<String>) -> String {
-    v.unwrap_or_else(|| "null".to_string())
+fn enc_box(b: &GeomBox) -> Vec<f64> {
+    let mut out = Vec::with_capacity(8);
+    push_point(&mut out, &b.min);
+    push_point(&mut out, &b.max);
+    out
+}
+
+fn dirs_of(v: f64) -> Res<u32> {
+    let d = u32_of(v, "ConnDirFlags")?;
+    if d > CONN_DIR_ALL {
+        return err("ConnDirFlags must be a combination of ConnDirUp/Down/Left/Right (0..15)");
+    }
+    Ok(d)
+}
+
+fn pt(x: f64, y: f64) -> Point {
+    Point::new(x, y)
 }
 
 const TRANSFORMS: [ShapeTransformationType; 5] = [
@@ -226,850 +225,335 @@ const TRANSFORMS: [ShapeTransformationType; 5] = [
 
 const CONN_TYPES: [ConnType; 3] = [ConnType::ConnTypeNone, ConnType::ConnTypePolyLine, ConnType::ConnTypeOrthogonal];
 
-/// Raw ConnEnd encoding used by the wasm layer (see `index.cjs`
-/// `connEndArgs`): kind 0 = point (x, y, num = directions), 1 = shape pin
-/// class (objectId = shape, num = class id), 2 = junction (objectId),
-/// 3 = shape pin by name (objectId = shape, pinId).
-#[derive(Clone, Copy)]
-struct RawEnd<'a> {
-    kind: f64,
-    object_id: &'a str,
-    pin_id: &'a str,
-    x: f64,
-    y: f64,
-    num: f64,
+fn conn_type_of(t: u32) -> Res<ConnType> {
+    CONN_TYPES.get(t as usize).copied().ok_or_else(|| JsError::new("ConnType must be ConnType_None, ConnType_PolyLine or ConnType_Orthogonal"))
+}
+
+fn param_of(p: u32) -> Res<RoutingParameter> {
+    if (p as usize) < LAST_ROUTING_PARAMETER_MARKER {
+        Ok(RoutingParameter::ALL[p as usize])
+    } else {
+        err("RoutingParameter out of range (COLA_ASSERT(parameter < lastRoutingParameterMarker))")
+    }
+}
+
+fn option_of(o: u32) -> Res<RoutingOption> {
+    if (o as usize) < LAST_ROUTING_OPTION_MARKER {
+        Ok(RoutingOption::ALL[o as usize])
+    } else {
+        err("RoutingOption out of range (COLA_ASSERT(option < lastRoutingOptionMarker))")
+    }
 }
 
 // ---------------------------------------------------------------------------
-// Native (non-JS) API
+// RawRouter
 // ---------------------------------------------------------------------------
 
-impl AvoidRouter {
-    /// Creates a router (upstream `Router(flags)`); `None` unless `flags`
-    /// is a non-empty combination of `POLY_LINE_ROUTING` and
-    /// `ORTHOGONAL_ROUTING`.
-    pub fn create(flags: u32) -> Option<AvoidRouter> {
-        if flags == 0 || flags & !(POLY_LINE_ROUTING | ORTHOGONAL_ROUTING) != 0 {
-            return None;
-        }
-        let transactions = Rc::new(Cell::new(0u64));
-        let progress: ProgressSlot = Rc::new(RefCell::new(None));
-        let mut router = Router::new(flags);
-        AvoidRouter::install_progress_hook(&mut router, &transactions, &progress);
-        Some(AvoidRouter {
-            router,
-            flags,
-            objects: HashMap::new(),
-            by_obstacle: HashMap::new(),
-            by_conn: HashMap::new(),
-            by_cluster: HashMap::new(),
-            pins: HashMap::new(),
-            transactions,
-            progress,
-            callback_log: Rc::new(RefCell::new(Vec::new())),
-            last_updated: Vec::new(),
-            hyperedge_results: None,
-            improvement_results: NdLists::default(),
-        })
-    }
+type ProgressSlot = Rc<RefCell<Option<ProgressFn>>>;
 
-    /// Number of transactions processed so far (Rust-only diagnostic used
-    /// by the wrapper tests).
-    pub fn transaction_count(&self) -> u64 {
-        self.transactions.get()
-    }
+/// One upstream `Router` and the key table of its objects.
+#[wasm_bindgen]
+pub struct RawRouter {
+    router: Router,
+    keys: Vec<Obj>,
+    key_of: HashMap<Obj, u32>,
+    callbacks: Rc<RefCell<Vec<ConnIdx>>>,
+    progress: ProgressSlot,
+}
 
-    /// Checks that the wrapper's id maps agree with each other and with the
-    /// core (Rust-only diagnostic used by the wrapper tests): every named
-    /// object is alive in the core with the recorded serial, the reverse
-    /// maps mirror `objects`, every named pin belongs to its owner, and the
-    /// last transaction's updated connectors are named connectors.  Every
-    /// live core object is named unless its removal is queued or (with
-    /// transaction use on) a transaction is pending.
-    pub fn check_consistency(&self) -> Result<(), String> {
-        for (name, e) in &self.objects {
-            let back = match e.obj {
-                Obj::Shape(o) | Obj::Junction(o) => {
-                    let ob = self.router.obstacles.get(o).ok_or(format!("{name}: dead obstacle"))?;
-                    if ob.serial != e.serial || ob.is_junction() != matches!(e.obj, Obj::Junction(_)) {
-                        return Err(format!("{name}: obstacle slot reused"));
-                    }
-                    self.by_obstacle.get(&o)
-                }
-                Obj::Conn(c) => {
-                    if self.router.conns.get(c).map(|x| x.serial) != Some(e.serial) {
-                        return Err(format!("{name}: dead connector"));
-                    }
-                    self.by_conn.get(&c)
-                }
-                Obj::Cluster(c) => {
-                    if self.router.clusters.get(c).map(|x| x.serial) != Some(e.serial) {
-                        return Err(format!("{name}: dead cluster"));
-                    }
-                    self.by_cluster.get(&c)
-                }
-            };
-            if back != Some(&(e.serial, name.clone())) {
-                return Err(format!("{name}: reverse map disagrees"));
-            }
-        }
-        if self.by_obstacle.len() + self.by_conn.len() + self.by_cluster.len() != self.objects.len() {
-            return Err("reverse maps hold unnamed entries".into());
-        }
-        for (owner, pins) in &self.pins {
-            let o = match self.lookup(owner) {
-                Some(Obj::Shape(o)) | Some(Obj::Junction(o)) => o,
-                _ => return Err(format!("pins of unknown owner {owner}")),
-            };
-            for p in pins {
-                let pin = self.router.pins.get(p.pin).ok_or(format!("{owner}/{}: dead pin", p.name))?;
-                if pin.m_shape != Some(o) && pin.m_junction != Some(o) {
-                    return Err(format!("{owner}/{}: pin of another object", p.name));
-                }
-            }
-        }
-        for name in &self.last_updated {
-            if self.conn(name).is_none() {
-                return Err(format!("updated connector {name} is not a connector"));
-            }
-        }
-        let settled = !self.router.transaction_use() || self.router.action_list.is_empty();
-        if settled {
-            for (o, ob) in self.router.obstacles.iter_unordered() {
-                if self.obstacle_name(o).is_none() && !self.has_pending_remove(o) {
-                    return Err(format!("obstacle {} has no name", ob.m_id));
-                }
-            }
-            for (c, conn) in self.router.conns.iter_unordered() {
-                if self.conn_name(c).is_none() {
-                    return Err(format!("connector {} has no name", conn.m_id));
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// Read access to the wrapped core router (for tests and Rust users).
+impl RawRouter {
+    /// Read access to the wrapped core router (for Rust users and tests).
     pub fn core(&self) -> &Router {
         &self.router
     }
 
-    /// Implements the upstream `shouldContinueTransactionWithProgress()`
-    /// hook: counts completed transactions and asks the JS progress
-    /// callback, if one is set (`setProgressCallback`), whether to continue.
-    /// A callback that throws (including wasm-bindgen's error for a call
-    /// back into this router) counts as `false`.
-    fn install_progress_hook(router: &mut Router, counter: &Rc<Cell<u64>>, progress: &ProgressSlot) {
-        let counter = counter.clone();
-        let progress = progress.clone();
-        router.m_progress_callback = Some(Box::new(move |elapsed, phase, total, proportion| {
-            if phase == TRANSACTION_PHASE_COMPLETED {
-                counter.set(counter.get() + 1);
+    fn key(&mut self, o: Obj) -> u32 {
+        if let Some(&k) = self.key_of.get(&o) {
+            return k;
+        }
+        let k = ((self.keys.len() as u32) << 3) | o.kind();
+        self.keys.push(o);
+        self.key_of.insert(o, k);
+        k
+    }
+
+    fn key_obstacle(&mut self, o: ObstacleIdx) -> u32 {
+        if let Some(&k) = self.key_of.get(&Obj::Shape(o)).or_else(|| self.key_of.get(&Obj::Junction(o))) {
+            return k;
+        }
+        let junction = self.router.obstacles.get(o).map(|ob| ob.is_junction()).unwrap_or(false);
+        self.key(if junction { Obj::Junction(o) } else { Obj::Shape(o) })
+    }
+
+    fn opt_key_obstacle(&mut self, o: Option<ObstacleIdx>) -> u32 {
+        o.map(|o| self.key_obstacle(o)).unwrap_or(0)
+    }
+
+    fn obj(&self, key: u32) -> Res<Obj> {
+        match self.keys.get((key >> 3) as usize) {
+            Some(&o) if o.kind() == key & 7 => Ok(o),
+            _ => err("unknown object"),
+        }
+    }
+
+    fn alive_obj(&self, o: Obj) -> bool {
+        match o {
+            Obj::Shape(x) | Obj::Junction(x) => self.router.obstacles.contains(x),
+            Obj::Conn(x) => self.router.conns.contains(x),
+            Obj::Cluster(x) => self.router.clusters.contains(x),
+            Obj::Pin(x) => self.router.pins.contains(x),
+        }
+    }
+
+    fn live(&self, key: u32) -> Res<Obj> {
+        let o = self.obj(key)?;
+        if !self.alive_obj(o) {
+            return err(DELETED);
+        }
+        Ok(o)
+    }
+
+    fn shape(&self, key: u32) -> Res<ShapeRef> {
+        match self.live(key)? {
+            Obj::Shape(o) => Ok(ShapeRef(o)),
+            _ => err("not a ShapeRef"),
+        }
+    }
+
+    fn junction(&self, key: u32) -> Res<JunctionRef> {
+        match self.live(key)? {
+            Obj::Junction(o) => Ok(JunctionRef(o)),
+            _ => err("not a JunctionRef"),
+        }
+    }
+
+    fn obstacle(&self, key: u32) -> Res<ObstacleIdx> {
+        match self.live(key)? {
+            Obj::Shape(o) | Obj::Junction(o) => Ok(o),
+            _ => err("not an Obstacle"),
+        }
+    }
+
+    fn conn(&self, key: u32) -> Res<ConnIdx> {
+        match self.live(key)? {
+            Obj::Conn(c) => Ok(c),
+            _ => err("not a ConnRef"),
+        }
+    }
+
+    fn cluster(&self, key: u32) -> Res<ClusterIdx> {
+        match self.live(key)? {
+            Obj::Cluster(c) => Ok(c),
+            _ => err("not a ClusterRef"),
+        }
+    }
+
+    fn pin(&self, key: u32) -> Res<PinIdx> {
+        match self.live(key)? {
+            Obj::Pin(p) => Ok(p),
+            _ => err("not a ShapeConnectionPin"),
+        }
+    }
+
+    /// The id for a new object (upstream `Router::assignId()`), checking
+    /// its `COLA_ASSERT(objectIdIsUnused(assignedId))` beforehand.
+    fn check_id(&self, id: u32) -> Res<u32> {
+        let assigned = if id == 0 { self.router.new_object_id() } else { id };
+        if assigned == 0 {
+            return err("the object id space is exhausted");
+        }
+        if !self.router.object_id_is_unused(assigned) {
+            return err(&format!("id {} is already used by another object (COLA_ASSERT(objectIdIsUnused(id)))", assigned));
+        }
+        Ok(id)
+    }
+
+    fn conn_keys(&mut self, cs: &[ConnIdx]) -> Vec<u32> {
+        cs.iter().map(|&c| self.key(Obj::Conn(c))).collect()
+    }
+
+    fn junction_keys(&mut self, js: &[JunctionRef]) -> Vec<u32> {
+        js.iter().map(|j| self.key(Obj::Junction(j.0))).collect()
+    }
+
+    fn enc_lists(&mut self, l: &HyperedgeNewAndDeletedObjectLists) -> Vec<u32> {
+        let mut out = Vec::new();
+        for list in [
+            self.junction_keys(&l.new_junction_list),
+            self.conn_keys(&l.new_connector_list),
+            self.junction_keys(&l.deleted_junction_list),
+            self.conn_keys(&l.deleted_connector_list),
+            self.conn_keys(&l.changed_connector_list),
+        ] {
+            out.push(list.len() as u32);
+            out.extend(list);
+        }
+        out
+    }
+
+    fn enc_conn_end(&mut self, ce: &ConnEnd, out: &mut Vec<f64>) {
+        out.push(ce.m_type as u32 as f64);
+        push_point(out, &ce.m_point);
+        out.push(ce.m_directions as f64);
+        out.push(ce.m_connection_pin_class_id as f64);
+        let anchor = self.opt_key_obstacle(ce.m_anchor_obj);
+        out.push(anchor as f64);
+        let pin = match ce.m_active_pin {
+            Some(p) => self.key(Obj::Pin(p)),
+            None => 0,
+        };
+        out.push(pin as f64);
+        let conn = match ce.m_conn_ref {
+            Some(c) => self.key(Obj::Conn(c)),
+            None => 0,
+        };
+        out.push(conn as f64);
+    }
+
+    /// Decodes a ConnEnd (10 numbers at `v[i..]`).  The anchor must be a
+    /// live shape / junction of this router; an active pin or connector
+    /// that no longer exists is dropped (as the core does for copies that
+    /// outlive their objects).
+    fn dec_conn_end(&self, v: &[f64], i: usize) -> Res<ConnEnd> {
+        if v.len() < i + 10 {
+            return err("malformed ConnEnd encoding");
+        }
+        let ty = match u32_of(v[i], "ConnEndType")? {
+            0 => ConnEndType::ConnEndPoint,
+            1 => ConnEndType::ConnEndShapePin,
+            2 => ConnEndType::ConnEndJunction,
+            3 => ConnEndType::ConnEndEmpty,
+            _ => return err("ConnEndType out of range"),
+        };
+        let mut ce = ConnEnd::new();
+        ce.m_type = ty;
+        ce.m_point = point_at(v, i + 1)?;
+        ce.m_directions = dirs_of(v[i + 5])?;
+        ce.m_connection_pin_class_id = u32_of(v[i + 6], "pinClassId")?;
+        let anchor = u32_of(v[i + 7], "anchor")?;
+        if anchor != 0 {
+            ce.m_anchor_obj = Some(self.obstacle(anchor)?);
+        }
+        let pin = u32_of(v[i + 8], "active pin")?;
+        if pin != 0 {
+            if let Ok(Obj::Pin(p)) = self.obj(pin) {
+                if self.router.pins.contains(p) {
+                    ce.m_active_pin = Some(p);
+                }
             }
+        }
+        let conn = u32_of(v[i + 9], "connector")?;
+        if conn != 0 {
+            if let Ok(Obj::Conn(c)) = self.obj(conn) {
+                if self.router.conns.contains(c) {
+                    ce.m_conn_ref = Some(c);
+                }
+            }
+        }
+        match ty {
+            ConnEndType::ConnEndShapePin if !matches!(self.obj(anchor), Ok(Obj::Shape(_))) => {
+                err("a ConnEndShapePin needs a ShapeRef")
+            }
+            ConnEndType::ConnEndJunction if !matches!(self.obj(anchor), Ok(Obj::Junction(_))) => {
+                err("a ConnEndJunction needs a JunctionRef")
+            }
+            _ => Ok(ce),
+        }
+    }
+
+    fn enc_checkpoints(cps: &[Checkpoint]) -> Vec<f64> {
+        let mut out = Vec::with_capacity(6 * cps.len());
+        for cp in cps {
+            push_point(&mut out, &cp.point);
+            out.push(cp.arrival_directions as f64);
+            out.push(cp.departure_directions as f64);
+        }
+        out
+    }
+
+    fn install_progress_hook(router: &mut Router, progress: &ProgressSlot) {
+        let progress = progress.clone();
+        router.m_progress_callback = Some(std::boxed::Box::new(move |elapsed, phase, total, proportion| {
             match progress.borrow().as_ref() {
                 None => true,
+                // A JS override that throws counts as a stop request; the
+                // adapter rethrows its error after the call returns.
                 Some(f) => match f.call4(&JsValue::UNDEFINED, elapsed, phase, total, proportion) {
-                    Ok(v) => v.as_bool() != Some(false),
+                    Ok(v) => v.as_bool().unwrap_or(false),
                     Err(_) => false,
                 },
             }
         }));
     }
 
-    // --- transaction bookkeeping -------------------------------------------
-
-    fn begin(&mut self) -> u64 {
-        self.callback_log.borrow_mut().clear();
-        self.transactions.get()
-    }
-
-    fn end(&mut self, t0: u64) {
-        if self.transactions.get() != t0 {
-            self.after_transaction();
-        }
-    }
-
-    fn set_conn_callback(&mut self, c: ConnIdx) {
-        let serial = self.router.conns[c].serial;
-        let log = self.callback_log.clone();
-        c.set_callback(
-            &mut self.router,
-            Some(Box::new(move |conn| log.borrow_mut().push((conn, serial)))),
-        );
-    }
-
-    /// Synchronises the id maps with objects the core created or deleted
-    /// during the transaction(s) just run and records the transaction's
-    /// results (updated connectors, hyperedge object lists).
-    fn after_transaction(&mut self) {
-        // 0. A transaction the progress callback cancelled (upstream
-        //    `m_abort_transaction`) may have left connectors unrouted (see
-        //    `processTransaction`): make the next processTransaction() run
-        //    the rerouting phase even if nothing new is queued.
-        if self.router.m_abort_transaction {
-            self.router.m_settings_changes = true;
-        }
-        // 1. Deleted objects are resolved before the maps are reconciled
-        //    (their arena slots may already have been reused).
-        let rr = &self.router.m_hyperedge_rerouter;
-        let n = rr
-            .m_new_junctions_vector
-            .len()
-            .min(rr.m_new_connectors_vector.len())
-            .min(rr.m_deleted_junctions_vector.len())
-            .min(rr.m_deleted_connectors_vector.len());
-        let mut rerouter_lists: Vec<HyperedgeNewAndDeletedObjectLists> = Vec::new();
-        for i in 0..n {
-            rerouter_lists.push(HyperedgeNewAndDeletedObjectLists {
-                new_junction_list: rr.m_new_junctions_vector[i].clone(),
-                new_connector_list: rr.m_new_connectors_vector[i].clone(),
-                deleted_junction_list: rr.m_deleted_junctions_vector[i].clone(),
-                deleted_connector_list: rr.m_deleted_connectors_vector[i].clone(),
-                changed_connector_list: Vec::new(),
-            });
-        }
-        let improver_ran = self.router.routing_option(RoutingOption::ImproveHyperedgeRoutesMovingJunctions)
-            || self
-                .router
-                .routing_option(RoutingOption::ImproveHyperedgeRoutesMovingAddingAndDeletingJunctions);
-        let improver = if improver_ran {
-            Some(self.router.new_and_deleted_object_lists_from_hyperedge_improvement())
-        } else {
-            None
+    fn check_obstacle_out_of_graph(&self, o: ObstacleIdx) -> Res<()> {
+        let ob = &self.router.obstacles[o];
+        let Some(first) = ob.first_vert() else {
+            return err("the obstacle has no vertices (COLA_ASSERT(m_first_vert != nullptr))");
         };
-        let deleted_names = |this: &AvoidRouter, l: &HyperedgeNewAndDeletedObjectLists| {
-            let js: Vec<String> = l
-                .deleted_junction_list
-                .iter()
-                .filter_map(|j| this.by_obstacle.get(&j.0).map(|e| e.1.clone()))
-                .collect();
-            let cs: Vec<String> = l
-                .deleted_connector_list
-                .iter()
-                .filter_map(|c| this.by_conn.get(c).map(|e| e.1.clone()))
-                .collect();
-            (js, cs)
-        };
-        let mut rerouter_nd: Vec<NdLists> = rerouter_lists
-            .iter()
-            .map(|l| {
-                let (dj, dc) = deleted_names(self, l);
-                NdLists { deleted_junctions: dj, deleted_connectors: dc, ..NdLists::default() }
-            })
-            .collect();
-        let mut improver_nd = improver.as_ref().map(|l| {
-            let (dj, dc) = deleted_names(self, l);
-            NdLists { deleted_junctions: dj, deleted_connectors: dc, ..NdLists::default() }
-        });
-
-        // 2. Forget objects the core freed or queued for removal.
-        let dead_obstacles: Vec<ObstacleIdx> = self
-            .by_obstacle
-            .iter()
-            .filter(|(o, (serial, _))| !self.obstacle_live(**o, *serial))
-            .map(|(o, _)| *o)
-            .collect();
-        for o in dead_obstacles {
-            if let Some((_, name)) = self.by_obstacle.remove(&o) {
-                self.objects.remove(&name);
-                self.pins.remove(&name);
-            }
-        }
-        let dead_conns: Vec<ConnIdx> = self
-            .by_conn
-            .iter()
-            .filter(|(c, (serial, _))| self.router.conns.get(**c).map(|x| x.serial) != Some(*serial))
-            .map(|(c, _)| *c)
-            .collect();
-        for c in dead_conns {
-            if let Some((_, name)) = self.by_conn.remove(&c) {
-                self.objects.remove(&name);
-            }
-        }
-
-        // 3. Name objects the core created.
-        let mut new_obstacles: Vec<(u64, ObstacleIdx)> = self
-            .router
-            .obstacles
-            .iter_unordered()
-            .filter(|(o, ob)| {
-                self.by_obstacle.get(o).map(|e| e.0) != Some(ob.serial) && self.obstacle_live(*o, ob.serial)
-            })
-            .map(|(o, ob)| (ob.serial, o))
-            .collect();
-        new_obstacles.sort_by_key(|e| e.0);
-        for (serial, o) in new_obstacles {
-            let id = self.router.obstacles[o].m_id;
-            let name = self.auto_name(id);
-            let obj = if self.router.obstacles[o].is_junction() { Obj::Junction(o) } else { Obj::Shape(o) };
-            self.register(name, obj, serial);
-        }
-        let mut new_conns: Vec<(u64, ConnIdx)> = self
-            .router
-            .conns
-            .iter_unordered()
-            .filter(|(c, conn)| self.by_conn.get(c).map(|e| e.0) != Some(conn.serial))
-            .map(|(c, conn)| (conn.serial, c))
-            .collect();
-        new_conns.sort_by_key(|e| e.0);
-        let mut created_conns = Vec::with_capacity(new_conns.len());
-        for (serial, c) in new_conns {
-            let id = self.router.conns[c].m_id;
-            let name = self.auto_name(id);
-            self.register(name.clone(), Obj::Conn(c), serial);
-            self.set_conn_callback(c);
-            created_conns.push(name);
-        }
-
-        // 4. New / changed objects are resolved against the updated maps.
-        let new_names = |this: &AvoidRouter, l: &HyperedgeNewAndDeletedObjectLists, nd: &mut NdLists| {
-            nd.new_junctions = l.new_junction_list.iter().filter_map(|j| this.obstacle_name(j.0)).collect();
-            nd.new_connectors = l.new_connector_list.iter().filter_map(|c| this.conn_name(*c)).collect();
-            nd.changed_connectors = l.changed_connector_list.iter().filter_map(|c| this.conn_name(*c)).collect();
-        };
-        for (l, nd) in rerouter_lists.iter().zip(rerouter_nd.iter_mut()) {
-            new_names(self, l, nd);
-        }
-        if let (Some(l), Some(nd)) = (improver.as_ref(), improver_nd.as_mut()) {
-            new_names(self, l, nd);
-        }
-        self.hyperedge_results = Some(rerouter_nd);
-        if let Some(nd) = improver_nd {
-            self.improvement_results = nd;
-        }
-
-        // 5. Connectors whose callback fired (routes changed), then the
-        //    connectors the core created (they had no callback yet, but
-        //    their routes are new too).
-        let log: Vec<(ConnIdx, u64)> = self.callback_log.borrow_mut().drain(..).collect();
-        let mut seen = HashSet::new();
-        self.last_updated = log
-            .into_iter()
-            .filter_map(|(c, serial)| match self.by_conn.get(&c) {
-                Some((s, name)) if *s == serial => Some(name.clone()),
-                _ => None,
-            })
-            .chain(created_conns)
-            .filter(|n| seen.insert(n.clone()))
-            .collect();
-    }
-
-    fn obstacle_live(&self, o: ObstacleIdx, serial: u64) -> bool {
-        match self.router.obstacles.get(o) {
-            Some(ob) if ob.serial == serial => !self.has_pending_remove(o),
-            _ => false,
-        }
-    }
-
-    fn has_pending_action(&self, o: ObstacleIdx, t: ActionType) -> bool {
-        self.router.action_list.iter().any(|a| a.type_ == t && a.obj_ptr == ActionObj::Obstacle(o))
-    }
-
-    fn has_pending_remove(&self, o: ObstacleIdx) -> bool {
-        self.has_pending_action(o, ActionType::ShapeRemove) || self.has_pending_action(o, ActionType::JunctionRemove)
-    }
-
-    /// Obstacles referenced by hyperedges registered for rerouting in the
-    /// next transaction.
-    fn hyperedge_referenced(&self, o: ObstacleIdx) -> bool {
-        let rr = &self.router.m_hyperedge_rerouter;
-        rr.m_root_junction_vector.iter().any(|j| j.map(|j| j.0) == Some(o))
-            || rr.m_terminals_vector.iter().flatten().any(|ce| ce.m_anchor_obj == Some(o))
-    }
-
-    fn auto_name(&self, id: u32) -> String {
-        let base = id.to_string();
-        if !self.objects.contains_key(&base) {
-            return base;
-        }
-        let mut k = 2;
+        let mut curr = first;
         loop {
-            let name = format!("{}#{}", base, k);
-            if !self.objects.contains_key(&name) {
-                return name;
+            let v = &self.router.vert_infs[curr];
+            if v.vis_list_size != 0 || v.invis_list_size != 0 {
+                return err("the obstacle is part of the visibility graph (COLA_ASSERT(curr->visListSize == 0)); use Router::moveShape()");
             }
-            k += 1;
-        }
-    }
-
-    fn register(&mut self, name: String, obj: Obj, serial: u64) {
-        match obj {
-            Obj::Shape(o) | Obj::Junction(o) => {
-                self.by_obstacle.insert(o, (serial, name.clone()));
-            }
-            Obj::Conn(c) => {
-                self.by_conn.insert(c, (serial, name.clone()));
-            }
-            Obj::Cluster(c) => {
-                self.by_cluster.insert(c, (serial, name.clone()));
+            match v.sh_next {
+                Some(n) if n != first => curr = n,
+                _ => break,
             }
         }
-        self.objects.insert(name, Entry { obj, serial });
-    }
-
-    fn unregister(&mut self, name: &str) {
-        if let Some(e) = self.objects.remove(name) {
-            match e.obj {
-                Obj::Shape(o) | Obj::Junction(o) => {
-                    self.by_obstacle.remove(&o);
-                }
-                Obj::Conn(c) => {
-                    self.by_conn.remove(&c);
-                    // A forgotten connector is no longer "updated" (its id
-                    // may be reused before the next transaction).
-                    self.last_updated.retain(|n| n != name);
-                }
-                Obj::Cluster(c) => {
-                    self.by_cluster.remove(&c);
-                }
-            }
-        }
-        self.pins.remove(name);
-    }
-
-    fn obstacle_name(&self, o: ObstacleIdx) -> Option<String> {
-        let ob = self.router.obstacles.get(o)?;
-        match self.by_obstacle.get(&o) {
-            Some((s, n)) if *s == ob.serial => Some(n.clone()),
-            _ => None,
-        }
-    }
-
-    fn conn_name(&self, c: ConnIdx) -> Option<String> {
-        let conn = self.router.conns.get(c)?;
-        match self.by_conn.get(&c) {
-            Some((s, n)) if *s == conn.serial => Some(n.clone()),
-            _ => None,
-        }
-    }
-
-    fn lookup(&self, id: &str) -> Option<Obj> {
-        self.objects.get(id).map(|e| e.obj)
-    }
-
-    fn shape(&self, id: &str) -> Option<ShapeRef> {
-        match self.lookup(id)? {
-            Obj::Shape(o) => Some(ShapeRef(o)),
-            _ => None,
-        }
-    }
-
-    fn junction(&self, id: &str) -> Option<JunctionRef> {
-        match self.lookup(id)? {
-            Obj::Junction(o) => Some(JunctionRef(o)),
-            _ => None,
-        }
-    }
-
-    fn conn(&self, id: &str) -> Option<ConnIdx> {
-        match self.lookup(id)? {
-            Obj::Conn(c) => Some(c),
-            _ => None,
-        }
-    }
-
-    fn cluster(&self, id: &str) -> Option<ClusterIdx> {
-        match self.lookup(id)? {
-            Obj::Cluster(c) => Some(c),
-            _ => None,
-        }
-    }
-
-    /// Validates a new string id and the optional numeric id; returns the
-    /// id to pass to the core constructor (0 = assign).
-    fn new_ids(&self, id: &str, numeric_id: Option<f64>) -> Option<u32> {
-        if self.objects.contains_key(id) {
-            return None;
-        }
-        match numeric_id {
-            None => {
-                if self.router.new_object_id() == 0 {
-                    None // id space exhausted (upstream would wrap to 0)
-                } else {
-                    Some(0)
-                }
-            }
-            Some(v) => {
-                let n = as_u32(v)?;
-                if n == 0 {
-                    return if self.router.new_object_id() == 0 { None } else { Some(0) };
-                }
-                if self.router.object_id_is_unused(n) {
-                    Some(n)
-                } else {
-                    None
-                }
-            }
-        }
-    }
-
-    fn pin(&self, owner: &str, pin_id: &str) -> Option<PinIdx> {
-        self.pins.get(owner)?.iter().find(|p| p.name == pin_id).map(|p| p.pin)
-    }
-
-    fn shape_pin(&self, shape_id: &str, pin_id: &str) -> Option<PinIdx> {
-        self.shape(shape_id)?;
-        self.pin(shape_id, pin_id)
-    }
-
-    fn junction_pin(&self, junction_id: &str, pin_id: &str) -> Option<PinIdx> {
-        self.junction(junction_id)?;
-        self.pin(junction_id, pin_id)
-    }
-
-    fn conn_end(&self, e: RawEnd) -> Option<ConnEnd> {
-        match as_enum(e.kind, 4)? {
-            0 => {
-                if !finite(&[e.x, e.y]) {
-                    return None;
-                }
-                Some(ConnEnd::from_point_dirs(Point::new(e.x, e.y), as_dirs(e.num)?))
-            }
-            1 => {
-                let s = self.shape(e.object_id)?;
-                let class = as_class(e.num).filter(|&c| c != CONNECTIONPIN_UNSET)?;
-                Some(ConnEnd::from_shape_pin(&self.router, s, class))
-            }
-            2 => Some(ConnEnd::from_junction(&self.router, self.junction(e.object_id)?)),
-            _ => {
-                let s = self.shape(e.object_id)?;
-                let pin = self.pin(e.object_id, e.pin_id)?;
-                let class = self.router.pins[pin].m_class_id;
-                if class == 0 || class == CONNECTIONPIN_UNSET {
-                    return None;
-                }
-                Some(ConnEnd::from_shape_pin(&self.router, s, class))
-            }
-        }
-    }
-
-    fn conn_end_json(&self, ce: &ConnEnd) -> String {
-        let ty = match ce.type_() {
-            ConnEndType::ConnEndPoint => "point",
-            ConnEndType::ConnEndShapePin => "shapePin",
-            ConnEndType::ConnEndJunction => "junction",
-            ConnEndType::ConnEndEmpty => "empty",
-        };
-        let mut fields = vec![
-            ("type", json::string(ty)),
-            ("position", json::point(&ce.position(&self.router))),
-            ("directions", json::number(ce.directions(&self.router) as f64)),
-        ];
-        match ce.type_() {
-            ConnEndType::ConnEndShapePin => {
-                let name = ce.m_anchor_obj.and_then(|o| self.obstacle_name(o));
-                fields.push(("shapeId", json::opt_string(name.as_deref())));
-                fields.push(("classId", json::number(ce.pin_class_id() as f64)));
-            }
-            ConnEndType::ConnEndJunction => {
-                let name = ce.m_anchor_obj.and_then(|o| self.obstacle_name(o));
-                fields.push(("junctionId", json::opt_string(name.as_deref())));
-                fields.push(("classId", json::number(ce.pin_class_id() as f64)));
-            }
-            _ => {}
-        }
-        json::object(&fields)
-    }
-
-    fn ids_of_kind(&self, kind: Kind) -> Vec<String> {
-        let mut v: Vec<(u64, &String)> = self
-            .objects
-            .iter()
-            .filter(|(_, e)| e.obj.kind() == kind)
-            .map(|(n, e)| (e.serial, n))
-            .collect();
-        v.sort();
-        v.into_iter().map(|(_, n)| n.clone()).collect()
-    }
-
-    fn name_for_numeric(&self, n: u32) -> Option<String> {
-        let mut best: Option<(u64, &String)> = None;
-        for (name, e) in self.objects.iter() {
-            let id = match e.obj {
-                Obj::Shape(o) | Obj::Junction(o) => self.router.obstacles[o].m_id,
-                Obj::Conn(c) => self.router.conns[c].m_id,
-                Obj::Cluster(c) => self.router.clusters[c].m_id,
-            };
-            if id == n && best.is_none_or(|(s, _)| e.serial < s) {
-                best = Some((e.serial, name));
-            }
-        }
-        best.map(|(_, n)| n.clone())
-    }
-
-    fn numeric_names(&self, ids: &[u32]) -> Vec<String> {
-        ids.iter()
-            .map(|&n| self.name_for_numeric(n).unwrap_or_else(|| n.to_string()))
-            .collect()
-    }
-
-    fn conn_names(&self, conns: &[ConnIdx]) -> Vec<String> {
-        conns.iter().filter_map(|&c| self.conn_name(c)).collect()
-    }
-
-    fn add_conn_internal(&mut self, id: &str, ends: Option<(ConnEnd, ConnEnd)>, numeric_id: Option<f64>) -> bool {
-        let Some(nid) = self.new_ids(id, numeric_id) else {
-            return false;
-        };
-        let t0 = self.begin();
-        // Upstream's two-ConnEnd constructor registers the connector's
-        // reroute flag only after setEndpoints(); with transaction use off,
-        // setEndpoints() already routes the connector and generatePath()
-        // asserts on (release: dereferences) the missing flag.  The
-        // wrapper therefore queues the construction and processes it as one
-        // transaction afterwards.
-        let immediate = !self.router.transaction_use();
-        if immediate && ends.is_some() {
-            self.router.set_transaction_use(true);
-        }
-        let c = match &ends {
-            Some((s, d)) => ConnRef::new_with_ends(&mut self.router, s, d, nid),
-            None => ConnRef::new(&mut self.router, nid),
-        };
-        let serial = self.router.conns[c].serial;
-        self.register(id.to_string(), Obj::Conn(c), serial);
-        self.set_conn_callback(c);
-        if immediate && ends.is_some() {
-            self.router.set_transaction_use(false);
-            self.router.process_transaction();
-        }
-        self.end(t0);
-        true
-    }
-
-    fn set_end_internal(&mut self, id: &str, src: Option<ConnEnd>, dst: Option<ConnEnd>) -> bool {
-        let Some(c) = self.conn(id) else {
-            return false;
-        };
-        let t0 = self.begin();
-        match (src, dst) {
-            (Some(s), Some(d)) => c.set_endpoints(&mut self.router, &s, &d),
-            (Some(s), None) => c.set_source_endpoint(&mut self.router, &s),
-            (None, Some(d)) => c.set_dest_endpoint(&mut self.router, &d),
-            (None, None) => {}
-        }
-        self.end(t0);
-        true
-    }
-
-    fn add_pin_internal(&mut self, owner: &str, pin_id: &str, make: impl FnOnce(&mut Router) -> PinIdx) -> bool {
-        if self.pin(owner, pin_id).is_some() {
-            return false;
-        }
-        let t0 = self.begin();
-        let pin = make(&mut self.router);
-        self.pins
-            .entry(owner.to_string())
-            .or_default()
-            .push(PinEntry { name: pin_id.to_string(), pin });
-        self.end(t0);
-        true
-    }
-
-    fn remove_pin_internal(&mut self, owner: &str, pin_id: &str) -> bool {
-        let Some(pin) = self.pin(owner, pin_id) else {
-            return false;
-        };
-        if let Some(Obj::Shape(o)) | Some(Obj::Junction(o)) = self.lookup(owner) {
-            // A registered hyperedge terminal needs a pin of its class when
-            // the transaction runs (upstream dereferences a null vertex).
-            if self.hyperedge_referenced(o) {
-                return false;
-            }
-        }
-        let t0 = self.begin();
-        ShapeConnectionPin::delete(&mut self.router, pin);
-        if let Some(v) = self.pins.get_mut(owner) {
-            v.retain(|p| p.name != pin_id);
-        }
-        self.end(t0);
-        true
-    }
-
-    fn pin_position_json(&self, pin: Option<PinIdx>) -> String {
-        opt_json(pin.map(|p| json::point(&p.position(&self.router))))
-    }
-
-    fn pin_ids_json(&self, owner: &str, pin: Option<PinIdx>) -> String {
-        opt_json(pin.map(|p| {
-            let (obj, class) = p.ids(&self.router);
-            json::object(&[
-                ("objectId", json::string(owner)),
-                ("numericObjectId", json::number(obj as f64)),
-                ("classId", json::number(class as f64)),
-            ])
-        }))
-    }
-
-    fn set_pin_cost(&mut self, pin: Option<PinIdx>, cost: f64) -> bool {
-        match pin {
-            Some(p) if cost.is_finite() && cost >= 0.0 => {
-                p.set_connection_cost(&mut self.router, cost);
-                true
-            }
-            _ => false,
-        }
-    }
-
-    fn set_pin_exclusive(&mut self, pin: Option<PinIdx>, exclusive: bool) -> bool {
-        match pin {
-            Some(p) => {
-                p.set_exclusive(&mut self.router, exclusive);
-                true
-            }
-            None => false,
-        }
-    }
-
-    fn route_json(&mut self, id: &str, display: bool) -> String {
-        let Some(c) = self.conn(id) else {
-            return "null".into();
-        };
-        if display {
-            json::points(&c.display_route(&mut self.router).ps)
-        } else {
-            json::points(&c.route(&self.router).ps)
-        }
-    }
-
-    fn add_shape_poly(&mut self, id: String, poly: &Polygon, numeric_id: Option<f64>) -> bool {
-        let Some(nid) = self.new_ids(&id, numeric_id) else {
-            return false;
-        };
-        let t0 = self.begin();
-        let s = ShapeRef::new(&mut self.router, poly, nid);
-        let serial = self.router.obstacles[s.0].serial;
-        self.register(id, Obj::Shape(s.0), serial);
-        self.end(t0);
-        true
-    }
-
-    fn move_shape_poly(&mut self, id: &str, poly: &Polygon, first_move: bool) -> bool {
-        let Some(s) = self.shape(id) else {
-            return false;
-        };
-        if self.router.obstacles[s.0].m_polygon.size() != poly.size() {
-            return false;
-        }
-        let t0 = self.begin();
-        self.router.move_shape(s, poly, first_move);
-        self.end(t0);
-        true
-    }
-
-    fn curved_json(poly: &Polygon) -> String {
-        let commands: Vec<String> = poly.ts.iter().map(|c| c.to_string()).collect();
-        json::object(&[("points", json::points(&poly.ps)), ("commands", json::strings(&commands))])
+        Ok(())
     }
 }
 
-// ---------------------------------------------------------------------------
-// JS API
-// ---------------------------------------------------------------------------
-
 #[wasm_bindgen]
-impl AvoidRouter {
-    /// `new Router(flags)`.  Throws unless `flags` is 1, 2 or 3 (default:
-    /// `OrthogonalRouting`).
+impl RawRouter {
+    /// upstream `Router::Router(flags)`.
     #[wasm_bindgen(constructor)]
-    pub fn new(flags: Option<f64>) -> Result<AvoidRouter, JsError> {
-        let f = flags.unwrap_or(ORTHOGONAL_ROUTING as f64);
-        as_u32(f)
-            .and_then(AvoidRouter::create)
-            .ok_or_else(|| JsError::new("AvoidRouter: flags must be RouterFlag.PolyLineRouting, RouterFlag.OrthogonalRouting or both"))
-    }
-
-    #[wasm_bindgen(js_name = withFlags)]
-    pub fn with_flags(flags: f64) -> Result<AvoidRouter, JsError> {
-        AvoidRouter::new(Some(flags))
-    }
-
-    /// The flags passed to the constructor.
-    #[wasm_bindgen(js_name = routerFlags)]
-    pub fn router_flags(&self) -> u32 {
-        self.flags
-    }
-
-    /// Convenience: equivalent to deleting the router and constructing a
-    /// new one with the same flags, routing parameters, routing options and
-    /// transaction setting (all objects and ids are dropped).
-    pub fn clear(&mut self) {
-        let mut fresh = AvoidRouter::create(self.flags).expect("valid flags");
-        for p in RoutingParameter::ALL {
-            fresh.router.set_routing_parameter(p, self.router.routing_parameter(p));
+    pub fn new(flags: u32) -> Res<RawRouter> {
+        if flags & (POLY_LINE_ROUTING | ORTHOGONAL_ROUTING) == 0 {
+            return err("Router: flags must include PolyLineRouting or OrthogonalRouting (COLA_ASSERT(flags & (PolyLineRouting | OrthogonalRouting)))");
         }
-        for o in RoutingOption::ALL {
-            fresh.router.set_routing_option(o, self.router.routing_option(o));
-        }
-        fresh.router.set_transaction_use(self.router.transaction_use());
-        *fresh.progress.borrow_mut() = self.progress.borrow_mut().take();
-        *self = fresh;
+        let progress: ProgressSlot = Rc::new(RefCell::new(None));
+        let mut router = Router::new(flags);
+        RawRouter::install_progress_hook(&mut router, &progress);
+        Ok(RawRouter {
+            router,
+            keys: Vec::new(),
+            key_of: HashMap::new(),
+            callbacks: Rc::new(RefCell::new(Vec::new())),
+            progress,
+        })
     }
 
-    // --- transactions -------------------------------------------------------
+    // --- infrastructure -----------------------------------------------------
 
-    /// `Router::setTransactionUse()`.
-    #[wasm_bindgen(js_name = setTransactionUse)]
-    pub fn set_transaction_use(&mut self, transactions: bool) {
-        self.router.set_transaction_use(transactions);
+    /// For each key: 1 if its object is alive, else 0.
+    #[wasm_bindgen(js_name = aliveMany)]
+    pub fn alive_many(&self, keys: Vec<u32>) -> Vec<u8> {
+        keys.iter().map(|&k| self.live(k).is_ok() as u8).collect()
     }
 
-    /// `Router::transactionUse()`.
-    #[wasm_bindgen(js_name = transactionUse)]
-    pub fn transaction_use(&self) -> bool {
-        self.router.transaction_use()
+    /// Sets (or removes) the JS side of `shouldContinueTransactionWithProgress`.
+    #[wasm_bindgen(js_name = setProgressHook)]
+    pub fn set_progress_hook(&mut self, f: Option<ProgressFn>) {
+        *self.progress.borrow_mut() = f;
     }
 
-    /// `Router::processTransaction()`.  After a transaction cancelled by the
-    /// progress callback this also runs when nothing new is queued, so that
-    /// it finishes the cancelled work (wrapper addition: upstream returns
-    /// false and leaves connectors whose crossing reroute was cut short
-    /// without a route).
-    #[wasm_bindgen(js_name = processTransaction)]
-    pub fn process_transaction(&mut self) -> bool {
-        let t0 = self.begin();
-        let r = self.router.process_transaction();
-        self.end(t0);
-        r
+    /// Keys of the connectors whose callback the core performed since the
+    /// last call, in order (cleared).
+    #[wasm_bindgen(js_name = takeCallbacks)]
+    pub fn take_callbacks(&mut self) -> Vec<u32> {
+        let log: Vec<ConnIdx> = self.callbacks.borrow_mut().drain(..).collect();
+        log.into_iter().map(|c| self.key(Obj::Conn(c))).collect()
     }
 
-    /// Ids of the connectors whose upstream callback fired (route changed)
-    /// in the last transaction (all transactions of the last call when
-    /// transaction use is off), followed by the connectors the core itself
-    /// created in it (hyperedge rerouting / improvement), which upstream
-    /// creates without a callback.  JSON string array.
-    #[wasm_bindgen(js_name = lastTransactionUpdatedConnectorIds)]
-    pub fn last_transaction_updated_connector_ids(&self) -> String {
-        json::strings(&self.last_updated)
-    }
-
-    /// Sets (or with `undefined` removes) the function called for upstream
-    /// `Router::shouldContinueTransactionWithProgress(elapsedTime,
-    /// phaseNumber, totalPhases, proportion)`.  Returning `false` (or
-    /// throwing) sets upstream's `m_abort_transaction`, which only the
-    /// crossing-improvement phases (4 and 5) act on.  `elapsedTime` is
-    /// upstream's own clock, which is 0 in wasm (no clock); the JS adapter
-    /// measures time itself.  The function must not call into this router.
-    #[wasm_bindgen(js_name = setProgressCallback)]
-    pub fn set_progress_callback(&mut self, callback: Option<ProgressFn>) {
-        *self.progress.borrow_mut() = callback;
-    }
-
-    /// Whether the progress callback asked the last transaction to stop
-    /// (upstream `m_abort_transaction`, reset when the next transaction
-    /// starts).
-    #[wasm_bindgen(js_name = lastTransactionCancelled)]
-    pub fn last_transaction_cancelled(&self) -> bool {
-        self.router.m_abort_transaction
-    }
-
-    /// Test-only trap trigger (not part of the API; used by the Node tests
-    /// to exercise failure containment on the shipped wasm).  Does nothing
-    /// and returns false unless `arming` is exactly
-    /// `wasm_failure::TEST_PANIC_ARMING`; otherwise traps the wasm instance:
-    /// kind 1 = explicit panic, 2 = index out of bounds after mutating this
-    /// router, 3 = stack overflow (unbounded recursion), 4 = failed
-    /// allocation.  Unknown kinds return false.
+    /// Test-only trap trigger (not API; used by the Node tests to exercise
+    /// failure containment on the shipped wasm).  Does nothing and returns
+    /// false unless `arming` is exactly `wasm_failure::TEST_PANIC_ARMING`;
+    /// otherwise traps the wasm instance: kind 1 = explicit panic, 2 = index
+    /// out of bounds after mutating this router, 3 = stack overflow, 4 =
+    /// failed allocation.  Unknown kinds return false.
     #[wasm_bindgen(js_name = __testPanic, skip_typescript)]
     pub fn test_panic(&mut self, kind: u32, arming: String) -> bool {
         if arming != crate::wasm_failure::TEST_PANIC_ARMING {
@@ -1078,11 +562,11 @@ impl AvoidRouter {
         match kind {
             crate::wasm_failure::TEST_PANIC_EXPLICIT => panic!("libavoid-rust test panic (kind {})", kind),
             crate::wasm_failure::TEST_PANIC_INDEX => {
-                // Half-update the wrapper's state, then index out of bounds
-                // while `&mut self` is held, as a bug in a router method would.
-                self.last_updated.push("__testPanic".to_string());
-                let i = std::hint::black_box(self.last_updated.len());
-                self.last_updated[i].len() > 0
+                // Half-update the router's state, then index out of bounds
+                // while `&mut self` is held, as a bug in a method would.
+                self.keys.push(Obj::Conn(ConnIdx::dangling()));
+                let i = std::hint::black_box(self.keys.len());
+                self.keys[i].kind() > 0
             }
             crate::wasm_failure::TEST_PANIC_STACK_OVERFLOW => crate::wasm_failure::recurse_forever(0) > 0,
             crate::wasm_failure::TEST_PANIC_OUT_OF_MEMORY => crate::wasm_failure::exhaust_memory(),
@@ -1090,1219 +574,1098 @@ impl AvoidRouter {
         }
     }
 
-    // --- parameters ---------------------------------------------------------
+    // --- Router -------------------------------------------------------------
 
-    /// `Router::setRoutingParameter()`; omitted value =
-    /// `chooseSensibleParamValue`.
+    #[wasm_bindgen(js_name = setTransactionUse)]
+    pub fn set_transaction_use(&mut self, transactions: bool) {
+        self.router.set_transaction_use(transactions);
+    }
+
+    #[wasm_bindgen(js_name = transactionUse)]
+    pub fn transaction_use(&self) -> bool {
+        self.router.transaction_use()
+    }
+
+    #[wasm_bindgen(js_name = processTransaction)]
+    pub fn process_transaction(&mut self) -> bool {
+        self.router.process_transaction()
+    }
+
+    #[wasm_bindgen(js_name = deleteShape)]
+    pub fn delete_shape(&mut self, shape: u32) -> Res<()> {
+        let s = self.shape(shape)?;
+        self.router.delete_shape(s);
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = moveShapePoly)]
+    pub fn move_shape_poly(&mut self, shape: u32, poly: Vec<f64>, first_move: bool) -> Res<()> {
+        let s = self.shape(shape)?;
+        let p = dec_poly(&poly)?;
+        self.router.move_shape(s, &p, first_move);
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = moveShapeBy)]
+    pub fn move_shape_by(&mut self, shape: u32, x_diff: f64, y_diff: f64) -> Res<()> {
+        let s = self.shape(shape)?;
+        self.router.move_shape_by(s, x_diff, y_diff);
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = deleteJunction)]
+    pub fn delete_junction(&mut self, junction: u32) -> Res<()> {
+        let j = self.junction(junction)?;
+        self.router.delete_junction(j);
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = deleteConnector)]
+    pub fn delete_connector(&mut self, conn: u32) -> Res<()> {
+        let c = self.conn(conn)?;
+        self.router.delete_connector(c);
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = moveJunctionTo)]
+    pub fn move_junction_to(&mut self, junction: u32, x: f64, y: f64) -> Res<()> {
+        let j = self.junction(junction)?;
+        self.router.move_junction(j, &pt(x, y));
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = moveJunctionBy)]
+    pub fn move_junction_by(&mut self, junction: u32, x_diff: f64, y_diff: f64) -> Res<()> {
+        let j = self.junction(junction)?;
+        self.router.move_junction_by(j, x_diff, y_diff);
+        Ok(())
+    }
+
     #[wasm_bindgen(js_name = setRoutingParameter)]
-    pub fn set_routing_parameter(&mut self, parameter: f64, value: Option<f64>) -> bool {
-        let Some(p) = as_enum(parameter, RoutingParameter::ALL.len()) else {
-            return false;
-        };
-        let v = value.unwrap_or(CHOOSE_SENSIBLE_PARAM_VALUE);
-        if !v.is_finite() {
-            return false;
-        }
-        self.router.set_routing_parameter(RoutingParameter::ALL[p], v);
-        true
+    pub fn set_routing_parameter(&mut self, parameter: u32, value: f64) -> Res<()> {
+        let p = param_of(parameter)?;
+        self.router.set_routing_parameter(p, value);
+        Ok(())
     }
 
-    /// `Router::setRoutingPenalty()`.
-    #[wasm_bindgen(js_name = setRoutingPenalty)]
-    pub fn set_routing_penalty(&mut self, penalty_type: f64, penalty_value: Option<f64>) -> bool {
-        let Some(p) = as_enum(penalty_type, RoutingParameter::ALL.len()) else {
-            return false;
-        };
-        let v = penalty_value.unwrap_or(CHOOSE_SENSIBLE_PARAM_VALUE);
-        if !v.is_finite() {
-            return false;
-        }
-        self.router.set_routing_penalty(RoutingParameter::ALL[p], v);
-        true
-    }
-
-    /// `Router::routingParameter()`.
     #[wasm_bindgen(js_name = routingParameter)]
-    pub fn routing_parameter(&self, parameter: f64) -> Option<f64> {
-        as_enum(parameter, RoutingParameter::ALL.len()).map(|p| self.router.routing_parameter(RoutingParameter::ALL[p]))
+    pub fn routing_parameter(&self, parameter: u32) -> Res<f64> {
+        Ok(self.router.routing_parameter(param_of(parameter)?))
     }
 
-    /// `Router::setRoutingOption()`.
     #[wasm_bindgen(js_name = setRoutingOption)]
-    pub fn set_routing_option(&mut self, option: f64, value: bool) -> bool {
-        let Some(o) = as_enum(option, RoutingOption::ALL.len()) else {
-            return false;
-        };
-        self.router.set_routing_option(RoutingOption::ALL[o], value);
-        true
+    pub fn set_routing_option(&mut self, option: u32, value: bool) -> Res<()> {
+        let o = option_of(option)?;
+        self.router.set_routing_option(o, value);
+        Ok(())
     }
 
-    /// `Router::routingOption()`.
     #[wasm_bindgen(js_name = routingOption)]
-    pub fn routing_option(&self, option: f64) -> Option<bool> {
-        as_enum(option, RoutingOption::ALL.len()).map(|o| self.router.routing_option(RoutingOption::ALL[o]))
+    pub fn routing_option(&self, option: u32) -> Res<bool> {
+        Ok(self.router.routing_option(option_of(option)?))
     }
 
-    /// `Router::validConnType(select)`.
-    #[wasm_bindgen(js_name = validConnType)]
-    pub fn valid_conn_type(&self, select: Option<f64>) -> Option<u32> {
-        let s = as_enum(select.unwrap_or(0.0), 3)?;
-        Some(self.router.valid_conn_type(CONN_TYPES[s]) as u32)
+    #[wasm_bindgen(js_name = setRoutingPenalty)]
+    pub fn set_routing_penalty(&mut self, pen_type: u32, pen_val: f64) -> Res<()> {
+        let p = param_of(pen_type)?;
+        self.router.set_routing_penalty(p, pen_val);
+        Ok(())
     }
 
-    // --- ids ----------------------------------------------------------------
-
-    /// Whether a string id is free (unused by any shape, junction,
-    /// connector or cluster known to this wrapper).
-    #[wasm_bindgen(js_name = objectIdIsUnused)]
-    pub fn object_id_is_unused(&self, id: String) -> bool {
-        !self.objects.contains_key(&id)
-    }
-
-    /// `Router::objectIdIsUnused(id)` for an upstream numeric id.
-    #[wasm_bindgen(js_name = numericObjectIdIsUnused)]
-    pub fn numeric_object_id_is_unused(&self, id: f64) -> Option<bool> {
-        as_u32(id).map(|n| self.router.object_id_is_unused(n))
-    }
-
-    /// `Router::newObjectId()`.
     #[wasm_bindgen(js_name = newObjectId)]
     pub fn new_object_id(&self) -> u32 {
         self.router.new_object_id()
     }
 
-    /// The upstream numeric id (`id()`) of an object.
-    #[wasm_bindgen(js_name = objectNumericId)]
-    pub fn object_numeric_id(&self, id: String) -> Option<u32> {
-        Some(match self.lookup(&id)? {
-            Obj::Shape(o) | Obj::Junction(o) => self.router.obstacles[o].m_id,
-            Obj::Conn(c) => self.router.conns[c].m_id,
-            Obj::Cluster(c) => self.router.clusters[c].m_id,
-        })
+    #[wasm_bindgen(js_name = objectIdIsUnused)]
+    pub fn object_id_is_unused(&self, id: u32) -> bool {
+        self.router.object_id_is_unused(id)
     }
 
-    /// The (earliest created) object with the given numeric id; JSON
-    /// string or `null`.
-    #[wasm_bindgen(js_name = objectIdFromNumericId)]
-    pub fn object_id_from_numeric_id(&self, numeric_id: f64) -> String {
-        opt_json(as_u32(numeric_id).and_then(|n| self.name_for_numeric(n)).map(|n| json::string(&n)))
+    /// `newAndDeletedObjectListsFromHyperedgeImprovement()`: five key lists,
+    /// each as `length, keys...`.
+    #[wasm_bindgen(js_name = newAndDeletedObjectListsFromHyperedgeImprovement)]
+    pub fn new_and_deleted_object_lists_from_hyperedge_improvement(&mut self) -> Vec<u32> {
+        let l = self.router.new_and_deleted_object_lists_from_hyperedge_improvement();
+        self.enc_lists(&l)
     }
 
-    /// Ids of all shapes (creation order).  JSON array.
-    #[wasm_bindgen(js_name = shapeIds)]
-    pub fn shape_ids(&self) -> String {
-        json::strings(&self.ids_of_kind(Kind::Shape))
+    #[wasm_bindgen(js_name = processActions)]
+    pub fn process_actions(&mut self) {
+        self.router.process_actions();
     }
 
-    #[wasm_bindgen(js_name = junctionIds)]
-    pub fn junction_ids(&self) -> String {
-        json::strings(&self.ids_of_kind(Kind::Junction))
-    }
-
-    #[wasm_bindgen(js_name = connectorIds)]
-    pub fn connector_ids(&self) -> String {
-        json::strings(&self.ids_of_kind(Kind::Conn))
-    }
-
-    #[wasm_bindgen(js_name = clusterIds)]
-    pub fn cluster_ids(&self) -> String {
-        json::strings(&self.ids_of_kind(Kind::Cluster))
-    }
-
-    // --- clusters -----------------------------------------------------------
-
-    /// `new ClusterRef(router, poly, numericId)`.
-    #[wasm_bindgen(js_name = addCluster)]
-    pub fn add_cluster(&mut self, id: String, coordinates: Vec<f64>, numeric_id: Option<f64>) -> bool {
-        let Some(poly) = polygon_from(&coordinates, 3) else {
-            return false;
-        };
-        let Some(nid) = self.new_ids(&id, numeric_id) else {
-            return false;
-        };
-        let t0 = self.begin();
-        let c = ClusterRef::new(&mut self.router, &poly, nid);
-        let serial = self.router.clusters[c].serial;
-        self.register(id, Obj::Cluster(c), serial);
-        self.end(t0);
-        true
-    }
-
-    /// Convenience: `addCluster` with a `Rectangle`.
-    #[wasm_bindgen(js_name = addClusterRectangle)]
-    pub fn add_cluster_rectangle(
-        &mut self,
-        id: String,
-        left: f64,
-        top: f64,
-        right: f64,
-        bottom: f64,
-        numeric_id: Option<f64>,
-    ) -> bool {
-        let Some(poly) = rect(left, top, right, bottom) else {
-            return false;
-        };
-        let coords: Vec<f64> = poly.ps.iter().flat_map(|p| [p.x, p.y]).collect();
-        self.add_cluster(id, coords, numeric_id)
-    }
-
-    /// `ClusterRef::setNewPoly()`.
-    #[wasm_bindgen(js_name = setClusterPolygon)]
-    pub fn set_cluster_polygon(&mut self, id: String, coordinates: Vec<f64>) -> bool {
-        let (Some(c), Some(poly)) = (self.cluster(&id), polygon_from(&coordinates, 3)) else {
-            return false;
-        };
-        c.set_new_poly(&mut self.router, &poly);
-        true
-    }
-
-    #[wasm_bindgen(js_name = setClusterRectangle)]
-    pub fn set_cluster_rectangle(&mut self, id: String, left: f64, top: f64, right: f64, bottom: f64) -> bool {
-        let Some(poly) = rect(left, top, right, bottom) else {
-            return false;
-        };
-        let coords: Vec<f64> = poly.ps.iter().flat_map(|p| [p.x, p.y]).collect();
-        self.set_cluster_polygon(id, coords)
-    }
-
-    /// `Router::deleteCluster()`.
-    #[wasm_bindgen(js_name = removeCluster)]
-    pub fn remove_cluster(&mut self, id: String) -> bool {
-        let Some(c) = self.cluster(&id) else {
-            return false;
-        };
+    #[wasm_bindgen(js_name = deleteCluster)]
+    pub fn delete_cluster(&mut self, cluster: u32) -> Res<()> {
+        let c = self.cluster(cluster)?;
         self.router.delete_cluster(c);
-        self.unregister(&id);
-        true
+        Ok(())
     }
 
-    /// Convenience: bounding box of `ClusterRef::rectangularPolygon()`.
-    #[wasm_bindgen(js_name = clusterBoundingBox)]
-    pub fn cluster_bounding_box(&self, id: String) -> String {
-        opt_json(self.cluster(&id).map(|c| json::bbox(&c.rectangular_polygon(&self.router).offset_bounding_box(0.0))))
-    }
-
-    /// `ClusterRef::polygon()`.
-    #[wasm_bindgen(js_name = clusterPolygon)]
-    pub fn cluster_polygon(&self, id: String) -> String {
-        opt_json(self.cluster(&id).map(|c| {
-            let poly = Polygon::from_interface(&self.router.clusters[c].polygon().view(&self.router));
-            json::points(&poly.ps)
-        }))
-    }
-
-    /// `ClusterRef::rectangularPolygon()`.
-    #[wasm_bindgen(js_name = clusterRectangularPolygon)]
-    pub fn cluster_rectangular_polygon(&self, id: String) -> String {
-        opt_json(self.cluster(&id).map(|c| json::points(&c.rectangular_polygon(&self.router).ps)))
-    }
-
-    // --- shapes -------------------------------------------------------------
-
-    /// `new ShapeRef(router, Rectangle(topLeft, bottomRight), numericId)`.
-    #[wasm_bindgen(js_name = addShape)]
-    pub fn add_shape(
-        &mut self,
-        id: String,
-        left: f64,
-        top: f64,
-        right: f64,
-        bottom: f64,
-        numeric_id: Option<f64>,
-    ) -> bool {
-        let Some(poly) = rect(left, top, right, bottom) else {
-            return false;
-        };
-        self.add_shape_poly(id, &poly, numeric_id)
-    }
-
-    /// `new ShapeRef(router, poly, numericId)` (at least 3 points).
-    #[wasm_bindgen(js_name = addPolygonShape)]
-    pub fn add_polygon_shape(&mut self, id: String, coordinates: Vec<f64>, numeric_id: Option<f64>) -> bool {
-        let Some(poly) = polygon_from(&coordinates, 3) else {
-            return false;
-        };
-        self.add_shape_poly(id, &poly, numeric_id)
-    }
-
-
-    /// `Router::moveShape(shape, Rectangle(..))` (shape must have 4 points).
-    #[wasm_bindgen(js_name = moveShape)]
-    pub fn move_shape(&mut self, id: String, left: f64, top: f64, right: f64, bottom: f64) -> bool {
-        let Some(poly) = rect(left, top, right, bottom) else {
-            return false;
-        };
-        self.move_shape_poly(&id, &poly, false)
-    }
-
-    /// `Router::moveShape(shape, newPoly, firstMove)` (same point count).
-    #[wasm_bindgen(js_name = movePolygonShape)]
-    pub fn move_polygon_shape(&mut self, id: String, coordinates: Vec<f64>, first_move: Option<bool>) -> bool {
-        let Some(poly) = polygon_from(&coordinates, 3) else {
-            return false;
-        };
-        self.move_shape_poly(&id, &poly, first_move.unwrap_or(false))
-    }
-
-
-    /// `Router::moveShape(shape, xDiff, yDiff)`.
-    #[wasm_bindgen(js_name = moveShapeBy)]
-    pub fn move_shape_by(&mut self, id: String, x_diff: f64, y_diff: f64) -> bool {
-        let Some(s) = self.shape(&id) else {
-            return false;
-        };
-        if !finite(&[x_diff, y_diff]) {
-            return false;
-        }
-        let t0 = self.begin();
-        self.router.move_shape_by(s, x_diff, y_diff);
-        self.end(t0);
-        true
-    }
-
-    /// Convenience: `polygon().offsetBoundingBox(0)`.
-    #[wasm_bindgen(js_name = shapeBoundingBox)]
-    pub fn shape_bounding_box(&self, id: String) -> String {
-        opt_json(self.shape(&id).map(|s| json::bbox(&s.polygon(&self.router).offset_bounding_box(0.0))))
-    }
-
-    /// `Obstacle::routingBox()` (includes `shapeBufferDistance`).
-    #[wasm_bindgen(js_name = shapeRoutingBox)]
-    pub fn shape_routing_box(&self, id: String) -> String {
-        opt_json(self.shape(&id).map(|s| json::bbox(&s.routing_box(&self.router))))
-    }
-
-    /// `ShapeRef::polygon()`.
-    #[wasm_bindgen(js_name = shapePolygon)]
-    pub fn shape_polygon(&self, id: String) -> String {
-        opt_json(self.shape(&id).map(|s| json::points(&s.polygon(&self.router).ps)))
-    }
-
-    /// `Obstacle::routingPolygon()`.
-    #[wasm_bindgen(js_name = shapeRoutingPolygon)]
-    pub fn shape_routing_polygon(&self, id: String) -> String {
-        opt_json(self.shape(&id).map(|s| json::points(&s.routing_polygon(&self.router).ps)))
-    }
-
-    /// `ShapeRef::position()`.
-    #[wasm_bindgen(js_name = shapePosition)]
-    pub fn shape_position(&self, id: String) -> String {
-        opt_json(self.shape(&id).map(|s| json::point(&s.position(&self.router))))
-    }
-
-    /// `Router::shapeContainingPoint()`; JSON string id or `null`.
-    #[wasm_bindgen(js_name = shapeContainingPoint)]
-    pub fn shape_containing_point(&self, x: f64, y: f64) -> String {
-        if !finite(&[x, y]) {
-            return "null".into();
-        }
-        opt_json(
-            self.router
-                .shape_containing_point(&Point::new(x, y))
-                .and_then(|s| self.obstacle_name(s.0))
-                .map(|n| json::string(&n)),
-        )
-    }
-
-    /// `Obstacle::attachedConnectors()` of a shape.
-    #[wasm_bindgen(js_name = shapeAttachedConnectors)]
-    pub fn shape_attached_connectors(&self, id: String) -> String {
-        opt_json(self.shape(&id).map(|s| json::strings(&self.conn_names(&s.attached_connectors(&self.router)))))
-    }
-
-    /// `Router::attachedShapes(shapes, shapeId, type)` (also accepts a
-    /// junction id).
-    #[wasm_bindgen(js_name = shapeAttachedShapes)]
-    pub fn shape_attached_shapes(&self, id: String, relation: Option<f64>) -> String {
-        let (Some(Obj::Shape(o)) | Some(Obj::Junction(o))) = self.lookup(&id) else {
-            return "null".into();
-        };
-        let Some(t) = as_u32(relation.unwrap_or(3.0)).filter(|t| *t <= 3) else {
-            return "null".into();
-        };
+    #[wasm_bindgen(js_name = attachedShapes)]
+    pub fn attached_shapes(&self, shape_id: u32, type_: u32) -> Vec<u32> {
         let mut out = Vec::new();
-        self.router.attached_shapes(&mut out, self.router.obstacles[o].m_id, t);
-        json::strings(&self.numeric_names(&out))
-    }
-
-    /// `Router::attachedConns(conns, shapeId, type)` (also accepts a
-    /// junction id).
-    #[wasm_bindgen(js_name = shapeAttachedConns)]
-    pub fn shape_attached_conns(&self, id: String, relation: Option<f64>) -> String {
-        let (Some(Obj::Shape(o)) | Some(Obj::Junction(o))) = self.lookup(&id) else {
-            return "null".into();
-        };
-        let Some(t) = as_u32(relation.unwrap_or(3.0)).filter(|t| *t <= 3) else {
-            return "null".into();
-        };
-        let mut out = Vec::new();
-        self.router.attached_conns(&mut out, self.router.obstacles[o].m_id, t);
-        json::strings(&self.numeric_names(&out))
-    }
-
-    /// `ShapeRef::transformConnectionPinPositions()`.
-    #[wasm_bindgen(js_name = transformShapeConnectionPinPositions)]
-    pub fn transform_shape_connection_pin_positions(&mut self, id: String, transform: f64) -> bool {
-        let (Some(s), Some(t)) = (self.shape(&id), as_enum(transform, TRANSFORMS.len())) else {
-            return false;
-        };
-        let t0 = self.begin();
-        s.transform_connection_pin_positions(&mut self.router, TRANSFORMS[t]);
-        self.end(t0);
-        true
-    }
-
-    /// `Router::deleteShape()`.  Refused (false) while the shape's own
-    /// addition is still queued (upstream asserts against that) or while a
-    /// hyperedge registered for rerouting references it.
-    #[wasm_bindgen(js_name = removeShape)]
-    pub fn remove_shape(&mut self, id: String) -> bool {
-        let Some(s) = self.shape(&id) else {
-            return false;
-        };
-        if self.has_pending_action(s.0, ActionType::ShapeAdd) || self.hyperedge_referenced(s.0) {
-            return false;
-        }
-        let t0 = self.begin();
-        self.unregister(&id);
-        self.router.delete_shape(s);
-        self.end(t0);
-        true
-    }
-
-    /// `Router::markAllObstaclesAsMoved()`.
-    #[wasm_bindgen(js_name = markAllObstaclesAsMoved)]
-    pub fn mark_all_obstacles_as_moved(&mut self) {
-        let t0 = self.begin();
-        self.router.mark_all_obstacles_as_moved();
-        self.end(t0);
-    }
-
-    // --- junctions ----------------------------------------------------------
-
-    /// `new JunctionRef(router, Point(x, y), numericId)`.
-    #[wasm_bindgen(js_name = addJunction)]
-    pub fn add_junction(&mut self, id: String, x: f64, y: f64, numeric_id: Option<f64>) -> bool {
-        if !finite(&[x, y]) {
-            return false;
-        }
-        let Some(nid) = self.new_ids(&id, numeric_id) else {
-            return false;
-        };
-        let t0 = self.begin();
-        let j = JunctionRef::new(&mut self.router, Point::new(x, y), nid);
-        let serial = self.router.obstacles[j.0].serial;
-        self.register(id, Obj::Junction(j.0), serial);
-        self.end(t0);
-        true
-    }
-
-    /// `Router::deleteJunction()` (same restrictions as `removeShape`).
-    #[wasm_bindgen(js_name = removeJunction)]
-    pub fn remove_junction(&mut self, id: String) -> bool {
-        let Some(j) = self.junction(&id) else {
-            return false;
-        };
-        if self.has_pending_action(j.0, ActionType::JunctionAdd) || self.hyperedge_referenced(j.0) {
-            return false;
-        }
-        let t0 = self.begin();
-        self.unregister(&id);
-        self.router.delete_junction(j);
-        self.end(t0);
-        true
-    }
-
-    /// `JunctionRef::removeJunctionAndMergeConnectors()`; returns the
-    /// merged connector's id (JSON string) or `null`.
-    #[wasm_bindgen(js_name = removeJunctionAndMergeConnectors)]
-    pub fn remove_junction_and_merge_connectors(&mut self, id: String) -> String {
-        let Some(j) = self.junction(&id) else {
-            return "null".into();
-        };
-        if self.has_pending_action(j.0, ActionType::JunctionAdd) || self.hyperedge_referenced(j.0) {
-            return "null".into();
-        }
-        let before: Vec<(ConnIdx, String)> = self.by_conn.iter().map(|(c, (_, n))| (*c, n.clone())).collect();
-        let t0 = self.begin();
-        let merged = j.remove_junction_and_merge_connectors(&mut self.router);
-        if merged.is_some() {
-            self.unregister(&id);
-            // Forget the connector the core deleted.
-            for (c, name) in before {
-                let alive = self.router.conns.get(c).map(|x| x.serial) == self.by_conn.get(&c).map(|e| e.0);
-                if !alive {
-                    self.unregister(&name);
-                }
-            }
-        }
-        let name = merged.and_then(|c| self.conn_name(c));
-        self.end(t0);
-        opt_json(name.map(|n| json::string(&n)))
-    }
-
-    /// `Router::moveJunction(junction, Point)`.
-    #[wasm_bindgen(js_name = moveJunction)]
-    pub fn move_junction(&mut self, id: String, x: f64, y: f64) -> bool {
-        let Some(j) = self.junction(&id) else {
-            return false;
-        };
-        if !finite(&[x, y]) {
-            return false;
-        }
-        let t0 = self.begin();
-        self.router.move_junction(j, &Point::new(x, y));
-        self.end(t0);
-        true
-    }
-
-    /// `Router::moveJunction(junction, xDiff, yDiff)`.
-    #[wasm_bindgen(js_name = moveJunctionBy)]
-    pub fn move_junction_by(&mut self, id: String, x_diff: f64, y_diff: f64) -> bool {
-        let Some(j) = self.junction(&id) else {
-            return false;
-        };
-        if !finite(&[x_diff, y_diff]) {
-            return false;
-        }
-        let t0 = self.begin();
-        self.router.move_junction_by(j, x_diff, y_diff);
-        self.end(t0);
-        true
-    }
-
-    /// `JunctionRef::position()`.
-    #[wasm_bindgen(js_name = junctionPosition)]
-    pub fn junction_position(&self, id: String) -> String {
-        opt_json(self.junction(&id).map(|j| json::point(&j.position(&self.router))))
-    }
-
-    /// `JunctionRef::recommendedPosition()`.
-    #[wasm_bindgen(js_name = junctionRecommendedPosition)]
-    pub fn junction_recommended_position(&self, id: String) -> String {
-        opt_json(self.junction(&id).map(|j| json::point(&j.recommended_position(&self.router))))
-    }
-
-    /// `JunctionRef::setPositionFixed()`.
-    #[wasm_bindgen(js_name = setJunctionPositionFixed)]
-    pub fn set_junction_position_fixed(&mut self, id: String, fixed: bool) -> bool {
-        let Some(j) = self.junction(&id) else {
-            return false;
-        };
-        j.set_position_fixed(&mut self.router, fixed);
-        true
-    }
-
-    /// `JunctionRef::positionFixed()`.
-    #[wasm_bindgen(js_name = junctionPositionFixed)]
-    pub fn junction_position_fixed(&self, id: String) -> Option<bool> {
-        self.junction(&id).map(|j| j.position_fixed(&self.router))
-    }
-
-    /// `JunctionRef::preferOrthogonalDimension(dim)` (0 = XDIM, 1 = YDIM).
-    #[wasm_bindgen(js_name = preferJunctionOrthogonalDimension)]
-    pub fn prefer_junction_orthogonal_dimension(&mut self, id: String, dimension: f64) -> bool {
-        let (Some(j), Some(d)) = (self.junction(&id), as_enum(dimension, 2)) else {
-            return false;
-        };
-        j.prefer_orthogonal_dimension(&mut self.router, d);
-        true
-    }
-
-    /// `Obstacle::attachedConnectors()` of a junction.
-    #[wasm_bindgen(js_name = junctionAttachedConnectors)]
-    pub fn junction_attached_connectors(&self, id: String) -> String {
-        opt_json(self.junction(&id).map(|j| json::strings(&self.conn_names(&j.attached_connectors(&self.router)))))
-    }
-
-    // --- connection pins ----------------------------------------------------
-
-    /// `new ShapeConnectionPin(shape, classId, xOffset, yOffset,
-    /// proportional, insideOffset, visDirs)`, named `pinId` on the shape.
-    #[wasm_bindgen(js_name = addShapeConnectionPin)]
-    #[allow(clippy::too_many_arguments)]
-    pub fn add_shape_connection_pin(
-        &mut self,
-        shape_id: String,
-        pin_id: String,
-        class_id: f64,
-        x_offset: f64,
-        y_offset: f64,
-        proportional: Option<bool>,
-        inside_offset: Option<f64>,
-        visibility_directions: Option<f64>,
-    ) -> bool {
-        self.add_shape_connection_pin_with_options(
-            shape_id,
-            pin_id,
-            class_id,
-            x_offset,
-            y_offset,
-            proportional,
-            inside_offset,
-            visibility_directions,
-            None,
-            None,
-        )
-    }
-
-    /// As `addShapeConnectionPin`, then optionally `setConnectionCost()` /
-    /// `setExclusive()` (omitted = upstream defaults).
-    #[wasm_bindgen(js_name = addShapeConnectionPinWithOptions)]
-    #[allow(clippy::too_many_arguments)]
-    pub fn add_shape_connection_pin_with_options(
-        &mut self,
-        shape_id: String,
-        pin_id: String,
-        class_id: f64,
-        x_offset: f64,
-        y_offset: f64,
-        proportional: Option<bool>,
-        inside_offset: Option<f64>,
-        visibility_directions: Option<f64>,
-        connection_cost: Option<f64>,
-        exclusive: Option<bool>,
-    ) -> bool {
-        let Some(s) = self.shape(&shape_id) else {
-            return false;
-        };
-        let inside = inside_offset.unwrap_or(0.0);
-        let (Some(class), Some(dirs)) = (as_class(class_id), as_dirs(visibility_directions.unwrap_or(0.0))) else {
-            return false;
-        };
-        if !finite(&[x_offset, y_offset, inside]) {
-            return false;
-        }
-        if let Some(c) = connection_cost {
-            if !(c.is_finite() && c >= 0.0) {
-                return false;
-            }
-        }
-        let proportional = proportional.unwrap_or(false);
-        let ok = self.add_pin_internal(&shape_id, &pin_id, |r| {
-            let p = ShapeConnectionPin::new_shape(r, s, class, x_offset, y_offset, proportional, inside, dirs);
-            if let Some(c) = connection_cost {
-                p.set_connection_cost(r, c);
-            }
-            if let Some(e) = exclusive {
-                p.set_exclusive(r, e);
-            }
-            p
-        });
-        ok
-    }
-
-    /// `delete pin`.
-    #[wasm_bindgen(js_name = removeShapeConnectionPin)]
-    pub fn remove_shape_connection_pin(&mut self, shape_id: String, pin_id: String) -> bool {
-        if self.shape(&shape_id).is_none() {
-            return false;
-        }
-        self.remove_pin_internal(&shape_id, &pin_id)
-    }
-
-    /// Ids of the named pins of a shape (creation order).
-    #[wasm_bindgen(js_name = shapeConnectionPinIdList)]
-    pub fn shape_connection_pin_id_list(&self, shape_id: String) -> String {
-        if self.shape(&shape_id).is_none() {
-            return "null".into();
-        }
-        let names: Vec<&str> = self.pins.get(&shape_id).map(|v| v.iter().map(|p| p.name.as_str()).collect()).unwrap_or_default();
-        json::strings(&names)
-    }
-
-    /// `ShapeConnectionPin::setConnectionCost()` (cost >= 0).
-    #[wasm_bindgen(js_name = setShapeConnectionPinConnectionCost)]
-    pub fn set_shape_connection_pin_connection_cost(&mut self, shape_id: String, pin_id: String, cost: f64) -> bool {
-        let pin = self.shape_pin(&shape_id, &pin_id);
-        self.set_pin_cost(pin, cost)
-    }
-
-    /// `ShapeConnectionPin::setExclusive()`.
-    #[wasm_bindgen(js_name = setShapeConnectionPinExclusive)]
-    pub fn set_shape_connection_pin_exclusive(&mut self, shape_id: String, pin_id: String, exclusive: bool) -> bool {
-        let pin = self.shape_pin(&shape_id, &pin_id);
-        self.set_pin_exclusive(pin, exclusive)
-    }
-
-    /// `ShapeConnectionPin::isExclusive()`.
-    #[wasm_bindgen(js_name = shapeConnectionPinExclusive)]
-    pub fn shape_connection_pin_exclusive(&self, shape_id: String, pin_id: String) -> Option<bool> {
-        self.shape_pin(&shape_id, &pin_id).map(|p| p.is_exclusive(&self.router))
-    }
-
-    /// `ShapeConnectionPin::position()`.
-    #[wasm_bindgen(js_name = shapeConnectionPinPosition)]
-    pub fn shape_connection_pin_position(&self, shape_id: String, pin_id: String) -> String {
-        self.pin_position_json(self.shape_pin(&shape_id, &pin_id))
-    }
-
-    /// `ShapeConnectionPin::directions()`.
-    #[wasm_bindgen(js_name = shapeConnectionPinDirections)]
-    pub fn shape_connection_pin_directions(&self, shape_id: String, pin_id: String) -> Option<u32> {
-        self.shape_pin(&shape_id, &pin_id).map(|p| p.directions(&self.router))
-    }
-
-    /// `ShapeConnectionPin::ids()`.
-    #[wasm_bindgen(js_name = shapeConnectionPinIds)]
-    pub fn shape_connection_pin_ids(&self, shape_id: String, pin_id: String) -> String {
-        self.pin_ids_json(&shape_id, self.shape_pin(&shape_id, &pin_id))
-    }
-
-    /// `new ShapeConnectionPin(junction, classId, visDirs)`.
-    #[wasm_bindgen(js_name = addJunctionConnectionPin)]
-    pub fn add_junction_connection_pin(
-        &mut self,
-        junction_id: String,
-        pin_id: String,
-        class_id: f64,
-        visibility_directions: Option<f64>,
-    ) -> bool {
-        let Some(j) = self.junction(&junction_id) else {
-            return false;
-        };
-        let (Some(class), Some(dirs)) = (as_class(class_id), as_dirs(visibility_directions.unwrap_or(0.0))) else {
-            return false;
-        };
-        self.add_pin_internal(&junction_id, &pin_id, |r| ShapeConnectionPin::new_junction(r, j, class, dirs))
-    }
-
-    /// `delete pin`.
-    #[wasm_bindgen(js_name = removeJunctionConnectionPin)]
-    pub fn remove_junction_connection_pin(&mut self, junction_id: String, pin_id: String) -> bool {
-        if self.junction(&junction_id).is_none() {
-            return false;
-        }
-        self.remove_pin_internal(&junction_id, &pin_id)
-    }
-
-    #[wasm_bindgen(js_name = junctionConnectionPinPosition)]
-    pub fn junction_connection_pin_position(&self, junction_id: String, pin_id: String) -> String {
-        self.pin_position_json(self.junction_pin(&junction_id, &pin_id))
-    }
-
-    #[wasm_bindgen(js_name = junctionConnectionPinDirections)]
-    pub fn junction_connection_pin_directions(&self, junction_id: String, pin_id: String) -> Option<u32> {
-        self.junction_pin(&junction_id, &pin_id).map(|p| p.directions(&self.router))
-    }
-
-    #[wasm_bindgen(js_name = junctionConnectionPinIds)]
-    pub fn junction_connection_pin_ids(&self, junction_id: String, pin_id: String) -> String {
-        self.pin_ids_json(&junction_id, self.junction_pin(&junction_id, &pin_id))
-    }
-
-    #[wasm_bindgen(js_name = setJunctionConnectionPinConnectionCost)]
-    pub fn set_junction_connection_pin_connection_cost(&mut self, junction_id: String, pin_id: String, cost: f64) -> bool {
-        let pin = self.junction_pin(&junction_id, &pin_id);
-        self.set_pin_cost(pin, cost)
-    }
-
-    #[wasm_bindgen(js_name = setJunctionConnectionPinExclusive)]
-    pub fn set_junction_connection_pin_exclusive(&mut self, junction_id: String, pin_id: String, exclusive: bool) -> bool {
-        let pin = self.junction_pin(&junction_id, &pin_id);
-        self.set_pin_exclusive(pin, exclusive)
-    }
-
-    #[wasm_bindgen(js_name = junctionConnectionPinExclusive)]
-    pub fn junction_connection_pin_exclusive(&self, junction_id: String, pin_id: String) -> Option<bool> {
-        self.junction_pin(&junction_id, &pin_id).map(|p| p.is_exclusive(&self.router))
-    }
-
-    // --- connectors: creation -----------------------------------------------
-
-    /// `new ConnRef(router, numericId)` (no endpoints yet).
-    #[wasm_bindgen(js_name = addConnectorWithoutEndpoints)]
-    pub fn add_connector_without_endpoints(&mut self, id: String, numeric_id: Option<f64>) -> bool {
-        self.add_conn_internal(&id, None, numeric_id)
-    }
-
-    /// `new ConnRef(router, src, dst, numericId)` with raw ConnEnds.
-    #[wasm_bindgen(js_name = addConnectorWithConnEnds)]
-    #[allow(clippy::too_many_arguments)]
-    pub fn add_connector_with_conn_ends(
-        &mut self,
-        id: String,
-        src_kind: f64,
-        src_object: String,
-        src_pin: String,
-        src_x: f64,
-        src_y: f64,
-        src_num: f64,
-        dst_kind: f64,
-        dst_object: String,
-        dst_pin: String,
-        dst_x: f64,
-        dst_y: f64,
-        dst_num: f64,
-        numeric_id: Option<f64>,
-    ) -> bool {
-        let s = self.conn_end(RawEnd { kind: src_kind, object_id: &src_object, pin_id: &src_pin, x: src_x, y: src_y, num: src_num });
-        let d = self.conn_end(RawEnd { kind: dst_kind, object_id: &dst_object, pin_id: &dst_pin, x: dst_x, y: dst_y, num: dst_num });
-        match (s, d) {
-            (Some(s), Some(d)) => self.add_conn_internal(&id, Some((s, d)), numeric_id),
-            _ => false,
-        }
-    }
-
-    /// Convenience: `ConnRef(router, ConnEnd(Point), ConnEnd(Point))`.
-    #[wasm_bindgen(js_name = addConnector)]
-    pub fn add_connector(&mut self, id: String, src_x: f64, src_y: f64, dst_x: f64, dst_y: f64, numeric_id: Option<f64>) -> bool {
-        self.add_connector_with_conn_ends(
-            id, 0.0, String::new(), String::new(), src_x, src_y, CONN_DIR_ALL as f64, 0.0, String::new(), String::new(), dst_x, dst_y,
-            CONN_DIR_ALL as f64, numeric_id,
-        )
-    }
-
-    // --- connectors: endpoints ----------------------------------------------
-
-    /// `ConnRef::setEndpoints(src, dst)` with raw ConnEnds.
-    #[wasm_bindgen(js_name = setConnectorConnEnds)]
-    #[allow(clippy::too_many_arguments)]
-    pub fn set_connector_conn_ends(
-        &mut self,
-        id: String,
-        src_kind: f64,
-        src_object: String,
-        src_pin: String,
-        src_x: f64,
-        src_y: f64,
-        src_num: f64,
-        dst_kind: f64,
-        dst_object: String,
-        dst_pin: String,
-        dst_x: f64,
-        dst_y: f64,
-        dst_num: f64,
-    ) -> bool {
-        let s = self.conn_end(RawEnd { kind: src_kind, object_id: &src_object, pin_id: &src_pin, x: src_x, y: src_y, num: src_num });
-        let d = self.conn_end(RawEnd { kind: dst_kind, object_id: &dst_object, pin_id: &dst_pin, x: dst_x, y: dst_y, num: dst_num });
-        match (s, d) {
-            (Some(s), Some(d)) => self.set_end_internal(&id, Some(s), Some(d)),
-            _ => false,
-        }
-    }
-
-    /// `ConnRef::setSourceEndpoint(end)` with a raw ConnEnd.
-    #[wasm_bindgen(js_name = setConnectorSourceConnEnd)]
-    pub fn set_connector_source_conn_end(&mut self, id: String, kind: f64, object_id: String, pin_id: String, x: f64, y: f64, num: f64) -> bool {
-        match self.conn_end(RawEnd { kind, object_id: &object_id, pin_id: &pin_id, x, y, num }) {
-            Some(e) => self.set_end_internal(&id, Some(e), None),
-            None => false,
-        }
-    }
-
-    /// `ConnRef::setDestEndpoint(end)` with a raw ConnEnd.
-    #[wasm_bindgen(js_name = setConnectorDestConnEnd)]
-    pub fn set_connector_dest_conn_end(&mut self, id: String, kind: f64, object_id: String, pin_id: String, x: f64, y: f64, num: f64) -> bool {
-        match self.conn_end(RawEnd { kind, object_id: &object_id, pin_id: &pin_id, x, y, num }) {
-            Some(e) => self.set_end_internal(&id, None, Some(e)),
-            None => false,
-        }
-    }
-
-    /// `Router::deleteConnector()`.
-    #[wasm_bindgen(js_name = removeConnector)]
-    pub fn remove_connector(&mut self, id: String) -> bool {
-        let Some(c) = self.conn(&id) else {
-            return false;
-        };
-        let t0 = self.begin();
-        self.unregister(&id);
-        self.router.delete_connector(c);
-        self.end(t0);
-        true
-    }
-
-    // --- connectors: properties ---------------------------------------------
-
-    /// `ConnRef::setRoutingType()`.
-    #[wasm_bindgen(js_name = setConnectorRoutingType)]
-    pub fn set_connector_routing_type(&mut self, id: String, routing_type: f64) -> bool {
-        let (Some(c), Some(t)) = (self.conn(&id), as_enum(routing_type, 3)) else {
-            return false;
-        };
-        let t0 = self.begin();
-        c.set_routing_type(&mut self.router, CONN_TYPES[t]);
-        self.end(t0);
-        true
-    }
-
-    /// `ConnRef::routingType()`.
-    #[wasm_bindgen(js_name = connectorRoutingType)]
-    pub fn connector_routing_type(&self, id: String) -> Option<u32> {
-        self.conn(&id).map(|c| c.routing_type(&self.router) as u32)
-    }
-
-    /// `ConnRef::setHateCrossings()`.
-    #[wasm_bindgen(js_name = setConnectorHateCrossings)]
-    pub fn set_connector_hate_crossings(&mut self, id: String, value: bool) -> bool {
-        let Some(c) = self.conn(&id) else {
-            return false;
-        };
-        c.set_hate_crossings(&mut self.router, value);
-        true
-    }
-
-    /// `ConnRef::doesHateCrossings()`.
-    #[wasm_bindgen(js_name = connectorDoesHateCrossings)]
-    pub fn connector_does_hate_crossings(&self, id: String) -> Option<bool> {
-        self.conn(&id).map(|c| c.does_hate_crossings(&self.router))
-    }
-
-    /// `ConnRef::endpointConnEnds()`; `{source, destination}`.
-    #[wasm_bindgen(js_name = connectorEndpointConnEnds)]
-    pub fn connector_endpoint_conn_ends(&self, id: String) -> String {
-        opt_json(self.conn(&id).map(|c| {
-            let (s, d) = c.endpoint_conn_ends(&self.router);
-            json::object(&[("source", self.conn_end_json(&s)), ("destination", self.conn_end_json(&d))])
-        }))
-    }
-
-    /// `ConnRef::possibleDstPinPoints()`.
-    #[wasm_bindgen(js_name = connectorPossibleDstPinPoints)]
-    pub fn connector_possible_dst_pin_points(&self, id: String) -> String {
-        opt_json(self.conn(&id).map(|c| json::points(&c.possible_dst_pin_points(&self.router))))
-    }
-
-    /// `ConnRef::setRoutingCheckpoints()`; flat `[x, y, arrivalDirs,
-    /// departureDirs, ...]`.
-    #[wasm_bindgen(js_name = setConnectorRoutingCheckpoints)]
-    pub fn set_connector_routing_checkpoints(&mut self, id: String, checkpoints: Vec<f64>) -> bool {
-        let Some(c) = self.conn(&id) else {
-            return false;
-        };
-        if checkpoints.len() % 4 != 0 {
-            return false;
-        }
-        let mut cps = Vec::new();
-        for q in checkpoints.chunks(4) {
-            let (Some(ad), Some(dd)) = (as_dirs(q[2]), as_dirs(q[3])) else {
-                return false;
-            };
-            if !finite(&q[0..2]) {
-                return false;
-            }
-            cps.push(Checkpoint::with_directions(Point::new(q[0], q[1]), ad, dd));
-        }
-        let t0 = self.begin();
-        c.set_routing_checkpoints(&mut self.router, &cps);
-        self.end(t0);
-        true
-    }
-
-    /// `ConnRef::routingCheckpoints()`.
-    #[wasm_bindgen(js_name = connectorRoutingCheckpoints)]
-    pub fn connector_routing_checkpoints(&self, id: String) -> String {
-        opt_json(self.conn(&id).map(|c| {
-            let items: Vec<String> = c
-                .routing_checkpoints(&self.router)
-                .iter()
-                .map(|cp| {
-                    json::object(&[
-                        ("point", json::point(&cp.point)),
-                        ("arrivalDirections", json::number(cp.arrival_directions as f64)),
-                        ("departureDirections", json::number(cp.departure_directions as f64)),
-                    ])
-                })
-                .collect();
-            format!("[{}]", items.join(","))
-        }))
-    }
-
-    /// `ConnRef::setFixedRoute()`.
-    #[wasm_bindgen(js_name = setConnectorFixedRoute)]
-    pub fn set_connector_fixed_route(&mut self, id: String, route: Vec<f64>) -> bool {
-        let (Some(c), Some(ps)) = (self.conn(&id), point_list(&route)) else {
-            return false;
-        };
-        let mut poly = Polygon::new();
-        poly.ps = ps;
-        let t0 = self.begin();
-        c.set_fixed_route(&mut self.router, &poly);
-        self.end(t0);
-        true
-    }
-
-    /// `ConnRef::setFixedExistingRoute()` (false if the connector has no
-    /// route of at least 2 points, which upstream asserts).
-    #[wasm_bindgen(js_name = setConnectorFixedExistingRoute)]
-    pub fn set_connector_fixed_existing_route(&mut self, id: String) -> bool {
-        let Some(c) = self.conn(&id) else {
-            return false;
-        };
-        if c.route(&self.router).size() < 2 {
-            return false;
-        }
-        c.set_fixed_existing_route(&mut self.router);
-        true
-    }
-
-    /// `ConnRef::hasFixedRoute()`.
-    #[wasm_bindgen(js_name = connectorHasFixedRoute)]
-    pub fn connector_has_fixed_route(&self, id: String) -> Option<bool> {
-        self.conn(&id).map(|c| c.has_fixed_route(&self.router))
-    }
-
-    /// `ConnRef::clearFixedRoute()`.
-    #[wasm_bindgen(js_name = clearConnectorFixedRoute)]
-    pub fn clear_connector_fixed_route(&mut self, id: String) -> bool {
-        let Some(c) = self.conn(&id) else {
-            return false;
-        };
-        c.clear_fixed_route(&mut self.router);
-        true
-    }
-
-    /// `ConnRef::makePathInvalid()`.
-    #[wasm_bindgen(js_name = makeConnectorPathInvalid)]
-    pub fn make_connector_path_invalid(&mut self, id: String) -> bool {
-        let Some(c) = self.conn(&id) else {
-            return false;
-        };
-        self.router.conns[c].make_path_invalid();
-        true
-    }
-
-    /// `ConnRef::needsRepaint()`.
-    #[wasm_bindgen(js_name = connectorNeedsRepaint)]
-    pub fn connector_needs_repaint(&self, id: String) -> Option<bool> {
-        self.conn(&id).map(|c| c.needs_repaint(&self.router))
-    }
-
-    /// `ConnRef::route()` (raw route).
-    #[wasm_bindgen(js_name = routeConnector)]
-    pub fn route_connector(&mut self, id: String) -> String {
-        self.route_json(&id, false)
-    }
-
-    /// `ConnRef::displayRoute()`.
-    #[wasm_bindgen(js_name = displayConnectorRoute)]
-    pub fn display_connector_route(&mut self, id: String) -> String {
-        self.route_json(&id, true)
-    }
-
-    /// `displayRoute().curvedPolyline(curveAmount, closed)`;
-    /// `{points, commands}`.
-    #[wasm_bindgen(js_name = connectorCurvedRoute)]
-    pub fn connector_curved_route(&mut self, id: String, curve_amount: f64, closed: Option<bool>) -> String {
-        let Some(c) = self.conn(&id) else {
-            return "null".into();
-        };
-        if !curve_amount.is_finite() {
-            return "null".into();
-        }
-        let curved = c.display_route(&mut self.router).curved_polyline(curve_amount, closed.unwrap_or(false));
-        AvoidRouter::curved_json(&curved)
-    }
-
-    /// `ConnRef::splitAtSegment(segmentN)`; the new junction and connector
-    /// get the given string ids.  `null` if upstream would create nothing
-    /// (`segmentN >= displayRoute().size()`), for `segmentN == 0`, or if the
-    /// destination is a free point (upstream dereferences a null ConnEnd).
-    #[wasm_bindgen(js_name = splitConnectorAtSegment)]
-    pub fn split_connector_at_segment(&mut self, id: String, segment_n: f64, junction_id: String, connector_id: String) -> String {
-        let (Some(c), Some(n)) = (self.conn(&id), as_u32(segment_n)) else {
-            return "null".into();
-        };
-        let n = n as usize;
-        if n == 0
-            || junction_id == connector_id
-            || self.objects.contains_key(&junction_id)
-            || self.objects.contains_key(&connector_id)
-            || self.router.conns[c].m_display_route.size() <= n
-            || self.router.conns[c].m_dst_connend.is_none()
-            || self.router.new_object_id() == 0
-        {
-            return "null".into();
-        }
-        let t0 = self.begin();
-        // splitAtSegment() uses the two-ConnEnd ConnRef constructor: queue
-        // it with transaction use off (see `add_conn_internal`).
-        let immediate = !self.router.transaction_use();
-        if immediate {
-            self.router.set_transaction_use(true);
-        }
-        let (j, nc) = c.split_at_segment(&mut self.router, n);
-        let mut out = "null".to_string();
-        if let (Some(j), Some(nc)) = (j, nc) {
-            let js = self.router.obstacles[j.0].serial;
-            self.register(junction_id.clone(), Obj::Junction(j.0), js);
-            let cs = self.router.conns[nc].serial;
-            self.register(connector_id.clone(), Obj::Conn(nc), cs);
-            self.set_conn_callback(nc);
-            out = json::object(&[
-                ("junctionId", json::string(&junction_id)),
-                ("connectorId", json::string(&connector_id)),
-                ("position", json::point(&j.position(&self.router))),
-            ]);
-        }
-        if immediate {
-            self.router.set_transaction_use(false);
-            self.router.process_transaction();
-        }
-        self.end(t0);
+        self.router.attached_shapes(&mut out, shape_id, type_);
         out
     }
 
-    /// Convenience: `processTransaction()`, then `{id: displayRoute()}` for
-    /// every connector.
-    #[wasm_bindgen(js_name = routeAll)]
-    pub fn route_all(&mut self) -> String {
-        self.process_transaction();
-        let ids = self.ids_of_kind(Kind::Conn);
-        let fields: Vec<(String, String)> = ids.iter().map(|id| (id.clone(), self.route_json(id, true))).collect();
-        let refs: Vec<(&str, String)> = fields.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
-        json::object(&refs)
+    #[wasm_bindgen(js_name = attachedConns)]
+    pub fn attached_conns(&self, shape_id: u32, type_: u32) -> Vec<u32> {
+        let mut out = Vec::new();
+        self.router.attached_conns(&mut out, shape_id, type_);
+        out
     }
 
-    // --- diagnostics --------------------------------------------------------
-
-    /// `Router::existsInvalidOrthogonalPaths()`.
-    #[wasm_bindgen(js_name = existsInvalidOrthogonalPaths)]
-    pub fn exists_invalid_orthogonal_paths(&mut self) -> bool {
-        self.router.exists_invalid_orthogonal_paths()
+    #[wasm_bindgen(js_name = markPolylineConnectorsNeedingReroutingForDeletedObstacle)]
+    pub fn mark_polyline_connectors_needing_rerouting_for_deleted_obstacle(&mut self, obstacle: u32) -> Res<()> {
+        let o = self.obstacle(obstacle)?;
+        self.router.mark_polyline_connectors_needing_rerouting_for_deleted_obstacle(o);
+        Ok(())
     }
 
-    /// `Router::existsCrossings(optimisedForConnectorType)`.
-    #[wasm_bindgen(js_name = existsCrossings)]
-    pub fn exists_crossings(&mut self, optimised_for_connector_type: Option<bool>) -> i32 {
-        self.router.exists_crossings(optimised_for_connector_type.unwrap_or(false))
-    }
-
-    /// `Router::existsOrthogonalSegmentOverlap(atEnds)`.
-    #[wasm_bindgen(js_name = existsOrthogonalSegmentOverlap)]
-    pub fn exists_orthogonal_segment_overlap(&mut self, at_ends: Option<bool>) -> bool {
-        self.router.exists_orthogonal_segment_overlap(at_ends.unwrap_or(false))
-    }
-
-    /// `Router::existsOrthogonalFixedSegmentOverlap(atEnds)`.
-    #[wasm_bindgen(js_name = existsOrthogonalFixedSegmentOverlap)]
-    pub fn exists_orthogonal_fixed_segment_overlap(&mut self, at_ends: Option<bool>) -> bool {
-        self.router.exists_orthogonal_fixed_segment_overlap(at_ends.unwrap_or(false))
-    }
-
-    /// `Router::existsOrthogonalTouchingPaths()`.
-    #[wasm_bindgen(js_name = existsOrthogonalTouchingPaths)]
-    pub fn exists_orthogonal_touching_paths(&mut self) -> bool {
-        self.router.exists_orthogonal_touching_paths()
-    }
-
-    /// `Router::outputDiagramText()` as a string (no file is written).
-    /// `fullPrecision` selects the oracle format used by the golden files
-    /// (`%.17g` and junction blocks) instead of upstream's `%g`.
-    #[wasm_bindgen(js_name = outputDiagramText)]
-    pub fn output_diagram_text(&mut self, full_precision: Option<bool>) -> String {
-        if full_precision.unwrap_or(false) {
-            self.router.output_diagram_text()
-        } else {
-            self.router.output_diagram_text_g()
-        }
-    }
-
-    /// `Router::printInfo()` as a string.
     #[wasm_bindgen(js_name = printInfo)]
     pub fn print_info(&self) -> String {
         self.router.print_info()
     }
 
-    // --- hyperedges ---------------------------------------------------------
+    #[wasm_bindgen(js_name = regenerateStaticBuiltGraph)]
+    pub fn regenerate_static_built_graph(&mut self) {
+        self.router.regenerate_static_built_graph();
+    }
 
-    /// `hyperedgeRerouter()->registerHyperedgeForRerouting(junction)`;
-    /// returns the index or `undefined`.
+    #[wasm_bindgen(js_name = destroyOrthogonalVisGraph)]
+    pub fn destroy_orthogonal_vis_graph(&mut self) {
+        self.router.destroy_orthogonal_vis_graph();
+    }
+
+    #[wasm_bindgen(js_name = setStaticGraphInvalidated)]
+    pub fn set_static_graph_invalidated(&mut self, invalidated: bool) {
+        self.router.set_static_graph_invalidated(invalidated);
+    }
+
+    #[wasm_bindgen(js_name = validConnType)]
+    pub fn valid_conn_type(&self, select: u32) -> Res<u32> {
+        Ok(self.router.valid_conn_type(conn_type_of(select)?) as u32)
+    }
+
+    #[wasm_bindgen(js_name = isInCrossingPenaltyReroutingStage)]
+    pub fn is_in_crossing_penalty_rerouting_stage(&self) -> bool {
+        self.router.is_in_crossing_penalty_rerouting_stage()
+    }
+
+    #[wasm_bindgen(js_name = markAllObstaclesAsMoved)]
+    pub fn mark_all_obstacles_as_moved(&mut self) {
+        self.router.mark_all_obstacles_as_moved();
+    }
+
+    /// Key of the shape, or 0.
+    #[wasm_bindgen(js_name = shapeContainingPoint)]
+    pub fn shape_containing_point(&mut self, x: f64, y: f64) -> u32 {
+        match self.router.shape_containing_point(&pt(x, y)) {
+            Some(s) => self.key(Obj::Shape(s.0)),
+            None => 0,
+        }
+    }
+
+    #[wasm_bindgen(js_name = performContinuationCheck)]
+    pub fn perform_continuation_check(&mut self, phase_number: u32, step_number: f64, total_steps: f64) {
+        self.router.perform_continuation_check(phase_number, step_number as usize, total_steps as usize);
+    }
+
+    #[wasm_bindgen(js_name = registerSettingsChange)]
+    pub fn register_settings_change(&mut self) {
+        self.router.register_settings_change();
+    }
+
+    #[wasm_bindgen(js_name = improveOrthogonalTopology)]
+    pub fn improve_orthogonal_topology(&mut self) {
+        self.router.improve_orthogonal_topology();
+    }
+
+    #[wasm_bindgen(js_name = existsOrthogonalSegmentOverlap)]
+    pub fn exists_orthogonal_segment_overlap(&mut self, at_ends: bool) -> bool {
+        self.router.exists_orthogonal_segment_overlap(at_ends)
+    }
+
+    #[wasm_bindgen(js_name = existsOrthogonalFixedSegmentOverlap)]
+    pub fn exists_orthogonal_fixed_segment_overlap(&mut self, at_ends: bool) -> bool {
+        self.router.exists_orthogonal_fixed_segment_overlap(at_ends)
+    }
+
+    #[wasm_bindgen(js_name = existsOrthogonalTouchingPaths)]
+    pub fn exists_orthogonal_touching_paths(&mut self) -> bool {
+        self.router.exists_orthogonal_touching_paths()
+    }
+
+    #[wasm_bindgen(js_name = existsCrossings)]
+    pub fn exists_crossings(&mut self, optimised_for_connector_type: bool) -> i32 {
+        self.router.exists_crossings(optimised_for_connector_type)
+    }
+
+    #[wasm_bindgen(js_name = existsInvalidOrthogonalPaths)]
+    pub fn exists_invalid_orthogonal_paths(&mut self) -> bool {
+        self.router.exists_invalid_orthogonal_paths()
+    }
+
+    /// The text upstream's `outputDiagramText()` writes (`%g` format).
+    #[wasm_bindgen(js_name = outputDiagramText)]
+    pub fn output_diagram_text(&mut self) -> String {
+        self.router.output_diagram_text_g()
+    }
+
+    /// Public `bool` members of upstream `Router`, by index: PartialTime,
+    /// SimpleRouting, ClusteredRouting, IgnoreRegions, UseLeesAlgorithm,
+    /// InvisibilityGrph, SelectiveReroute, PartialFeedback,
+    /// RubberBandRouting.
+    #[wasm_bindgen(js_name = flagMember)]
+    pub fn flag_member(&self, index: u32) -> bool {
+        let r = &self.router;
+        match index {
+            0 => r.partial_time,
+            1 => r.simple_routing,
+            2 => r.clustered_routing,
+            3 => r.ignore_regions,
+            4 => r.use_lees_algorithm,
+            5 => r.invisibility_grph,
+            6 => r.selective_reroute,
+            7 => r.partial_feedback,
+            _ => r.rubber_band_routing,
+        }
+    }
+
+    #[wasm_bindgen(js_name = setFlagMember)]
+    pub fn set_flag_member(&mut self, index: u32, value: bool) {
+        let r = &mut self.router;
+        match index {
+            0 => r.partial_time = value,
+            1 => r.simple_routing = value,
+            2 => r.clustered_routing = value,
+            3 => r.ignore_regions = value,
+            4 => r.use_lees_algorithm = value,
+            5 => r.invisibility_grph = value,
+            6 => r.selective_reroute = value,
+            7 => r.partial_feedback = value,
+            _ => r.rubber_band_routing = value,
+        }
+    }
+
+    #[wasm_bindgen(js_name = stCheckedEdges)]
+    pub fn st_checked_edges(&self) -> i32 {
+        self.router.st_checked_edges
+    }
+
+    #[wasm_bindgen(js_name = setStCheckedEdges)]
+    pub fn set_st_checked_edges(&mut self, value: i32) {
+        self.router.st_checked_edges = value;
+    }
+
+    /// Keys of `m_obstacles` (list order).
+    pub fn obstacles(&mut self) -> Vec<u32> {
+        let list = self.router.m_obstacles.clone();
+        list.into_iter().map(|o| self.key_obstacle(o)).collect()
+    }
+
+    /// Keys of `connRefs` (list order).
+    #[wasm_bindgen(js_name = connRefs)]
+    pub fn conn_refs(&mut self) -> Vec<u32> {
+        let list = self.router.conn_refs.clone();
+        list.into_iter().map(|c| self.key(Obj::Conn(c))).collect()
+    }
+
+    /// Keys of `clusterRefs` (list order).
+    #[wasm_bindgen(js_name = clusterRefs)]
+    pub fn cluster_refs(&mut self) -> Vec<u32> {
+        let list = self.router.cluster_refs.clone();
+        list.into_iter().map(|c| self.key(Obj::Cluster(c))).collect()
+    }
+
+    /// `ReferencingPolygon(poly, router)`: per point `anchorKey, vn, x, y,
+    /// id, vn` (see `clusterPolygon`), preceded by `_id`.
+    #[wasm_bindgen(js_name = referencingPolygon)]
+    pub fn referencing_polygon(&mut self, poly: Vec<f64>) -> Res<Vec<f64>> {
+        let p = dec_poly(&poly)?;
+        for q in &p.ps {
+            if q.id != 0 && !self.router.m_obstacles.iter().any(|&o| self.router.obstacles[o].m_id == q.id) {
+                return err(&format!("point id {} names no obstacle of the router (COLA_ASSERT(polyPtr != nullptr))", q.id));
+            }
+        }
+        let rp = ReferencingPolygon::from_polygon(&p, self.router.obstacle_id_list());
+        Ok(self.enc_referencing(&rp))
+    }
+
+    // --- hyperedge rerouter -----------------------------------------------------
+
+    #[wasm_bindgen(js_name = registerHyperedgeForReroutingTerminals)]
+    pub fn register_hyperedge_for_rerouting_terminals(&mut self, ends: Vec<f64>) -> Res<u32> {
+        if ends.len() % 10 != 0 {
+            return err("malformed ConnEnd list");
+        }
+        let mut list = Vec::with_capacity(ends.len() / 10);
+        for i in (0..ends.len()).step_by(10) {
+            list.push(self.dec_conn_end(&ends, i)?);
+        }
+        Ok(self.router.hyperedge_rerouter().register_hyperedge_for_rerouting(list) as u32)
+    }
+
     #[wasm_bindgen(js_name = registerHyperedgeForReroutingJunction)]
-    pub fn register_hyperedge_for_rerouting_junction(&mut self, junction_id: String) -> Option<u32> {
-        let j = self.junction(&junction_id)?;
-        Some(self.router.hyperedge_rerouter().register_hyperedge_for_rerouting_junction(j) as u32)
+    pub fn register_hyperedge_for_rerouting_junction(&mut self, junction: u32) -> Res<u32> {
+        let j = self.junction(junction)?;
+        Ok(self.router.hyperedge_rerouter().register_hyperedge_for_rerouting_junction(j) as u32)
     }
 
-    /// `hyperedgeRerouter()->registerHyperedgeForRerouting(terminals)` with
-    /// raw ConnEnds in parallel arrays.  Refused (undefined) unless there are
-    /// at least 3 distinct shape-pin / junction terminals and every shape-pin
-    /// terminal has a pin of its class: otherwise upstream's rerouting
-    /// dereferences a null vertex / tree root (abort).
-    #[wasm_bindgen(js_name = registerHyperedgeForRerouting)]
-    pub fn register_hyperedge_for_rerouting(
-        &mut self,
-        kinds: Vec<f64>,
-        object_ids: Vec<String>,
-        pin_ids: Vec<String>,
-        xs: Vec<f64>,
-        ys: Vec<f64>,
-        nums: Vec<f64>,
-    ) -> Option<u32> {
-        let n = kinds.len();
-        if [object_ids.len(), pin_ids.len(), xs.len(), ys.len(), nums.len()].iter().any(|&l| l != n) {
-            return None;
-        }
-        let mut ends = Vec::with_capacity(n);
-        for i in 0..n {
-            let e = self.conn_end(RawEnd { kind: kinds[i], object_id: &object_ids[i], pin_id: &pin_ids[i], x: xs[i], y: ys[i], num: nums[i] })?;
-            // Free-point terminals can leave the minimum terminal spanning
-            // tree disconnected (null tree root, which upstream asserts and
-            // then dereferences): refused.
-            if e.type_() == ConnEndType::ConnEndPoint {
-                return None;
-            }
-            // Duplicate terminals collapse onto one vertex (same failure).
-            if ends.iter().any(|x: &ConnEnd| x.m_anchor_obj == e.m_anchor_obj && x.pin_class_id() == e.pin_class_id()) {
-                return None;
-            }
-            if e.type_() == ConnEndType::ConnEndShapePin {
-                let o = e.m_anchor_obj?;
-                let has_pin = self.router.obstacles[o]
-                    .m_connection_pins
-                    .iter()
-                    .any(|&p| self.router.pins[p].m_class_id == e.pin_class_id());
-                if !has_pin {
-                    return None;
-                }
-            }
-            ends.push(e);
-        }
-        // Fewer than three terminals need no junction: upstream's MTST then
-        // has no root junction and performRerouting() dereferences null.
-        if ends.len() < 3 {
-            return None;
-        }
-        Some(self.router.hyperedge_rerouter().register_hyperedge_for_rerouting(ends) as u32)
-    }
-
-    /// `hyperedgeRerouter()->count()` (registrations pending for the next
-    /// transaction).
-    #[wasm_bindgen(js_name = hyperedgeReroutingCount)]
-    pub fn hyperedge_rerouting_count(&self) -> u32 {
+    #[wasm_bindgen(js_name = hyperedgeCount)]
+    pub fn hyperedge_count(&self) -> u32 {
         self.router.m_hyperedge_rerouter.count() as u32
     }
 
-    /// `hyperedgeRerouter()->newAndDeletedObjectLists(index)` as recorded at
-    /// the end of the last transaction; `null` for an unknown index.
     #[wasm_bindgen(js_name = hyperedgeNewAndDeletedObjectLists)]
-    pub fn hyperedge_new_and_deleted_object_lists(&self, index: f64) -> String {
-        let Some(results) = &self.hyperedge_results else {
-            return "null".into();
-        };
-        opt_json(as_u32(index).and_then(|i| results.get(i as usize)).map(|l| l.to_json()))
+    pub fn hyperedge_new_and_deleted_object_lists(&mut self, index: f64) -> Vec<u32> {
+        let l = self.router.m_hyperedge_rerouter.new_and_deleted_object_lists(index as usize);
+        self.enc_lists(&l)
     }
 
-    /// `Router::newAndDeletedObjectListsFromHyperedgeImprovement()` (as of
-    /// the last transaction that ran the improver).
-    #[wasm_bindgen(js_name = newAndDeletedObjectListsFromHyperedgeImprovement)]
-    pub fn new_and_deleted_object_lists_from_hyperedge_improvement(&self) -> String {
-        self.improvement_results.to_json()
+    // --- Obstacle / ShapeRef / JunctionRef --------------------------------------
+
+    #[wasm_bindgen(js_name = shapeNew)]
+    pub fn shape_new(&mut self, poly: Vec<f64>, id: u32) -> Res<u32> {
+        let p = dec_poly(&poly)?;
+        let id = self.check_id(id)?;
+        let s = ShapeRef::new(&mut self.router, &p, id);
+        Ok(self.key(Obj::Shape(s.0)))
+    }
+
+    #[wasm_bindgen(js_name = obstacleId)]
+    pub fn obstacle_id(&self, key: u32) -> Res<u32> {
+        let o = self.obstacle(key)?;
+        Ok(self.router.obstacles[o].m_id)
+    }
+
+    #[wasm_bindgen(js_name = obstaclePolygon)]
+    pub fn obstacle_polygon(&self, key: u32) -> Res<Vec<f64>> {
+        let o = self.obstacle(key)?;
+        Ok(enc_poly(&self.router.obstacles[o].m_polygon))
+    }
+
+    #[wasm_bindgen(js_name = obstaclePosition)]
+    pub fn obstacle_position(&self, key: u32) -> Res<Vec<f64>> {
+        let o = self.obstacle(key)?;
+        Ok(enc_point(&Obstacle::position(&self.router, o)))
+    }
+
+    #[wasm_bindgen(js_name = obstacleSetNewPoly)]
+    pub fn obstacle_set_new_poly(&mut self, key: u32, poly: Vec<f64>) -> Res<()> {
+        let o = self.obstacle(key)?;
+        let p = dec_poly(&poly)?;
+        if self.router.obstacles[o].m_polygon.size() != p.size() {
+            return err("the new polygon must have as many points as the old one (COLA_ASSERT(m_polygon.size() == poly.size()))");
+        }
+        self.check_obstacle_out_of_graph(o)?;
+        Obstacle::set_new_poly(&mut self.router, o, &p);
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = obstacleRoutingBox)]
+    pub fn obstacle_routing_box(&self, key: u32) -> Res<Vec<f64>> {
+        let o = self.obstacle(key)?;
+        Ok(enc_box(&Obstacle::routing_box(&self.router, o)))
+    }
+
+    #[wasm_bindgen(js_name = obstacleRoutingPolygon)]
+    pub fn obstacle_routing_polygon(&self, key: u32) -> Res<Vec<f64>> {
+        let o = self.obstacle(key)?;
+        Ok(enc_poly(&Obstacle::routing_polygon(&self.router, o)))
+    }
+
+    #[wasm_bindgen(js_name = obstacleAttachedConnectors)]
+    pub fn obstacle_attached_connectors(&mut self, key: u32) -> Res<Vec<u32>> {
+        let o = self.obstacle(key)?;
+        let cs = Obstacle::attached_connectors(&self.router, o);
+        Ok(self.conn_keys(&cs))
+    }
+
+    #[wasm_bindgen(js_name = shapeTransformConnectionPinPositions)]
+    pub fn shape_transform_connection_pin_positions(&mut self, key: u32, transform: u32) -> Res<()> {
+        let s = self.shape(key)?;
+        let t = *TRANSFORMS
+            .get(transform as usize)
+            .ok_or_else(|| JsError::new("ShapeTransformationType out of range"))?;
+        s.transform_connection_pin_positions(&mut self.router, t);
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = junctionNew)]
+    pub fn junction_new(&mut self, x: f64, y: f64, id: u32) -> Res<u32> {
+        let id = self.check_id(id)?;
+        let j = JunctionRef::new(&mut self.router, pt(x, y), id);
+        Ok(self.key(Obj::Junction(j.0)))
+    }
+
+    /// Key of the merged connector, or 0.
+    #[wasm_bindgen(js_name = junctionRemoveJunctionAndMergeConnectors)]
+    pub fn junction_remove_junction_and_merge_connectors(&mut self, key: u32) -> Res<u32> {
+        let j = self.junction(key)?;
+        Ok(match j.remove_junction_and_merge_connectors(&mut self.router) {
+            Some(c) => self.key(Obj::Conn(c)),
+            None => 0,
+        })
+    }
+
+    #[wasm_bindgen(js_name = junctionSetPositionFixed)]
+    pub fn junction_set_position_fixed(&mut self, key: u32, fixed: bool) -> Res<()> {
+        let j = self.junction(key)?;
+        j.set_position_fixed(&mut self.router, fixed);
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = junctionPositionFixed)]
+    pub fn junction_position_fixed(&self, key: u32) -> Res<bool> {
+        Ok(self.junction(key)?.position_fixed(&self.router))
+    }
+
+    #[wasm_bindgen(js_name = junctionRecommendedPosition)]
+    pub fn junction_recommended_position(&self, key: u32) -> Res<Vec<f64>> {
+        Ok(enc_point(&self.junction(key)?.recommended_position(&self.router)))
+    }
+
+    /// `JunctionRef::makeRectangle(this router, position)`.
+    #[wasm_bindgen(js_name = junctionMakeRectangle)]
+    pub fn junction_make_rectangle(&self, x: f64, y: f64, id: u32, vn: u32) -> Vec<f64> {
+        let p = Point { x, y, id, vn: vn as u16 };
+        enc_poly(&JunctionRef::make_rectangle(&self.router, &p))
+    }
+
+    #[wasm_bindgen(js_name = junctionPreferOrthogonalDimension)]
+    pub fn junction_prefer_orthogonal_dimension(&mut self, key: u32, dim: f64) -> Res<()> {
+        let j = self.junction(key)?;
+        j.prefer_orthogonal_dimension(&mut self.router, dim as usize);
+        Ok(())
+    }
+
+    // --- ConnRef ------------------------------------------------------------------
+
+    #[wasm_bindgen(js_name = connNew)]
+    pub fn conn_new(&mut self, id: u32) -> Res<u32> {
+        let id = self.check_id(id)?;
+        let c = ConnRef::new(&mut self.router, id);
+        Ok(self.key(Obj::Conn(c)))
+    }
+
+    #[wasm_bindgen(js_name = connNewWithEnds)]
+    pub fn conn_new_with_ends(&mut self, ends: Vec<f64>, id: u32) -> Res<u32> {
+        let s = self.dec_conn_end(&ends, 0)?;
+        let d = self.dec_conn_end(&ends, 10)?;
+        let id = self.check_id(id)?;
+        let c = ConnRef::new_with_ends(&mut self.router, &s, &d, id);
+        Ok(self.key(Obj::Conn(c)))
+    }
+
+    /// `which`: 0 = setEndpoints(src, dst), 1 = setSourceEndpoint,
+    /// 2 = setDestEndpoint, 3 = setEndpoint(VertID::src, end), 4 =
+    /// setEndpoint(VertID::tar, end).
+    #[wasm_bindgen(js_name = connSetEnds)]
+    pub fn conn_set_ends(&mut self, key: u32, which: u32, ends: Vec<f64>) -> Res<()> {
+        let c = self.conn(key)?;
+        let a = self.dec_conn_end(&ends, 0)?;
+        match which {
+            0 => {
+                let b = self.dec_conn_end(&ends, 10)?;
+                c.set_endpoints(&mut self.router, &a, &b);
+            }
+            1 => c.set_source_endpoint(&mut self.router, &a),
+            2 => c.set_dest_endpoint(&mut self.router, &a),
+            3 => c.set_endpoint(&mut self.router, 1, &a),
+            _ => c.set_endpoint(&mut self.router, 2, &a),
+        }
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = connId)]
+    pub fn conn_id(&self, key: u32) -> Res<u32> {
+        Ok(self.conn(key)?.id(&self.router))
+    }
+
+    #[wasm_bindgen(js_name = connNeedsRepaint)]
+    pub fn conn_needs_repaint(&self, key: u32) -> Res<bool> {
+        Ok(self.conn(key)?.needs_repaint(&self.router))
+    }
+
+    #[wasm_bindgen(js_name = connRoute)]
+    pub fn conn_route(&self, key: u32) -> Res<Vec<f64>> {
+        Ok(enc_poly(self.conn(key)?.route(&self.router)))
+    }
+
+    #[wasm_bindgen(js_name = connDisplayRoute)]
+    pub fn conn_display_route(&mut self, key: u32) -> Res<Vec<f64>> {
+        let c = self.conn(key)?;
+        Ok(enc_poly(c.display_route(&mut self.router)))
+    }
+
+    /// Display route as `x0, y0, x1, y1, ...` only (hot path for the
+    /// adapter when the caller wants just the coordinates).
+    #[wasm_bindgen(js_name = connDisplayRouteXY)]
+    pub fn conn_display_route_xy(&mut self, key: u32) -> Res<Vec<f64>> {
+        let c = self.conn(key)?;
+        Ok(c.display_route(&mut self.router).ps.iter().flat_map(|p| [p.x, p.y]).collect())
+    }
+
+    /// Installs (`on`) or removes the core callback that records this
+    /// connector for `takeCallbacks()`.
+    #[wasm_bindgen(js_name = connSetCallback)]
+    pub fn conn_set_callback(&mut self, key: u32, on: bool) -> Res<()> {
+        let c = self.conn(key)?;
+        if on {
+            let log = self.callbacks.clone();
+            c.set_callback(&mut self.router, Some(std::boxed::Box::new(move |conn| log.borrow_mut().push(conn))));
+        } else {
+            c.set_callback(&mut self.router, None);
+        }
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = connRoutingType)]
+    pub fn conn_routing_type(&self, key: u32) -> Res<u32> {
+        Ok(self.conn(key)?.routing_type(&self.router) as u32)
+    }
+
+    #[wasm_bindgen(js_name = connSetRoutingType)]
+    pub fn conn_set_routing_type(&mut self, key: u32, type_: u32) -> Res<()> {
+        let c = self.conn(key)?;
+        let t = conn_type_of(type_)?;
+        c.set_routing_type(&mut self.router, t);
+        Ok(())
+    }
+
+    /// `[junctionKey, connKey]` (0 = nullptr).
+    #[wasm_bindgen(js_name = connSplitAtSegment)]
+    pub fn conn_split_at_segment(&mut self, key: u32, segment_n: f64) -> Res<Vec<u32>> {
+        let c = self.conn(key)?;
+        let (j, nc) = c.split_at_segment(&mut self.router, segment_n as usize);
+        let jk = match j {
+            Some(j) => self.key(Obj::Junction(j.0)),
+            None => 0,
+        };
+        let ck = match nc {
+            Some(nc) => self.key(Obj::Conn(nc)),
+            None => 0,
+        };
+        Ok(vec![jk, ck])
+    }
+
+    #[wasm_bindgen(js_name = connSetRoutingCheckpoints)]
+    pub fn conn_set_routing_checkpoints(&mut self, key: u32, cps: Vec<f64>) -> Res<()> {
+        let c = self.conn(key)?;
+        if cps.len() % 6 != 0 {
+            return err("malformed Checkpoint list");
+        }
+        let mut list = Vec::with_capacity(cps.len() / 6);
+        for i in (0..cps.len()).step_by(6) {
+            let p = point_at(&cps, i)?;
+            list.push(Checkpoint::with_directions(p, dirs_of(cps[i + 4])?, dirs_of(cps[i + 5])?));
+        }
+        c.set_routing_checkpoints(&mut self.router, &list);
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = connRoutingCheckpoints)]
+    pub fn conn_routing_checkpoints(&self, key: u32) -> Res<Vec<f64>> {
+        Ok(RawRouter::enc_checkpoints(&self.conn(key)?.routing_checkpoints(&self.router)))
+    }
+
+    #[wasm_bindgen(js_name = connEndpointConnEnds)]
+    pub fn conn_endpoint_conn_ends(&mut self, key: u32) -> Res<Vec<f64>> {
+        let c = self.conn(key)?;
+        let (s, d) = c.endpoint_conn_ends(&self.router);
+        let mut out = Vec::with_capacity(20);
+        self.enc_conn_end(&s, &mut out);
+        self.enc_conn_end(&d, &mut out);
+        Ok(out)
+    }
+
+    #[wasm_bindgen(js_name = connSetFixedRoute)]
+    pub fn conn_set_fixed_route(&mut self, key: u32, route: Vec<f64>) -> Res<()> {
+        let c = self.conn(key)?;
+        let p = dec_poly(&route)?;
+        c.set_fixed_route(&mut self.router, &p);
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = connSetFixedExistingRoute)]
+    pub fn conn_set_fixed_existing_route(&mut self, key: u32) -> Res<()> {
+        let c = self.conn(key)?;
+        c.set_fixed_existing_route(&mut self.router);
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = connHasFixedRoute)]
+    pub fn conn_has_fixed_route(&self, key: u32) -> Res<bool> {
+        Ok(self.conn(key)?.has_fixed_route(&self.router))
+    }
+
+    #[wasm_bindgen(js_name = connClearFixedRoute)]
+    pub fn conn_clear_fixed_route(&mut self, key: u32) -> Res<()> {
+        let c = self.conn(key)?;
+        c.clear_fixed_route(&mut self.router);
+        Ok(())
+    }
+
+    /// `ConnRef::set_route()`.
+    #[wasm_bindgen(js_name = connSetRoute)]
+    pub fn conn_set_route(&mut self, key: u32, route: Vec<f64>) -> Res<()> {
+        let c = self.conn(key)?;
+        let p = dec_poly(&route)?;
+        self.router.conns[c].set_route(&p);
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = connCalcRouteDist)]
+    pub fn conn_calc_route_dist(&mut self, key: u32) -> Res<()> {
+        let c = self.conn(key)?;
+        self.router.conns[c].calc_route_dist();
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = connMakeActive)]
+    pub fn conn_make_active(&mut self, key: u32) -> Res<()> {
+        let c = self.conn(key)?;
+        if self.router.conns[c].m_active {
+            return err("the connector is already active (COLA_ASSERT(!m_active))");
+        }
+        ConnRef::make_active(&mut self.router, c);
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = connMakeInactive)]
+    pub fn conn_make_inactive(&mut self, key: u32) -> Res<()> {
+        let c = self.conn(key)?;
+        if !self.router.conns[c].m_active {
+            return err("the connector is not active (COLA_ASSERT(m_active))");
+        }
+        ConnRef::make_inactive(&mut self.router, c);
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = connRemoveFromGraph)]
+    pub fn conn_remove_from_graph(&mut self, key: u32) -> Res<()> {
+        let c = self.conn(key)?;
+        ConnRef::remove_from_graph(&mut self.router, c);
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = connIsInitialised)]
+    pub fn conn_is_initialised(&self, key: u32) -> Res<bool> {
+        let c = self.conn(key)?;
+        Ok(self.router.conns[c].is_initialised())
+    }
+
+    #[wasm_bindgen(js_name = connMakePathInvalid)]
+    pub fn conn_make_path_invalid(&mut self, key: u32) -> Res<()> {
+        let c = self.conn(key)?;
+        self.router.conns[c].make_path_invalid();
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = connSetHateCrossings)]
+    pub fn conn_set_hate_crossings(&mut self, key: u32, value: bool) -> Res<()> {
+        let c = self.conn(key)?;
+        c.set_hate_crossings(&mut self.router, value);
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = connDoesHateCrossings)]
+    pub fn conn_does_hate_crossings(&self, key: u32) -> Res<bool> {
+        Ok(self.conn(key)?.does_hate_crossings(&self.router))
+    }
+
+    /// `x, y, id, vn` per point.
+    #[wasm_bindgen(js_name = connPossibleDstPinPoints)]
+    pub fn conn_possible_dst_pin_points(&self, key: u32) -> Res<Vec<f64>> {
+        let ps = self.conn(key)?.possible_dst_pin_points(&self.router);
+        let mut out = Vec::with_capacity(4 * ps.len());
+        for p in &ps {
+            push_point(&mut out, p);
+        }
+        Ok(out)
+    }
+
+    // --- ConnEnd ------------------------------------------------------------------
+
+    /// `ConnEnd(shapeRef, classId)` (the position is the shape's now).
+    #[wasm_bindgen(js_name = connEndShape)]
+    pub fn conn_end_shape(&mut self, shape: u32, class_id: u32) -> Res<Vec<f64>> {
+        let s = self.shape(shape)?;
+        if class_id == 0 || class_id == CONNECTIONPIN_UNSET {
+            return err("connectionPinClassID must be > 0 and != CONNECTIONPIN_UNSET (COLA_ASSERT)");
+        }
+        let ce = ConnEnd::from_shape_pin(&self.router, s, class_id);
+        let mut out = Vec::with_capacity(10);
+        self.enc_conn_end(&ce, &mut out);
+        Ok(out)
+    }
+
+    #[wasm_bindgen(js_name = connEndJunction)]
+    pub fn conn_end_junction(&mut self, junction: u32) -> Res<Vec<f64>> {
+        let j = self.junction(junction)?;
+        let ce = ConnEnd::from_junction(&self.router, j);
+        let mut out = Vec::with_capacity(10);
+        self.enc_conn_end(&ce, &mut out);
+        Ok(out)
+    }
+
+    /// `ConnEnd::position()` as `x, y, id, vn`, then `directions()`.
+    #[wasm_bindgen(js_name = connEndQuery)]
+    pub fn conn_end_query(&self, end: Vec<f64>) -> Res<Vec<f64>> {
+        let ce = self.dec_conn_end(&end, 0)?;
+        let mut out = enc_point(&ce.position(&self.router));
+        out.push(ce.directions(&self.router) as f64);
+        Ok(out)
+    }
+
+    // --- ShapeConnectionPin ---------------------------------------------------------
+
+    #[wasm_bindgen(js_name = pinNewShape)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn pin_new_shape(
+        &mut self,
+        shape: u32,
+        class_id: u32,
+        x_offset: f64,
+        y_offset: f64,
+        proportional: bool,
+        inside_offset: f64,
+        vis_dirs: f64,
+    ) -> Res<u32> {
+        let s = self.shape(shape)?;
+        if class_id == 0 {
+            return err("classId must be > 0 (COLA_ASSERT(m_class_id > 0))");
+        }
+        let d = dirs_of(vis_dirs)?;
+        let p = ShapeConnectionPin::new_shape(&mut self.router, s, class_id, x_offset, y_offset, proportional, inside_offset, d);
+        Ok(self.key(Obj::Pin(p)))
+    }
+
+    /// The six-argument constructor (no `proportional` argument).
+    #[wasm_bindgen(js_name = pinNewShapeNoProportional)]
+    pub fn pin_new_shape_no_proportional(
+        &mut self,
+        shape: u32,
+        class_id: u32,
+        x_offset: f64,
+        y_offset: f64,
+        inside_offset: f64,
+        vis_dirs: f64,
+    ) -> Res<u32> {
+        let s = self.shape(shape)?;
+        if class_id == 0 {
+            return err("classId must be > 0 (COLA_ASSERT(m_class_id > 0))");
+        }
+        let d = dirs_of(vis_dirs)?;
+        let p = ShapeConnectionPin::new_shape_proportional(&mut self.router, s, class_id, x_offset, y_offset, inside_offset, d);
+        Ok(self.key(Obj::Pin(p)))
+    }
+
+    #[wasm_bindgen(js_name = pinNewJunction)]
+    pub fn pin_new_junction(&mut self, junction: u32, class_id: u32, vis_dirs: f64) -> Res<u32> {
+        let j = self.junction(junction)?;
+        let d = dirs_of(vis_dirs)?;
+        let p = ShapeConnectionPin::new_junction(&mut self.router, j, class_id, d);
+        Ok(self.key(Obj::Pin(p)))
+    }
+
+    /// `delete pin`.
+    #[wasm_bindgen(js_name = pinDelete)]
+    pub fn pin_delete(&mut self, key: u32) -> Res<()> {
+        let p = self.pin(key)?;
+        ShapeConnectionPin::delete(&mut self.router, p);
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = pinSetConnectionCost)]
+    pub fn pin_set_connection_cost(&mut self, key: u32, cost: f64) -> Res<()> {
+        let p = self.pin(key)?;
+        if !(cost >= 0.0) {
+            return err("cost must be >= 0 (COLA_ASSERT(cost >= 0))");
+        }
+        p.set_connection_cost(&mut self.router, cost);
+        Ok(())
+    }
+
+    /// `position(newPoly)`; an empty `newPoly` means the default argument.
+    #[wasm_bindgen(js_name = pinPosition)]
+    pub fn pin_position(&self, key: u32, new_poly: Vec<f64>) -> Res<Vec<f64>> {
+        let p = self.pin(key)?;
+        let poly = dec_poly(&new_poly)?;
+        Ok(enc_point(&self.router.pins[p].position(&self.router, Some(&poly))))
+    }
+
+    #[wasm_bindgen(js_name = pinDirections)]
+    pub fn pin_directions(&self, key: u32) -> Res<u32> {
+        Ok(self.pin(key)?.directions(&self.router))
+    }
+
+    #[wasm_bindgen(js_name = pinSetExclusive)]
+    pub fn pin_set_exclusive(&mut self, key: u32, exclusive: bool) -> Res<()> {
+        let p = self.pin(key)?;
+        p.set_exclusive(&mut self.router, exclusive);
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = pinIsExclusive)]
+    pub fn pin_is_exclusive(&self, key: u32) -> Res<bool> {
+        Ok(self.pin(key)?.is_exclusive(&self.router))
+    }
+
+    #[wasm_bindgen(js_name = pinIds)]
+    pub fn pin_ids(&self, key: u32) -> Res<Vec<u32>> {
+        let (a, b) = self.pin(key)?.ids(&self.router);
+        Ok(vec![a, b])
+    }
+
+    /// `0`: `operator==`, `1`: `operator<`.
+    #[wasm_bindgen(js_name = pinCompare)]
+    pub fn pin_compare(&self, lhs: u32, rhs: u32, less: bool) -> Res<bool> {
+        let (a, b) = (self.pin(lhs)?, self.pin(rhs)?);
+        let pins = &self.router.pins;
+        Ok(if less {
+            pins[a].less_than(&pins[b], &self.router.obstacles)
+        } else {
+            pins[a].equals(&pins[b], &self.router.obstacles)
+        })
+    }
+
+    // --- ClusterRef -------------------------------------------------------------------
+
+    #[wasm_bindgen(js_name = clusterNew)]
+    pub fn cluster_new(&mut self, poly: Vec<f64>, id: u32) -> Res<u32> {
+        let p = dec_poly(&poly)?;
+        self.check_referencing(&p)?;
+        let id = self.check_id(id)?;
+        let c = ClusterRef::new(&mut self.router, &p, id);
+        Ok(self.key(Obj::Cluster(c)))
+    }
+
+    #[wasm_bindgen(js_name = clusterSetNewPoly)]
+    pub fn cluster_set_new_poly(&mut self, key: u32, poly: Vec<f64>) -> Res<()> {
+        let c = self.cluster(key)?;
+        let p = dec_poly(&poly)?;
+        self.check_referencing(&p)?;
+        c.set_new_poly(&mut self.router, &p);
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = clusterId)]
+    pub fn cluster_id(&self, key: u32) -> Res<u32> {
+        Ok(self.cluster(key)?.id(&self.router))
+    }
+
+    /// `polygon()` as `_id, n, (anchorKey, vn, x, y, id, vn) * n`: the
+    /// `psRef` pair and the `psPoints` entry of each point.
+    #[wasm_bindgen(js_name = clusterPolygon)]
+    pub fn cluster_polygon(&mut self, key: u32) -> Res<Vec<f64>> {
+        let c = self.cluster(key)?;
+        let rp = self.router.clusters[c].polygon().clone();
+        Ok(self.enc_referencing(&rp))
+    }
+
+    #[wasm_bindgen(js_name = clusterRectangularPolygon)]
+    pub fn cluster_rectangular_polygon(&self, key: u32) -> Res<Vec<f64>> {
+        Ok(enc_poly(self.cluster(key)?.rectangular_polygon(&self.router)))
+    }
+
+    #[wasm_bindgen(js_name = clusterMakeActive)]
+    pub fn cluster_make_active(&mut self, key: u32) -> Res<()> {
+        let c = self.cluster(key)?;
+        if self.router.clusters[c].m_active {
+            return err("the cluster is already active (COLA_ASSERT(!m_active))");
+        }
+        ClusterRef::make_active(&mut self.router, c);
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = clusterMakeInactive)]
+    pub fn cluster_make_inactive(&mut self, key: u32) -> Res<()> {
+        let c = self.cluster(key)?;
+        if !self.router.clusters[c].m_active {
+            return err("the cluster is not active (COLA_ASSERT(m_active))");
+        }
+        ClusterRef::make_inactive(&mut self.router, c);
+        Ok(())
     }
 }
 
-/// `Polygon(points).curvedPolyline(curveAmount, closed)`; `{points,
-/// commands}` JSON or `null` for invalid input.
-#[wasm_bindgen(js_name = curvedPolyline)]
-pub fn curved_polyline(coordinates: Vec<f64>, curve_amount: f64, closed: Option<bool>) -> String {
-    let Some(ps) = point_list(&coordinates) else {
-        return "null".into();
-    };
-    if !curve_amount.is_finite() {
-        return "null".into();
+impl RawRouter {
+    fn check_referencing(&self, p: &Polygon) -> Res<()> {
+        for q in &p.ps {
+            if q.id != 0 && !self.router.m_obstacles.iter().any(|&o| self.router.obstacles[o].m_id == q.id) {
+                return err(&format!("point id {} names no obstacle of the router (COLA_ASSERT(polyPtr != nullptr))", q.id));
+            }
+        }
+        Ok(())
     }
-    let mut poly = Polygon::new();
-    poly.ps = ps;
-    AvoidRouter::curved_json(&poly.curved_polyline(curve_amount, closed.unwrap_or(false)))
+
+    fn enc_referencing(&mut self, rp: &ReferencingPolygon) -> Vec<f64> {
+        let mut out = Vec::with_capacity(2 + 6 * rp.ps_ref.len());
+        out.push(rp._id as f64);
+        out.push(rp.ps_ref.len() as f64);
+        for (i, (anchor, vn)) in rp.ps_ref.iter().enumerate() {
+            let k = self.opt_key_obstacle(*anchor);
+            out.push(k as f64);
+            out.push(*vn as f64);
+            push_point(&mut out, &rp.ps_points[i]);
+        }
+        out
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Free functions (geometry, polygon methods)
+// ---------------------------------------------------------------------------
+
+#[wasm_bindgen(js_name = polySimplify)]
+pub fn poly_simplify(poly: Vec<f64>) -> Res<Vec<f64>> {
+    Ok(enc_poly(&dec_poly(&poly)?.simplify()))
+}
+
+#[wasm_bindgen(js_name = polyCurvedPolyline)]
+pub fn poly_curved_polyline(poly: Vec<f64>, curve_amount: f64, closed: bool) -> Res<Vec<f64>> {
+    Ok(enc_poly(&dec_poly(&poly)?.curved_polyline(curve_amount, closed)))
+}
+
+/// `x, y, id, vn` per point.
+#[wasm_bindgen(js_name = polyCheckpointsOnSegment)]
+pub fn poly_checkpoints_on_segment(poly: Vec<f64>, segment_lower_index: f64, index_modifier: i32) -> Res<Vec<f64>> {
+    let ps = dec_poly(&poly)?.checkpoints_on_segment(segment_lower_index as usize, index_modifier);
+    let mut out = Vec::with_capacity(4 * ps.len());
+    for p in &ps {
+        push_point(&mut out, p);
+    }
+    Ok(out)
+}
+
+#[wasm_bindgen(js_name = polyBoundingRectPolygon)]
+pub fn poly_bounding_rect_polygon(poly: Vec<f64>) -> Res<Vec<f64>> {
+    Ok(enc_poly(&dec_poly(&poly)?.bounding_rect_polygon()))
+}
+
+#[wasm_bindgen(js_name = polyOffsetBoundingBox)]
+pub fn poly_offset_bounding_box(poly: Vec<f64>, offset: f64) -> Res<Vec<f64>> {
+    Ok(enc_box(&dec_poly(&poly)?.offset_bounding_box(offset)))
+}
+
+#[wasm_bindgen(js_name = polyOffsetPolygon)]
+pub fn poly_offset_polygon(poly: Vec<f64>, offset: f64) -> Res<Vec<f64>> {
+    Ok(enc_poly(&dec_poly(&poly)?.offset_polygon(offset)))
+}
+
+/// `Rectangle(topLeft, bottomRight)` (`centre` = false) or
+/// `Rectangle(centre, width, height)`.
+#[wasm_bindgen(js_name = rectangle)]
+pub fn rectangle(centre: bool, a: f64, b: f64, c: f64, d: f64) -> Vec<f64> {
+    enc_poly(&if centre { Rectangle::from_centre(&pt(a, b), c, d) } else { Rectangle::new(&pt(a, b), &pt(c, d)) })
+}
+
+/// Points of the geometry functions: `x, y` pairs in `ps`.
+fn gp(ps: &[f64], i: usize) -> Point {
+    pt(ps[2 * i], ps[2 * i + 1])
+}
+
+/// The free functions of upstream `geometry.h` (`which` selects one; the
+/// adapter documents each).  Returns `[result, out1, out2]`.
+#[wasm_bindgen(js_name = geometry)]
+pub fn geometry_fn(which: u32, ps: Vec<f64>, a: f64, b: f64) -> Res<Vec<f64>> {
+    let need = |n: usize| -> Res<()> {
+        if ps.len() < 2 * n {
+            err("geometry: too few points")
+        } else {
+            Ok(())
+        }
+    };
+    let bool_ = |v: bool| vec![v as u8 as f64];
+    Ok(match which {
+        0 => {
+            need(2)?;
+            vec![geometry::euclidean_dist(&gp(&ps, 0), &gp(&ps, 1))]
+        }
+        1 => {
+            need(2)?;
+            vec![geometry::manhattan_dist(&gp(&ps, 0), &gp(&ps, 1))]
+        }
+        2 => {
+            let mut poly = Polygon::new();
+            poly.ps = (0..ps.len() / 2).map(|i| gp(&ps, i)).collect();
+            vec![geometry::total_length(&poly)]
+        }
+        3 => {
+            need(3)?;
+            vec![geometry::angle(&gp(&ps, 0), &gp(&ps, 1), &gp(&ps, 2))]
+        }
+        4 => {
+            need(4)?;
+            bool_(geometry::segment_intersect(&gp(&ps, 0), &gp(&ps, 1), &gp(&ps, 2), &gp(&ps, 3)))
+        }
+        5 => {
+            need(4)?;
+            let mut seen = a != 0.0;
+            let r = geometry::segment_shape_intersect(&gp(&ps, 0), &gp(&ps, 1), &gp(&ps, 2), &gp(&ps, 3), &mut seen);
+            vec![r as u8 as f64, seen as u8 as f64]
+        }
+        6 => {
+            // inPoly(poly, q, countBorder): the last point is q.
+            need(1)?;
+            let n = ps.len() / 2 - 1;
+            let mut poly = Polygon::new();
+            poly.ps = (0..n).map(|i| gp(&ps, i)).collect();
+            bool_(geometry::in_poly(&poly, &gp(&ps, n), a != 0.0))
+        }
+        7 => {
+            need(1)?;
+            let n = ps.len() / 2 - 1;
+            let mut poly = Polygon::new();
+            poly.ps = (0..n).map(|i| gp(&ps, i)).collect();
+            bool_(geometry::in_poly_gen(&poly, &gp(&ps, n)))
+        }
+        8 => {
+            need(4)?;
+            bool_(geometry::in_valid_region(a != 0.0, &gp(&ps, 0), &gp(&ps, 1), &gp(&ps, 2), &gp(&ps, 3)))
+        }
+        9 => {
+            need(4)?;
+            vec![geometry::corner_side(&gp(&ps, 0), &gp(&ps, 1), &gp(&ps, 2), &gp(&ps, 3)) as f64]
+        }
+        10 => {
+            need(3)?;
+            bool_(geometry::point_on_line(&gp(&ps, 0), &gp(&ps, 1), &gp(&ps, 2), a))
+        }
+        11 => {
+            need(3)?;
+            bool_(geometry::colinear(&gp(&ps, 0), &gp(&ps, 1), &gp(&ps, 2), a))
+        }
+        12 => {
+            need(3)?;
+            bool_(geometry::in_between(&gp(&ps, 0), &gp(&ps, 1), &gp(&ps, 2)))
+        }
+        13 => {
+            need(3)?;
+            if !(a >= 0.0) {
+                return err("maybeZero must be >= 0 (COLA_ASSERT(maybeZero >= 0))");
+            }
+            vec![geometry::vec_dir(&gp(&ps, 0), &gp(&ps, 1), &gp(&ps, 2), a) as f64]
+        }
+        14 => {
+            need(3)?;
+            let p = geometry::projection(&gp(&ps, 0), &gp(&ps, 1), &gp(&ps, 2));
+            vec![p.x, p.y]
+        }
+        15 | 16 => {
+            need(4)?;
+            let (mut x, mut y) = (a, b);
+            let f = if which == 15 { geometry::segment_intersect_point } else { geometry::ray_intersect_point };
+            let r = f(&gp(&ps, 0), &gp(&ps, 1), &gp(&ps, 2), &gp(&ps, 3), &mut x, &mut y);
+            vec![r as f64, x, y]
+        }
+        17 => {
+            need(1)?;
+            vec![geometry::rotational_angle(&gp(&ps, 0))]
+        }
+        _ => return err("geometry: unknown function"),
+    })
 }
