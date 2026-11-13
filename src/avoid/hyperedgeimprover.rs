@@ -1127,6 +1127,8 @@ impl HyperedgeImprover {
             self.m_hyperedge_tree_roots.remove(&junction_key(router, junction));
         }
 
+        crate::avoid::timer::timer_start!(router, crate::avoid::timer::TimerIndex::TmHyperedgeImprove);
+
         // Debug output.
         let mut version_number: u32 = 1;
         self.output_hyperedges_to_svg(router, version_number, None);
@@ -1226,6 +1228,8 @@ impl HyperedgeImprover {
         for &curr in self.m_deleted_junctions.iter() {
             router.delete_junction(curr);
         }
+
+        crate::avoid::timer::timer_stop!(router);
     }
 
     // This method moves the junction at the given node along any shared paths

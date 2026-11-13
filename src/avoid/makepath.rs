@@ -910,6 +910,9 @@ impl AStarPathPrivate {
             Some(s) => s,
         };
 
+        #[cfg(feature = "debug-handler")]
+        router.call_debug_handler(|h, r| h.beginning_search_with_endpoints(r, start, tar));
+
         // Find a target point to use for cost estimate for orthogonal routing.
         //
         // If the connectivity is only on the far side we need to estimate to the
@@ -1127,9 +1130,22 @@ impl AStarPathPrivate {
             // Set the Node with lowest f value to BESTNODE.
             // Since the ANode operator< is reversed, the head of the
             // heap is the node with the lowest f value.
+            crate::avoid::timer::timer_var_add!(router, 0, 1);
             let bn = pending[0];
             // (upstream assigns bestNode here; `bn` plays that role below.)
             let best_node_inf = inf_of(&self.m_available_nodes, bn);
+
+            #[cfg(feature = "debug-handler")]
+            if router.has_debug_handler() {
+                let mut current_search_path = crate::avoid::geomtypes::PolyLine::new();
+
+                let mut curr = Some(bn);
+                while let Some(c) = curr {
+                    current_search_path.ps.push(router.vert_infs[inf_of(&self.m_available_nodes, c)].point);
+                    curr = self.m_available_nodes[c.0 as usize].prev_node;
+                }
+                router.call_debug_handler(|h, r| h.update_current_search_path(r, current_search_path));
+            }
 
             // Remove this node from the aStarPendingList
             {
@@ -1160,6 +1176,7 @@ impl AStarPathPrivate {
             let prev_inf: Option<VertIdx> = bn_node.prev_node.map(|p| inf_of(&self.m_available_nodes, p));
 
             if best_node_inf == tar {
+                crate::avoid::timer::timer_var_add!(router, 1, pending.len() as u32);
                 // This node is our goal.
 
                 // Correct all the pathNext pointers.

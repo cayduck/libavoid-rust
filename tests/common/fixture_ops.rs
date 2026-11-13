@@ -33,6 +33,7 @@ use libavoid_rust::avoid::viscluster::ClusterRef;
 use libavoid_rust::avoid::connectionpin::ShapeConnectionPin;
 use libavoid_rust::avoid::connector::{Checkpoint, ConnRef, ConnType};
 use libavoid_rust::avoid::connend::ConnEnd;
+use libavoid_rust::avoid::debughandler::DebugHandler;
 use libavoid_rust::avoid::geomtypes::{Point, Polygon, Rectangle};
 use libavoid_rust::avoid::hyperedge::HyperedgeNewAndDeletedObjectLists;
 use libavoid_rust::avoid::junction::JunctionRef;
@@ -424,6 +425,9 @@ struct Interp {
     /// of `tools/oracle/svg_oracle.sh` does (a later dump of the same name
     /// replaces the earlier one, as the file would be overwritten).
     svg_capture: Option<BTreeMap<String, String>>,
+    /// Installed with `Router::set_debug_handler` on the router when the
+    /// script creates it.
+    pending_debug_handler: Option<Box<dyn DebugHandler>>,
 }
 
 impl Interp {
@@ -706,6 +710,9 @@ impl Interp {
                 }
                 let flags = if self.dry_run { POLY_LINE_ROUTING } else { self.uint(n(0)) };
                 self.router = Some(Router::new(flags));
+                if let Some(h) = self.pending_debug_handler.take() {
+                    self.r().set_debug_handler(Some(h));
+                }
                 Value::Router
             }
             "Point" => {
@@ -1585,6 +1592,33 @@ impl Interp {
         let cap = self.svg_capture.as_mut().unwrap();
         cap.insert(format!("{}.svg", name), instance);
         cap.insert(format!("{}-diagram.svg", name), diagram);
+        // With AVOID_PROFILE, the timer tallies and variables as the patched
+        // C++ of `SVG_MODE=profile tools/oracle/svg_oracle.sh` writes them.
+        #[cfg(feature = "avoid-profile")]
+        {
+            use libavoid_rust::avoid::timer::{TimerIndex, TM_COUNT};
+            const NAMES: [&str; TM_COUNT] = [
+                "Adds",
+                "Dels",
+                "Movs",
+                "Pths",
+                "OrthogGraph",
+                "OrthogRoute",
+                "OrthogCentre",
+                "OrthogNudge",
+                "HyperedgeForest",
+                "HyperedgeMTST",
+                "HyperedgeImprove",
+                "HyperedgeAlt",
+            ];
+            let timers = self.r().timers.borrow().clone();
+            let mut text = String::new();
+            for (i, name) in NAMES.iter().enumerate() {
+                let t = TimerIndex::from_index(i);
+                text.push_str(&format!("{} {} {} {}\n", name, timers.tally(t), timers.variable(t, 0), timers.variable(t, 1)));
+            }
+            self.svg_capture.as_mut().unwrap().insert(format!("{}-timers.txt", name), text);
+        }
     }
 
     fn check_router_var(&self, router: &str) {
@@ -1666,11 +1700,21 @@ pub fn run_fixture_capturing_svg(name: &str) -> (FixtureRun, BTreeMap<String, St
     let path = ops_path(name);
     let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {}: {}", path, e));
     let script = parse_script(name, &text);
-    run_script_impl(name, script, false, true)
+    run_script_impl(name, script, false, true, None)
+}
+
+/// Runs a golden-mode script like [`run_fixture`] (comparing everything)
+/// with `handler` registered as the router's debug handler.
+#[allow(dead_code)]
+pub fn run_fixture_with_debug_handler(name: &str, handler: Box<dyn DebugHandler>) -> FixtureRun {
+    let path = ops_path(name);
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {}: {}", path, e));
+    let script = parse_script(name, &text);
+    run_script_impl(name, script, false, false, Some(handler)).0
 }
 
 fn run_script(name: &str, script: Script, dry_run: bool) -> FixtureRun {
-    run_script_impl(name, script, dry_run, false).0
+    run_script_impl(name, script, dry_run, false, None).0
 }
 
 fn run_script_impl(
@@ -1678,6 +1722,7 @@ fn run_script_impl(
     script: Script,
     dry_run: bool,
     capture_svg: bool,
+    debug_handler: Option<Box<dyn DebugHandler>>,
 ) -> (FixtureRun, BTreeMap<String, String>) {
     let mut it = Interp {
         name: name.to_string(),
@@ -1692,6 +1737,7 @@ fn run_script_impl(
         golden_mode: script.golden_mode,
         dry_run,
         svg_capture: if capture_svg { Some(BTreeMap::new()) } else { None },
+        pending_debug_handler: debug_handler,
     };
     it.exec_block(&script.body);
     let exit_code = it.ret.unwrap_or_else(|| script_err(name, 0, "script ended without ret"));

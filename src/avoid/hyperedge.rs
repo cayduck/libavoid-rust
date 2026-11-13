@@ -305,7 +305,7 @@ impl HyperedgeRerouter {
         this.m_added_vertices.clear();
 
         // Populate the deleted-object vectors.
-        let num_hyperedges = this.count();
+        let num_hyperedges = router.m_hyperedge_rerouter.count();
         for i in 0..num_hyperedges {
             if let Some(root_junction) = router.m_hyperedge_rerouter.m_root_junction_vector[i] {
                 // MISUSE: a junction freed since registration is invalid.
@@ -420,8 +420,14 @@ impl HyperedgeRerouter {
         this.m_new_connectors_vector.clear();
         this.m_new_connectors_vector.resize(count, ConnRefList::new());
 
+        #[cfg(feature = "debug-handler")]
+        if router.has_debug_handler() {
+            let obstacle_boxes = router.debug_obstacle_boxes();
+            router.call_debug_handler(|h, r| h.update_obstacle_boxes(r, obstacle_boxes));
+        }
+
         // For each hyperedge...
-        let num_hyperedges = this.count();
+        let num_hyperedges = router.m_hyperedge_rerouter.count();
         for i in 0..num_hyperedges {
             if router.m_hyperedge_rerouter.m_terminal_vertices_vector[i].is_empty() {
                 // Invalid hyperedge, ignore.

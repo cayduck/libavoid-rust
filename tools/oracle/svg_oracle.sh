@@ -6,6 +6,8 @@
 #
 #   tools/oracle/svg_oracle.sh [script-name ...]
 #   SVG_MODE=hyperedge-debug tools/oracle/svg_oracle.sh [script-name ...]
+#   SVG_MODE=debug-handler tools/oracle/svg_oracle.sh [script-name ...]
+#   SVG_MODE=profile tools/oracle/svg_oracle.sh [script-name ...]
 #
 # Default mode: Router::outputInstanceToSVG() and Router::outputDiagramSVG()
 # (tests/svg_oracle.rs).  The library is a copy of the tools/oracle/build.sh
@@ -26,7 +28,20 @@
 # Recorded for the scripts that write at least one such file: every
 # DEBUG/*.svg and the whole stderr.
 #
-# Both modes: -O2 -DNDEBUG -ffp-contract=off -fno-access-control, linked
+# debug-handler mode (tests/debughandler_oracle.rs): the library compiled
+# with -DDEBUGHANDLER, plus tools/oracle/debughandler_oracle.cpp; the
+# Router constructor is patched to install that recording DebugHandler when
+# ORACLE_DEBUGHANDLER is set, which appends every call (vertices and routes
+# printed by value, %.17g) to debughandler.log.  Recorded for every script.
+#
+# profile mode (tests/timer_oracle.rs): the library compiled with
+# -DAVOID_PROFILE (Router::timers and the TIMER_* instrumentation).  When
+# ORACLE_TIMERS is set, outputDiagramText(name) first writes
+# name-timers.txt: per timer its name, tally and the two TIMER_VAR_*
+# variables -- everything the timers record except the times themselves,
+# which are not reproducible.
+#
+# All modes: -O2 -DNDEBUG -ffp-contract=off -fno-access-control, linked
 # with the bump allocator (tools/oracle/bump_alloc.cpp: pointer order ==
 # allocation order, the port's model; none of this output prints
 # addresses).
@@ -35,6 +50,8 @@
 #   tests/golden-svg/manifest.txt   "<file> <sha256> <bytes>" for every SVG
 #                                   (sorted), one section per script
 #   tests/golden-svg/hyperedge-debug-manifest.txt   (hyperedge-debug mode)
+#   tests/golden-svg/debug-handler-manifest.txt     (debug-handler mode)
+#   tests/golden-svg/profile-manifest.txt           (profile mode)
 #   tests/golden-svg/full/*.svg     a few complete files (SVG_FULL list
 #                                   below), for readable diffs
 # Scripts on which the C++ fails (no goldens for them) are skipped; the
@@ -62,15 +79,58 @@ case "$MODE" in
     MANIFEST="$OUT/hyperedge-debug-manifest.txt"
     SVG_FULL=""
     ;;
+  debug-handler)
+    BUILD="$ROOT/target/svg-oracle-debug-handler"
+    EXTRA_FLAGS=(-DDEBUGHANDLER)
+    MANIFEST="$OUT/debug-handler-manifest.txt"
+    SVG_FULL=""
+    ;;
+  profile)
+    BUILD="$ROOT/target/svg-oracle-profile"
+    EXTRA_FLAGS=(-DAVOID_PROFILE)
+    MANIFEST="$OUT/profile-manifest.txt"
+    SVG_FULL=""
+    ;;
   *) echo "unknown SVG_MODE $MODE"; exit 2 ;;
 esac
 
 ORACLE_LIB_ONLY=1 "$ROOT/tools/oracle/build.sh" > /dev/null
 mkdir -p "$BUILD/libavoid" "$BUILD/run" "$OUT/full"
 cp -u "$ROOT/target/oracle/libavoid/"*.cpp "$ROOT/target/oracle/libavoid/"*.h "$BUILD/libavoid/"
-python3 - "$ROOT/target/oracle/libavoid/router.cpp" "$BUILD/libavoid/router.cpp" <<'PY'
+python3 - "$ROOT/target/oracle/libavoid/router.cpp" "$BUILD/libavoid/router.cpp" "$MODE" <<'PY'
 import sys
 s = open(sys.argv[1]).read()
+if sys.argv[3] == "debug-handler":
+    ctor = """    // At least one of the Routing modes must be set.
+    COLA_ASSERT(flags & (PolyLineRouting | OrthogonalRouting));
+"""
+    assert s.count(ctor) == 1
+    s = s.replace(ctor, ctor + """    if (getenv("ORACLE_DEBUGHANDLER"))
+    {
+        m_debug_handler = oracleDebugHandler();
+    }
+""")
+    s = s.replace("namespace Avoid {", "namespace Avoid {\nDebugHandler *oracleDebugHandler(void);", 1)
+if sys.argv[3] == "profile":
+    old = """void Router::outputDiagramText(std::string instanceName)
+{
+"""
+    assert s.count(old) == 1
+    s = s.replace(old, old + """    if (getenv("ORACLE_TIMERS"))
+    {
+        static const char *names[] = { "Adds", "Dels", "Movs", "Pths",
+            "OrthogGraph", "OrthogRoute", "OrthogCentre", "OrthogNudge",
+            "HyperedgeForest", "HyperedgeMTST", "HyperedgeImprove",
+            "HyperedgeAlt" };
+        FILE *tfp = fopen((instanceName + "-timers.txt").c_str(), "w");
+        for (int t = 0; t < tmCount; ++t)
+        {
+            fprintf(tfp, "%s %d %u %u\\n", names[t], timers.m_tally[t],
+                    timers.m_variables[t][0], timers.m_variables[t][1]);
+        }
+        fclose(tfp);
+    }
+""")
 old = """void Router::outputDiagramText(std::string instanceName)
 {
 """
@@ -102,6 +162,10 @@ for f in "$BUILD"/libavoid/*.cpp; do
   fi
 done
 wait
+if [ "$MODE" = debug-handler ]; then
+  g++ "${FLAGS[@]}" -c "$ROOT/tools/oracle/debughandler_oracle.cpp" -o "$BUILD/debughandler_oracle.o"
+  objs+=("$BUILD/debughandler_oracle.o")
+fi
 rm -f "$BUILD/lib.a"; ar rcs "$BUILD/lib.a" "${objs[@]}"
 # 3 GiB arena: fits the 4 GiB `ulimit -v` of the runs below.
 g++ "${FLAGS[@]}" -DORACLE_ARENA_SIZE=3221225472 -c "$ROOT/tools/oracle/bump_alloc.cpp" -o "$BUILD/bump_alloc.o"
@@ -130,13 +194,17 @@ run_one() {
   local n="$1" d="$BUILD/run/$1"
   mkdir -p "$d/output" "$d/DEBUG"
   find "$d/output" "$d/DEBUG" -maxdepth 1 -type f \( -name '*.svg' -o -name '*.txt' \) -delete
+  find "$d" -maxdepth 1 -type f -name debughandler.log -delete
   python3 "$ROOT/tools/fixtures/convert.py" --emit-cpp "$(ops_of "$n")" "$d/$n.cpp" 2> "$d/emit.log" \
     || { echo "EMIT-FAIL $n"; return; }
   g++ "${FLAGS[@]}" "$d/$n.cpp" "$BUILD/bump_alloc.o" "$BUILD/lib.a" -o "$d/$n" 2> "$d/compile.log" \
     || { echo "COMPILE-FAIL $n"; return; }
-  local code=0 svg=""
+  local code=0 svg="" dh="" tm=""
   if [ "$MODE" = svg ]; then svg=1; fi
-  (cd "$d" && ulimit -v 4194304 && ORACLE_SVG="$svg" ORACLE_FINAL="output/$n" \
+  if [ "$MODE" = debug-handler ]; then dh=1; fi
+  if [ "$MODE" = profile ]; then tm=1; fi
+  (cd "$d" && ulimit -v 4194304 && ORACLE_SVG="$svg" ORACLE_DEBUGHANDLER="$dh" ORACLE_TIMERS="$tm" \
+      ORACLE_FINAL="output/$n" \
       timeout -s KILL "$TIMEOUT" "./$n" > "$d/stdout" 2> "$d/stderr") || code=$?
   if [ "$code" -ne 0 ]; then echo "FAIL $n (exit $code)"; return; fi
   echo "OK $n"
@@ -172,10 +240,15 @@ for n in names:
         print(" ".join(res))
         continue
     ok += 1
-    d = os.path.join(run, n, "output" if mode == "svg" else "DEBUG")
+    d = os.path.join(run, n, "output" if mode in ("svg", "profile") else "DEBUG")
     lines = []
+    if mode == "debug-handler":
+        log = os.path.join(run, n, "debughandler.log")
+        data = open(log, "rb").read() if os.path.exists(log) else b""
+        entries[n] = [entry("debughandler.log", data)]
+        continue
     for f in sorted(os.listdir(d)):
-        if not f.endswith(".svg"):
+        if not f.endswith("-timers.txt" if mode == "profile" else ".svg"):
             continue
         data = open(os.path.join(d, f), "rb").read()
         lines.append(entry(f, data))
@@ -191,6 +264,14 @@ with open(manifest, "w") as m:
         m.write("# Generated by tools/oracle/svg_oracle.sh: upstream outputInstanceToSVG()\n")
         m.write("# (NAME.svg) and outputDiagramSVG() (NAME-diagram.svg) at every output\n")
         m.write("# and final dump of each script: file sha256 bytes.\n")
+    elif mode == "profile":
+        m.write("# Generated by SVG_MODE=profile tools/oracle/svg_oracle.sh: upstream's\n")
+        m.write("# AVOID_PROFILE timer tallies and variables (NAME-timers.txt) at every\n")
+        m.write("# output and final dump of each script: file sha256 bytes.\n")
+    elif mode == "debug-handler":
+        m.write("# Generated by SVG_MODE=debug-handler tools/oracle/svg_oracle.sh: the\n")
+        m.write("# calls of upstream's DebugHandler (DEBUGHANDLER) as recorded by\n")
+        m.write("# tools/oracle/debughandler_oracle.cpp: file sha256 bytes.\n")
     else:
         m.write("# Generated by SVG_MODE=hyperedge-debug tools/oracle/svg_oracle.sh:\n")
         m.write("# upstream HYPEREDGE_DEBUG files DEBUG/hyperedges-NNNNN.svg and the\n")

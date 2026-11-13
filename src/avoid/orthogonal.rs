@@ -1370,7 +1370,11 @@ pub fn generate_static_orthogonal_vis_graph(router: &mut Router) {
         events.push(Event::new(EventType::Close, v, bbox.max.y));
     }
 
-    // (DEBUGHANDLER obstacle-box reporting is not ported.)
+    #[cfg(feature = "debug-handler")]
+    if router.has_debug_handler() {
+        let obstacle_boxes = router.debug_obstacle_boxes();
+        router.call_debug_handler(|h, r| h.update_obstacle_boxes(r, obstacle_boxes));
+    }
 
     let mut curr = router.vertices.conns_begin();
     while let Some(c) = curr {
@@ -1825,7 +1829,6 @@ impl NudgingShiftSegment {
 
     // upstream: orthogonal.cpp NudgingShiftSegment::updatePositionsFromSolver()
     pub fn update_positions_from_solver(&self, router: &mut Router, vs: &[Variable], just_unifying: bool) {
-        let _ = just_unifying; // (only used by the DEBUGHANDLER build)
         if self.fixed {
             return;
         }
@@ -1843,6 +1846,15 @@ impl NudgingShiftSegment {
             let index = self.indexes[it];
             route.ps[index][dimension] = new_pos;
         }
+
+        #[cfg(feature = "debug-handler")]
+        if !just_unifying {
+            let (conn, first, last) =
+                (self.conn_ref, self.indexes[0] as i32, self.indexes[self.indexes.len() - 1] as i32);
+            router.call_debug_handler(|h, r| h.update_connector_route(r, conn, first, last));
+        }
+        #[cfg(not(feature = "debug-handler"))]
+        let _ = just_unifying;
     }
 
     // upstream: orthogonal.cpp NudgingShiftSegment::fixedOrder()
@@ -2561,6 +2573,8 @@ impl ImproveOrthogonalRoutes {
 
     // upstream: orthogonal.cpp ImproveOrthogonalRoutes::execute()
     fn execute(&mut self, router: &mut Router) {
+        crate::avoid::timer::timer_start!(router, crate::avoid::timer::TimerIndex::TmOrthogNudge);
+
         self.m_shared_path_connectors_with_common_endpoints.clear();
 
         // Simplify routes.
@@ -2613,6 +2627,8 @@ impl ImproveOrthogonalRoutes {
 
         // Clear the segment-checkpoint cache for connectors.
         clear_connector_route_checkpoint_cache(router);
+
+        crate::avoid::timer::timer_stop!(router);
     }
 
     // upstream: orthogonal.cpp ImproveOrthogonalRoutes::nudgeOrthogonalRoutes()

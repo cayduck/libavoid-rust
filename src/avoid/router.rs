@@ -315,6 +315,9 @@ use crate::avoid::connector::{
 };
 use crate::avoid::connend::ConnEnd;
 use crate::avoid::debug::g;
+use crate::avoid::debughandler::DebugHandler;
+#[allow(unused_imports)]
+use crate::avoid::timer::{timer_start, timer_stop, TimerIndex};
 use crate::avoid::geometry::{euclidean_dist, in_poly, in_poly_gen, manhattan_dist, segment_shape_intersect};
 use crate::avoid::geomtypes::{cpp_max, cpp_min, Point, Polygon, PolygonInterface, PolygonLookup};
 use crate::avoid::graph::{EdgeInf, EdgeList, EdgeListId};
@@ -650,7 +653,13 @@ pub struct Router {
     pub m_settings_changes: bool,
 
     pub m_hyperedge_improver: HyperedgeImprover,
-    // (m_debug_handler: DebugHandler is debugging-only and not ported.)
+    /// `DebugHandler *m_debug_handler` (owned here; only called with the
+    /// `debug-handler` feature, upstream's `DEBUGHANDLER`).
+    pub m_debug_handler: Option<std::boxed::Box<dyn DebugHandler>>,
+    /// `Timer timers` (only with the `avoid-profile` feature, upstream's
+    /// `AVOID_PROFILE`; a `RefCell` so that `printInfo()` can reset it).
+    #[cfg(feature = "avoid-profile")]
+    pub timers: std::cell::RefCell<crate::avoid::timer::Timer>,
 
     // --- port additions ---
     /// Connectors whose callback was performed, in call order, during the
@@ -1079,6 +1088,9 @@ impl Router {
             m_in_crossing_rerouting_stage: false,
             m_settings_changes: false,
             m_hyperedge_improver: HyperedgeImprover::new(),
+            m_debug_handler: None,
+            #[cfg(feature = "avoid-profile")]
+            timers: std::cell::RefCell::new(crate::avoid::timer::Timer::new()),
             m_callback_log: Vec::new(),
             m_progress_callback: None,
             m_in_process_actions: false,
@@ -1153,8 +1165,23 @@ impl Router {
         self.m_obstacles.iter().map(|&o| (self.obstacles[o].m_id, o)).collect()
     }
 
-    // (upstream: router.cpp Router::setDebugHandler()/debugHandler() —
-    // debugging only, not ported.)
+    /// Registers a handler that receives debugging information (`None`
+    /// removes it).  It is only called with the `debug-handler` feature
+    /// (upstream: when `DEBUGHANDLER` is defined); see `debughandler.rs`.
+    // upstream: router.cpp Router::setDebugHandler()
+    pub fn set_debug_handler(&mut self, handler: Option<std::boxed::Box<dyn DebugHandler>>) {
+        self.m_debug_handler = handler;
+    }
+
+    // upstream: router.cpp Router::debugHandler()
+    pub fn debug_handler(&self) -> Option<&dyn DebugHandler> {
+        self.m_debug_handler.as_deref()
+    }
+
+    /// Mutable access to the registered debug handler (port addition).
+    pub fn debug_handler_mut(&mut self) -> Option<&mut (dyn DebugHandler + 'static)> {
+        self.m_debug_handler.as_deref_mut()
+    }
 
     // upstream: router.cpp Router::shapeContainingPoint()
     pub fn shape_containing_point(&self, point: &Point) -> Option<ShapeRef> {
@@ -1435,8 +1462,11 @@ impl Router {
             if self.m_allows_orthogonal_routing {
                 self.destroy_orthogonal_vis_graph();
 
+                timer_start!(self, TimerIndex::TmOrthogGraph);
                 // Regenerate a new visibility graph.
                 generate_static_orthogonal_vis_graph(self);
+
+                timer_stop!(self);
             }
             self.m_static_orthogonal_graph_invalidated = false;
         }
@@ -1993,11 +2023,13 @@ impl Router {
                 continue;
             }
 
+            timer_start!(self, TimerIndex::TmOrthogRoute);
             self.conns[connector].m_needs_repaint = false;
             let rerouted = ConnRef::generate_path(self, connector);
             if rerouted {
                 rerouted_conns.push(connector);
             }
+            timer_stop!(self);
         }
 
         // Perform any complete hyperedge rerouting that has been requested.
@@ -2708,6 +2740,12 @@ impl Router {
         out.push_str("----------------------\n");
         out.push_str(&format!("checkVisEdge tally: {}\n", self.st_checked_edges));
         out.push_str("----------------------\n");
+
+        #[cfg(feature = "avoid-profile")]
+        {
+            let _ = self.timers.borrow().print_all(&mut out);
+            self.timers.borrow_mut().reset();
+        }
         out
     }
 

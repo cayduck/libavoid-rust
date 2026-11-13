@@ -1053,6 +1053,9 @@ impl ConnRef {
         conn.free_routes();
         conn.m_route.ps = clipped_path;
 
+        #[cfg(feature = "debug-handler")]
+        router.call_debug_handler(|h, r| h.update_connector_route(r, c, -1, -1));
+
         true
     }
 

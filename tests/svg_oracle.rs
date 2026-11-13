@@ -74,7 +74,10 @@ fn full_golden(file: &str) -> Option<String> {
 }
 
 fn check_script(script: &str, expected: &BTreeMap<String, (String, usize)>) -> Result<usize, String> {
-    let (_, svgs) = fixture_ops::run_fixture_capturing_svg(script);
+    let (_, mut svgs) = fixture_ops::run_fixture_capturing_svg(script);
+    // (With the avoid-profile feature the capture also holds the timer
+    // tallies, compared by tests/timer_oracle.rs.)
+    svgs.retain(|k, _| k.ends_with(".svg"));
     if let Ok(dir) = std::env::var("SVG_DUMP") {
         let d = format!("{}/{}", dir, script);
         std::fs::create_dir_all(&d).unwrap();

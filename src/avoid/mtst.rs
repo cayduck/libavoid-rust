@@ -31,8 +31,10 @@
 //! links to them are only read by later MTST constructions, after their
 //! initialisation loop has reset them.
 //!
-//! (`drawForest`, `setDebuggingOutput` and the `DEBUGHANDLER` hooks are
-//! debug output and are not ported; timers are not ported.)
+//! The `DEBUGHANDLER` hooks (`drawForest` and the `DebugHandler` calls)
+//! are compiled in with the `debug-handler` feature, the `TIMER_*`
+//! instrumentation with `avoid-profile`.  (`setDebuggingOutput` is declared
+//! but never defined upstream.)
 
 #![allow(dead_code)]
 #![allow(clippy::collapsible_if, clippy::collapsible_else_if, clippy::needless_range_loop)]
@@ -55,6 +57,8 @@ use crate::avoid::junction::JunctionRef;
 use crate::avoid::makepath::{make_heap, pop_heap, push_heap};
 use crate::avoid::obstacle::Obstacle;
 use crate::avoid::router::Router;
+#[allow(unused_imports)]
+use crate::avoid::timer::{timer_start, timer_stop, TimerIndex};
 use crate::avoid::vertices::{VertID, VertInf};
 
 const DBL_MAX: f64 = f64::MAX;
@@ -317,6 +321,9 @@ impl MinimumTerminalSpanningTree {
                 router.edge_infs[edge].set_hyperedge_segment(true);
             }
 
+            #[cfg(feature = "debug-handler")]
+            router.call_debug_handler(|h, r| h.mtst_commit_to_edge(r, cv, prev_vert, false));
+
             if self.tree.node(current_node).junction.is_some() {
                 // We've reached a junction, so stop.
                 break;
@@ -377,12 +384,20 @@ impl MinimumTerminalSpanningTree {
         // First, perform extended Dijkstra's algorithm
         // ============================================
         //
+        timer_start!(router, TimerIndex::TmHyperedgeForest);
 
         // Vertex heap for extended Dijkstra's algorithm.
         let mut v_heap: Vec<VertIdx> = Vec::new();
 
         // Bridging edge heap for the extended Kruskal's algorithm.
         let mut be_heap: Vec<EdgeIdx> = Vec::new();
+
+        #[cfg(feature = "debug-handler")]
+        if router.has_debug_handler() {
+            // PTR-ORDER: std::set<VertInf *> terminals.
+            let terminals: Vec<VertIdx> = self.terminals.iter().map(|k| k.idx).collect();
+            router.call_debug_handler(|h, r| h.beginning_hyperedge_rerouting_with_endpoints(r, &terminals));
+        }
 
         // Initialisation
         //
@@ -496,6 +511,8 @@ impl MinimumTerminalSpanningTree {
                     router.vert_infs[v].set_sptf_root(root);
                     v_heap.push(v);
                     v_push_heap(router, &mut v_heap);
+                    #[cfg(feature = "debug-handler")]
+                    router.call_debug_handler(|h, r| h.mtst_grow_forest_with_edge(r, u, v, true));
                 } else {
                     // We have reached a node that has been reached already through
                     // a different tree.  Set the MTST distance for the bridging
@@ -516,15 +533,20 @@ impl MinimumTerminalSpanningTree {
                         + e.get_dist();
                     router.edge_infs[edge].set_mtst_dist(cost);
                     be_heap.push(edge);
+
+                    #[cfg(feature = "debug-handler")]
+                    router.call_debug_handler(|h, r| h.mtst_potential_bridging_edge(r, u, v));
                 }
             }
         }
         // Make the bridging edge heap.
         e_make_heap(router, &mut be_heap);
+        timer_stop!(router);
 
         // Next, perform extended Kruskal's algorithm
         // ==========================================
         //
+        timer_start!(router, TimerIndex::TmHyperedgeMTST);
         while !be_heap.is_empty() {
             // Take the lowest cost edge.
             let e = be_heap[0];
@@ -562,6 +584,9 @@ impl MinimumTerminalSpanningTree {
                     node2 = Some(self.add_node(router, ev2, node1));
                 }
 
+                #[cfg(feature = "debug-handler")]
+                router.call_debug_handler(|h, r| h.mtst_commit_to_edge(r, ev1, ev2, true));
+
                 let pn1 = router.vert_infs[ev1].path_next;
                 self.build_hyperedge_tree_to_root(router, pn1, node1, ev1, false);
                 let pn2 = router.vert_infs[ev2].path_next;
@@ -575,6 +600,8 @@ impl MinimumTerminalSpanningTree {
         }
         self.nodes.clear();
         self.allsets.clear();
+
+        timer_stop!(router);
     }
 
     // upstream: mtst.cpp MinimumTerminalSpanningTree::orthogonalPartner()
@@ -697,6 +724,8 @@ impl MinimumTerminalSpanningTree {
         // Perform an interleaved construction of the MTST and SPTF
         // ========================================================
         //
+        timer_start!(router, TimerIndex::TmHyperedgeAlt);
+
         self.orig_terminals = self.terminals.clone();
 
         // Initialisation
@@ -709,6 +738,13 @@ impl MinimumTerminalSpanningTree {
             v.set_tree_root_pointer(None);
             v.m_orthogonal_partner = None;
             k = v.lst_next;
+        }
+
+        #[cfg(feature = "debug-handler")]
+        if router.has_debug_handler() {
+            // PTR-ORDER: std::set<VertInf *> terminals.
+            let terminals: Vec<VertIdx> = self.terminals.iter().map(|k| k.idx).collect();
+            router.call_debug_handler(|h, r| h.beginning_hyperedge_rerouting_with_endpoints(r, &terminals));
         }
 
         debug_assert!(self.root_vertex_pointers.is_empty());
@@ -820,6 +856,9 @@ impl MinimumTerminalSpanningTree {
                     // This can change the cost of other vertices in the heap,
                     // so we need to remake it.
                     v_make_heap(router, &mut self.v_heap);
+
+                    #[cfg(feature = "debug-handler")]
+                    router.call_debug_handler(|h, r| h.mtst_grow_forest_with_edge(r, u, v, true));
                 } else {
                     // We have reached a node that has been reached already through
                     // a different tree.  Set the MTST distance for the bridging
@@ -833,6 +872,8 @@ impl MinimumTerminalSpanningTree {
                         router.edge_infs[e].set_mtst_dist(cost);
                         self.be_heap.push(e);
                         e_push_heap(router, &mut self.be_heap);
+                        #[cfg(feature = "debug-handler")]
+                        router.call_debug_handler(|h, r| h.mtst_potential_bridging_edge(r, u, v));
                     } else {
                         // This edge is already in the bridging edge heap.
                         if cost < router.edge_infs[e].mtst_dist() {
@@ -853,6 +894,7 @@ impl MinimumTerminalSpanningTree {
         // the release build continues (the unreachable terminal is left
         // out of the tree).  Covered by tests/robustness.rs
         // (hyperedge_with_coincident_terminals).
+        timer_stop!(router);
 
         // Free Root Vertex Points from all vertices.
         for p in std::mem::take(&mut self.root_vertex_pointers) {
@@ -959,6 +1001,53 @@ impl MinimumTerminalSpanningTree {
         real_vertices
     }
 
+    /// Reports the shortest path forest grown from `vert` to the debug
+    /// handler (`mtstGrowForestWithEdge(.., false)`).  Upstream only calls
+    /// it with a debug handler set (`DEBUGHANDLER`); like upstream it
+    /// creates orthogonal partner vertices as it explores
+    /// (`getOrthogonalEdgesFromVertex()`).  Its SVG output is commented out
+    /// upstream.
+    // upstream: mtst.cpp MinimumTerminalSpanningTree::drawForest()
+    fn draw_forest(&mut self, router: &mut Router, vert: VertIdx, prev: Option<VertIdx>) {
+        if prev.is_none() {
+            let mut colour = "green";
+            /*
+            if (vert->id == dimensionChangeVertexID)
+            {
+                colour = "blue";
+            }
+            */
+
+            if VertInf::tree_root(router, vert).is_none() {
+                colour = "red";
+            }
+
+            debug_assert!(router.vert_infs[vert].tree_root_pointer().is_some());
+            debug_assert!(VertInf::tree_root(router, vert).is_some());
+            //fprintf(debug_fp, "<circle cx=\"%g\" cy=\"%g\" r=\"3\" db:sptfDist=\"%g\" "
+            //        "style=\"fill: %s; stroke: %s; fill-opacity: 0.5; "
+            //        "stroke-width: 1px; stroke-opacity:0.5\" />\n",
+            //        vert->point.x, vert->point.y, vert->sptfDist, colour.c_str(), "black");
+            let _ = colour;
+        }
+
+        let edge_list = self.get_orthogonal_edges_from_vertex(router, vert, prev);
+        for &(_, v) in edge_list.iter() {
+            if router.vert_infs[v].sptf_dist == 0.0 {
+                continue;
+            }
+
+            if VertInf::tree_root(router, v) == VertInf::tree_root(router, vert) {
+                if router.vert_infs[v].path_next == Some(vert) {
+                    if router.vert_infs[vert].point != router.vert_infs[v].point {
+                        router.call_debug_handler(|h, r| h.mtst_grow_forest_with_edge(r, vert, v, false));
+                    }
+                    self.draw_forest(router, v, Some(vert));
+                }
+            }
+        }
+    }
+
     // upstream: mtst.cpp MinimumTerminalSpanningTree::commitToBridgingEdge()
     fn commit_to_bridging_edge(&mut self, router: &mut Router, e: EdgeIdx) {
         let ends = self.real_vertices_counting_partners(router, e);
@@ -985,6 +1074,16 @@ impl MinimumTerminalSpanningTree {
             node1 = Some(self.add_node(router, vert1, None));
             node2 = Some(self.add_node(router, vert2, node1));
             router.edge_infs[e].set_hyperedge_segment(true);
+        }
+
+        #[cfg(feature = "debug-handler")]
+        if router.has_debug_handler() {
+            router.call_debug_handler(|h, r| h.mtst_commit_to_edge(r, vert1, vert2, true));
+            // PTR-ORDER: iterates std::set<VertInf *> terminals.
+            let terminals: Vec<VertIdx> = self.terminals.iter().map(|k| k.idx).collect();
+            for ti in terminals {
+                self.draw_forest(router, ti, None);
+            }
         }
 
         let pn1 = router.vert_infs[vert1].path_next;

@@ -937,6 +937,9 @@ impl HyperedgeTreeStore {
                     router.conns[conn].m_display_route.ps.reverse();
                 }
             }
+
+            #[cfg(feature = "debug-handler")]
+            router.call_debug_handler(|h, r| h.update_connector_route(r, conn, -1, -1));
         }
 
         // UPSTREAM NON-TERMINATION (port addition; router.rs, "Upstream
