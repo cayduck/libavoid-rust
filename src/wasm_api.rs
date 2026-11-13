@@ -114,7 +114,7 @@ fn u32_of(v: f64, what: &str) -> Res<u32> {
     if v.is_finite() && v.fract() == 0.0 && (0.0..=u32::MAX as f64).contains(&v) {
         Ok(v as u32)
     } else {
-        err(&format!("{} must be an unsigned 32-bit integer", what))
+        err(&format!("{what} must be an unsigned 32-bit integer"))
     }
 }
 
@@ -209,6 +209,17 @@ fn dirs_of(v: f64) -> Res<u32> {
         return err("ConnDirFlags must be a combination of ConnDirUp/Down/Left/Right (0..15)");
     }
     Ok(d)
+}
+
+/// Pin offsets must be finite: the core defines no behaviour for a pin at
+/// a non-finite position (upstream: undefined; the orthogonal router would
+/// index out of bounds).
+fn check_offsets(x: f64, y: f64, inside: f64) -> Res<()> {
+    if x.is_finite() && y.is_finite() && inside.is_finite() {
+        Ok(())
+    } else {
+        err("xOffset, yOffset and insideOffset must be finite numbers")
+    }
 }
 
 fn pt(x: f64, y: f64) -> Point {
@@ -363,7 +374,7 @@ impl RawRouter {
             return err("the object id space is exhausted");
         }
         if !self.router.object_id_is_unused(assigned) {
-            return err(&format!("id {} is already used by another object (COLA_ASSERT(objectIdIsUnused(id)))", assigned));
+            return err(&format!("id {assigned} is already used by another object (COLA_ASSERT(objectIdIsUnused(id)))"));
         }
         Ok(id)
     }
@@ -560,7 +571,7 @@ impl RawRouter {
             return false;
         }
         match kind {
-            crate::wasm_failure::TEST_PANIC_EXPLICIT => panic!("libavoid-rust test panic (kind {})", kind),
+            crate::wasm_failure::TEST_PANIC_EXPLICIT => panic!("libavoid-rust test panic (kind {kind})"),
             crate::wasm_failure::TEST_PANIC_INDEX => {
                 // Half-update the router's state, then index out of bounds
                 // while `&mut self` is held, as a bug in a method would.
@@ -884,11 +895,7 @@ impl RawRouter {
     #[wasm_bindgen(js_name = referencingPolygon)]
     pub fn referencing_polygon(&mut self, poly: Vec<f64>) -> Res<Vec<f64>> {
         let p = dec_poly(&poly)?;
-        for q in &p.ps {
-            if q.id != 0 && !self.router.m_obstacles.iter().any(|&o| self.router.obstacles[o].m_id == q.id) {
-                return err(&format!("point id {} names no obstacle of the router (COLA_ASSERT(polyPtr != nullptr))", q.id));
-            }
-        }
+        self.check_referencing(&p)?;
         let rp = ReferencingPolygon::from_polygon(&p, self.router.obstacle_id_list());
         Ok(self.enc_referencing(&rp))
     }
@@ -1330,6 +1337,7 @@ impl RawRouter {
         if class_id == 0 {
             return err("classId must be > 0 (COLA_ASSERT(m_class_id > 0))");
         }
+        check_offsets(x_offset, y_offset, inside_offset)?;
         let d = dirs_of(vis_dirs)?;
         let p = ShapeConnectionPin::new_shape(&mut self.router, s, class_id, x_offset, y_offset, proportional, inside_offset, d);
         Ok(self.key(Obj::Pin(p)))
@@ -1350,6 +1358,7 @@ impl RawRouter {
         if class_id == 0 {
             return err("classId must be > 0 (COLA_ASSERT(m_class_id > 0))");
         }
+        check_offsets(x_offset, y_offset, inside_offset)?;
         let d = dirs_of(vis_dirs)?;
         let p = ShapeConnectionPin::new_shape_proportional(&mut self.router, s, class_id, x_offset, y_offset, inside_offset, d);
         Ok(self.key(Obj::Pin(p)))
@@ -1374,7 +1383,7 @@ impl RawRouter {
     #[wasm_bindgen(js_name = pinSetConnectionCost)]
     pub fn pin_set_connection_cost(&mut self, key: u32, cost: f64) -> Res<()> {
         let p = self.pin(key)?;
-        if !(cost >= 0.0) {
+        if cost.is_nan() || cost < 0.0 {
             return err("cost must be >= 0 (COLA_ASSERT(cost >= 0))");
         }
         p.set_connection_cost(&mut self.router, cost);
@@ -1485,10 +1494,23 @@ impl RawRouter {
 }
 
 impl RawRouter {
+    /// `ReferencingPolygon(poly, router)` preconditions: every point with a
+    /// non-zero id names an obstacle of the router (`COLA_ASSERT(polyPtr !=
+    /// nullptr)`) whose polygon has a point `vn` (`at()`: `COLA_ASSERT(
+    /// poly_index < poly.size())`).
     fn check_referencing(&self, p: &Polygon) -> Res<()> {
         for q in &p.ps {
-            if q.id != 0 && !self.router.m_obstacles.iter().any(|&o| self.router.obstacles[o].m_id == q.id) {
+            if q.id == 0 {
+                continue;
+            }
+            let Some(&o) = self.router.m_obstacles.iter().find(|&&o| self.router.obstacles[o].m_id == q.id) else {
                 return err(&format!("point id {} names no obstacle of the router (COLA_ASSERT(polyPtr != nullptr))", q.id));
+            };
+            if q.vn as usize >= self.router.obstacles[o].m_polygon.size() {
+                return err(&format!(
+                    "point vn {} is not a point of obstacle {} (COLA_ASSERT(poly_index < poly.size()))",
+                    q.vn, q.id
+                ));
             }
         }
         Ok(())
@@ -1630,7 +1652,7 @@ pub fn geometry_fn(which: u32, ps: Vec<f64>, a: f64, b: f64) -> Res<Vec<f64>> {
         }
         13 => {
             need(3)?;
-            if !(a >= 0.0) {
+            if a.is_nan() || a < 0.0 {
                 return err("maybeZero must be >= 0 (COLA_ASSERT(maybeZero >= 0))");
             }
             vec![geometry::vec_dir(&gp(&ps, 0), &gp(&ps, 1), &gp(&ps, 2), a) as f64]

@@ -41,6 +41,7 @@
     "index.d.mts",
     "lib/adapter.cjs",
     "lib/adapter.mjs",
+    "docs/JS_API_COVERAGE.md",
     "PORTING.md",
     "pkg",
     "pkg-web",

@@ -107,10 +107,14 @@
 // `set` dimension XDIM or YDIM; `vecDir` maybeZero >= 0; `setNewPoly`
 // keeps the point count and the obstacle is not in the visibility graph;
 // `makeActive` / `makeInactive` toggle; `ReferencingPolygon` / cluster
-// point ids name obstacles; `setEndpoint(type, end)` with type 1
-// (VertID::src) or 2 (VertID::tar).  Where upstream behaviour is undefined
-// and the Rust core defines a no-op ("Public-API misuse" in
-// src/avoid/router.rs), that is what happens.
+// point ids name obstacles of the router and `vn` a point of the
+// obstacle's polygon; `setEndpoint(type, end)` with type 1 (VertID::src) or
+// 2 (VertID::tar).  Where upstream behaviour is undefined and the Rust
+// core defines it ("Public-API misuse" in src/avoid/router.rs: e.g. shapes
+// with non-finite coordinates are inert, `splitAtSegment(0)` is a no-op),
+// that is what happens; where neither does, the call throws an Error
+// instead of reaching undefined behaviour (a ShapeConnectionPin's offsets
+// must be finite).
 //
 // WebAssembly infrastructure (no upstream counterpart)
 // ----------------------------------------------------

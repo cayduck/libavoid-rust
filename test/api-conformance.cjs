@@ -690,6 +690,17 @@ test("misuse throws TypeError / Error and changes nothing", () => {
     [() => new Avoid.Obstacle(), TypeError],
     [() => Avoid.Router.prototype.processTransaction.call({}), TypeError],
     [() => new ConnEnd(P(0, 0), 1.5), TypeError],
+    [() => new ShapeConnectionPin(s, 1, NaN, 0.5, true, 0, 0), /must be finite/],
+    [() => new ShapeConnectionPin(s, 1, 0.5, 0.5, Infinity, 0), /must be finite/],
+    [
+      () => {
+        const poly = rect(0, 0, 1, 1);
+        poly.ps[0].id = s.id();
+        poly.ps[0].vn = 9;
+        return new ClusterRef(r, poly);
+      },
+      /poly_index < poly.size\(\)/,
+    ],
   ];
   for (const [i, [fn, expected]] of cases.entries()) {
     assert.throws(fn, (error) => {
