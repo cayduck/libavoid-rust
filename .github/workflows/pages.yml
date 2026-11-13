@@ -3,9 +3,21 @@
 # Build and deployment -> Source: "GitHub Actions".
 name: Demo site
 
+# Runs only when something the site is built from changes (not for
+# documentation or tests); it can also be started by hand.
 on:
   push:
     branches: [main]
+    paths:
+      - "src/**"
+      - "demo/**"
+      - "lib/**"
+      - "index.mjs"
+      - "scripts/**"
+      - "Cargo.toml"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/pages.yml"
   workflow_dispatch:
 
 permissions:
