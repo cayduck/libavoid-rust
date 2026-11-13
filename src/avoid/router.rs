@@ -314,6 +314,7 @@ use crate::avoid::connector::{
     CROSSING_SHARES_PATH_AT_END, CROSSING_TOUCHES,
 };
 use crate::avoid::connend::ConnEnd;
+use crate::avoid::debug::g;
 use crate::avoid::geometry::{euclidean_dist, in_poly, in_poly_gen, manhattan_dist, segment_shape_intersect};
 use crate::avoid::geomtypes::{cpp_max, cpp_min, Point, Polygon, PolygonInterface, PolygonLookup};
 use crate::avoid::graph::{EdgeInf, EdgeList, EdgeListId};
@@ -2918,6 +2919,599 @@ impl Router {
     }
 }
 
+
+// ---------------------------------------------------------------------------
+// SVG and text debug output (upstream router.cpp, "The following methods are
+// for testing and debugging").  Each upstream method that writes a file has a
+// writer form over `&mut dyn fmt::Write` (`write_*`), a `*_string` form, and
+// the upstream-named method writing the file with `std::fs` (which returns
+// an error where there is no file system, e.g. wasm32-unknown-unknown).
+// Upstream switches LC_NUMERIC to "C" around outputInstanceToSVG(); Rust
+// formatting is locale independent, so nothing corresponds to that here.
+// ---------------------------------------------------------------------------
+
+/// Coordinate clamp of the SVG debug output.
+// upstream: router.cpp LIMIT
+pub const LIMIT: f64 = 100000000.0;
+
+// upstream: router.cpp reduceRange() (static)
+pub fn reduce_range(val: &mut f64) {
+    *val = cpp_min(*val, LIMIT);
+    *val = cpp_max(*val, -LIMIT);
+}
+
+impl Router {
+    /// The diagram bounds of `outputInstanceToSVG()` / `outputDiagramSVG()`
+    /// (all vertices, clamped, plus a margin of 8): `(minX, minY, maxX, maxY)`.
+    fn svg_bounds(&self) -> (f64, f64, f64, f64) {
+        let mut min_x = LIMIT;
+        let mut min_y = LIMIT;
+        let mut max_x = -LIMIT;
+        let mut max_y = -LIMIT;
+
+        let mut curr = self.vertices.conns_begin();
+        while let Some(c) = curr {
+            let mut p = self.vert_infs[c].point;
+
+            reduce_range(&mut p.x);
+            reduce_range(&mut p.y);
+
+            if p.x > -LIMIT {
+                min_x = cpp_min(min_x, p.x);
+            }
+            if p.x < LIMIT {
+                max_x = cpp_max(max_x, p.x);
+            }
+            if p.y > -LIMIT {
+                min_y = cpp_min(min_y, p.y);
+            }
+            if p.y < LIMIT {
+                max_y = cpp_max(max_y, p.y);
+            }
+            curr = self.vert_infs[c].lst_next;
+        }
+        min_x -= 8.0;
+        min_y -= 8.0;
+        max_x += 8.0;
+        max_y += 8.0;
+        (min_x, min_y, max_x, max_y)
+    }
+
+    /// The `debug="src: %d dst: %d" ` attribute of the connector paths.
+    fn write_conn_vis_directions_debug(&self, c: ConnIdx, fp: &mut dyn fmt::Write) -> fmt::Result {
+        let conn = &self.conns[c];
+        if let (Some(src), Some(dst)) = (conn.src(), conn.dst()) {
+            write!(
+                fp,
+                "debug=\"src: {} dst: {}\" ",
+                self.vert_infs[src].vis_directions as i32,
+                self.vert_infs[dst].vis_directions as i32
+            )?;
+        }
+        Ok(())
+    }
+
+    /// `outputInstanceToSVG()`: writes the SVG document, with the C++
+    /// source code that recreates this router instance in a comment, to
+    /// `fp`.  Needs `&mut self` only because `displayRoute()` caches the
+    /// simplified route (as it does upstream).
+    // upstream: router.cpp Router::outputInstanceToSVG()
+    pub fn write_instance_svg(&mut self, fp: &mut dyn fmt::Write) -> fmt::Result {
+        let (min_x, min_y, max_x, max_y) = self.svg_bounds();
+
+        fp.write_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")?;
+        write!(
+            fp,
+            "<svg xmlns:inkscape=\"http://www.inkscape.org/namespaces/inkscape\" xmlns=\"http://www.w3.org/2000/svg\" width=\"100%\" height=\"100%\" viewBox=\"{} {} {} {}\">\n",
+            g(min_x),
+            g(min_y),
+            g(max_x - min_x),
+            g(max_y - min_y)
+        )?;
+
+        // Output source code to generate this instance of the router.
+        fp.write_str("<!-- Source code to generate this instance:\n")?;
+        fp.write_str("#include \"libavoid/libavoid.h\"\n")?;
+        // Upstream calls outputCode(nullptr) to ask whether the addon writes
+        // code; the port passes a scratch buffer that is discarded.
+        if self.m_topology_addon.output_code(&mut String::new()) {
+            fp.write_str("#include \"libcola/cola.h\"\n")?;
+            fp.write_str("#include \"libtopology/orthogonal_topology.h\"\n")?;
+            fp.write_str("using namespace cola;\n")?;
+        }
+        fp.write_str("using namespace Avoid;\n")?;
+        fp.write_str("int main(void) {\n")?;
+        fp.write_str("    Router *router = new Router(")?;
+        if self.m_allows_polyline_routing {
+            fp.write_str("PolyLineRouting")?;
+        }
+        if self.m_allows_polyline_routing && self.m_allows_orthogonal_routing {
+            fp.write_str(" | ")?;
+        }
+        if self.m_allows_orthogonal_routing {
+            fp.write_str("OrthogonalRouting")?;
+        }
+        fp.write_str(");\n")?;
+        for p in 0..LAST_ROUTING_PARAMETER_MARKER {
+            write!(
+                fp,
+                "    router->setRoutingParameter((RoutingParameter){}, {});\n",
+                p,
+                g(self.m_routing_parameters[p])
+            )?;
+        }
+        for p in 0..LAST_ROUTING_OPTION_MARKER {
+            write!(
+                fp,
+                "    router->setRoutingOption((RoutingOption){}, {});\n",
+                p,
+                if self.m_routing_options[p] { "true" } else { "false" }
+            )?;
+        }
+        fp.write_str("    Polygon polygon;\n")?;
+        fp.write_str("    ConnRef *connRef = nullptr;\n")?;
+        fp.write_str("    ConnEnd srcPt;\n")?;
+        fp.write_str("    ConnEnd dstPt;\n")?;
+        fp.write_str("    ConnEnd heConnPt;\n")?;
+        fp.write_str("    PolyLine newRoute;\n")?;
+        fp.write_str("    ShapeConnectionPin *connPin = nullptr;\n")?;
+        fp.write_str("\n")?;
+        for &c_ref in self.cluster_refs.iter().rev() {
+            let cluster = &self.clusters[c_ref];
+            let polygon = cluster.polygon();
+            write!(fp, "    polygon = Polygon({});\n", polygon.size())?;
+            for i in 0..polygon.size() {
+                let pt = polygon.at(i, self);
+                write!(fp, "    polygon.ps[{}] = Point({}, {});\n", i, g(pt.x), g(pt.y))?;
+            }
+            write!(fp, "    new ClusterRef(router, polygon, {});\n", cluster.id())?;
+        }
+        for &obstacle in self.m_obstacles.iter().rev() {
+            Obstacle::output_code(self, obstacle, fp)?;
+        }
+        for &conn_ref in self.conn_refs.iter().rev() {
+            self.conns[conn_ref].output_code(self, fp)?;
+        }
+
+        let mut addon_code = String::new();
+        self.m_topology_addon.output_code(&mut addon_code);
+        fp.write_str(&addon_code)?;
+
+        fp.write_str("    router->processTransaction();\n")?;
+        fp.write_str("    router->outputInstanceToSVG();\n")?;
+
+        let mut addon_code = String::new();
+        self.m_topology_addon.output_deletion_code(&mut addon_code);
+        fp.write_str(&addon_code)?;
+        fp.write_str("    delete router;\n")?;
+        fp.write_str("    return 0;\n")?;
+        fp.write_str("};\n")?;
+        fp.write_str("-->\n")?;
+
+        fp.write_str("<g inkscape:groupmode=\"layer\" inkscape:label=\"Clusters\">\n")?;
+        for &c_ref in self.cluster_refs.iter().rev() {
+            let cluster = &self.clusters[c_ref];
+            write!(
+                fp,
+                "<path id=\"cluster-{}\" style=\"stroke-width: 1px; stroke: black; fill: green; opacity: 0.1;\" d=\"",
+                cluster.id()
+            )?;
+            let polygon = cluster.polygon();
+            for i in 0..polygon.size() {
+                let pt = polygon.at(i, self);
+                write!(fp, "{} {} {} ", if i == 0 { 'M' } else { 'L' }, g(pt.x), g(pt.y))?;
+            }
+            fp.write_str("Z\" />\n")?;
+
+            write!(
+                fp,
+                "<path id=\"cluster-{}-rect\" style=\"stroke-width: 1px; stroke: black; fill: green; opacity: 0.1;\" d=\"",
+                cluster.id()
+            )?;
+            let rect = cluster.rectangular_polygon();
+            for i in 0..rect.size() {
+                write!(fp, "{} {} {} ", if i == 0 { 'M' } else { 'L' }, g(rect.at(i).x), g(rect.at(i).y))?;
+            }
+            fp.write_str("Z\" />\n")?;
+        }
+        fp.write_str("</g>\n")?;
+
+        fp.write_str("<g inkscape:groupmode=\"layer\" style=\"display: none;\" inkscape:label=\"ShapePolygons\">\n")?;
+        for &obstacle in self.m_obstacles.iter() {
+            let is_shape = self.obstacles[obstacle].is_shape();
+
+            if !is_shape {
+                // Don't output obstacles here, for now.
+                continue;
+            }
+
+            write!(
+                fp,
+                "<path id=\"poly-{}\" style=\"stroke-width: 1px; stroke: black; fill: {}; fill-opacity: 0.3;\" d=\"",
+                self.obstacles[obstacle].m_id,
+                if is_shape { "grey" } else { "red" }
+            )?;
+            let polygon = &self.obstacles[obstacle].m_polygon;
+            for i in 0..polygon.size() {
+                write!(fp, "{} {} {} ", if i == 0 { 'M' } else { 'L' }, g(polygon.at(i).x), g(polygon.at(i).y))?;
+            }
+            fp.write_str("Z\" />\n")?;
+        }
+        fp.write_str("</g>\n")?;
+
+        fp.write_str("<g inkscape:groupmode=\"layer\" style=\"display: none;\" inkscape:label=\"ObstaclePolygons\">\n")?;
+        for &obstacle in self.m_obstacles.iter() {
+            let is_shape = self.obstacles[obstacle].is_shape();
+
+            if !is_shape {
+                // Don't output obstacles here, for now.
+                continue;
+            }
+
+            let polygon = Obstacle::routing_polygon(self, obstacle);
+            write!(
+                fp,
+                "<path id=\"poly-{}\" style=\"stroke-width: 1px; stroke: black; fill: {}; fill-opacity: 0.3;\" d=\"",
+                self.obstacles[obstacle].m_id,
+                if is_shape { "grey" } else { "red" }
+            )?;
+            for i in 0..polygon.size() {
+                write!(fp, "{} {} {} ", if i == 0 { 'M' } else { 'L' }, g(polygon.at(i).x), g(polygon.at(i).y))?;
+            }
+            fp.write_str("Z\" />\n")?;
+        }
+        fp.write_str("</g>\n")?;
+
+        fp.write_str("<g inkscape:groupmode=\"layer\" style=\"display: none;\" inkscape:label=\"IdealJunctions\">\n")?;
+        for &obstacle in self.m_obstacles.iter() {
+            if let Some(junction) = Obstacle::as_junction(self, obstacle) {
+                let pos = junction.recommended_position(self);
+                write!(
+                    fp,
+                    "<circle id=\"idealJunction-{}\" cx=\"{}\" cy=\"{}\" r=\"8\" style=\"stroke: none; fill: {}; fill-opacity: 0.5;\"  />\n",
+                    self.obstacles[obstacle].m_id,
+                    g(pos.x),
+                    g(pos.y),
+                    "green"
+                )?;
+            }
+        }
+        fp.write_str("</g>\n")?;
+
+        fp.write_str("<g inkscape:groupmode=\"layer\" inkscape:label=\"ObstacleRects\">\n")?;
+        for &obstacle in self.m_obstacles.iter() {
+            let is_shape = self.obstacles[obstacle].is_shape();
+
+            if !is_shape {
+                // Don't output obstacles here, for now.
+                continue;
+            }
+
+            let b_box = Obstacle::routing_box(self, obstacle);
+
+            write!(
+                fp,
+                "<rect id=\"rect-{}\" x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" style=\"stroke-width: 1px; stroke: black; fill: grey; stroke-opacity: 0.1; fill-opacity: 0.1;\" />\n",
+                self.obstacles[obstacle].m_id,
+                g(b_box.min.x),
+                g(b_box.min.y),
+                g(b_box.max.x - b_box.min.x),
+                g(b_box.max.y - b_box.min.y)
+            )?;
+        }
+        fp.write_str("</g>\n")?;
+
+        fp.write_str("<g inkscape:groupmode=\"layer\" inkscape:label=\"VisGraph\">\n")?;
+        fp.write_str("<g inkscape:groupmode=\"layer\" style=\"display: none;\" inkscape:label=\"VisGraph-shape\">\n")?;
+        self.write_vis_graph_edges(fp, false)?;
+        fp.write_str("</g>\n")?;
+        fp.write_str("<g inkscape:groupmode=\"layer\" style=\"display: none;\" inkscape:label=\"VisGraph-conn\">\n")?;
+        self.write_vis_graph_edges(fp, true)?;
+        fp.write_str("</g>\n")?;
+        fp.write_str("</g>\n")?;
+
+        fp.write_str("<g inkscape:groupmode=\"layer\" style=\"display: none;\" inkscape:label=\"OrthogVisGraph\">\n")?;
+        let mut t = self.vis_orthog_graph.begin();
+        while let Some(e) = t {
+            let (mut p1, mut p2) = self.edge_infs[e].points(&self.vert_infs);
+
+            reduce_range(&mut p1.x);
+            reduce_range(&mut p1.y);
+            reduce_range(&mut p2.x);
+            reduce_range(&mut p2.y);
+
+            let ids = self.edge_infs[e].ids(&self.vert_infs);
+
+            write!(
+                fp,
+                "<path d=\"M {} {} L {} {}\" style=\"fill: none; stroke: {}; stroke-width: 1px;\" />\n",
+                g(p1.x),
+                g(p1.y),
+                g(p2.x),
+                g(p2.y),
+                if ids.0.is_conn_pt() || ids.1.is_conn_pt() { "green" } else { "red" }
+            )?;
+            t = self.edge_infs[e].lst_next;
+        }
+        fp.write_str("</g>\n")?;
+
+        fp.write_str("<g inkscape:groupmode=\"layer\" style=\"display: none;\" inkscape:label=\"RawConnectors\">\n")?;
+        for &conn_ref in self.conn_refs.iter() {
+            let route = self.conns[conn_ref].route();
+            if !route.empty() {
+                write!(
+                    fp,
+                    "<path id=\"raw-{}\" d=\"M {} {} ",
+                    self.conns[conn_ref].m_id,
+                    g(route.ps[0].x),
+                    g(route.ps[0].y)
+                )?;
+                for i in 1..route.size() {
+                    write!(fp, "L {} {} ", g(route.ps[i].x), g(route.ps[i].y))?;
+                }
+                fp.write_str("\" ")?;
+                self.write_conn_vis_directions_debug(conn_ref, fp)?;
+                fp.write_str("style=\"fill: none; stroke: black; stroke-width: 1px;\" />\n")?;
+            }
+        }
+        fp.write_str("</g>\n")?;
+
+        fp.write_str("<g inkscape:groupmode=\"layer\" style=\"display: none;\" inkscape:label=\"CurvedDisplayConnectors\">\n")?;
+        let conn_list = self.conn_refs.clone();
+        for &conn_ref in conn_list.iter() {
+            let route = self.conns[conn_ref].display_route().curved_polyline(8.0, false);
+            if !route.empty() {
+                write!(
+                    fp,
+                    "<path id=\"curved-{}\" d=\"M {} {} ",
+                    self.conns[conn_ref].m_id,
+                    g(route.ps[0].x),
+                    g(route.ps[0].y)
+                )?;
+                let mut i = 1;
+                while i < route.size() {
+                    if route.ts[i] == 'C' {
+                        write!(
+                            fp,
+                            "{} {} {} {} {} {} {}",
+                            route.ts[i],
+                            g(route.ps[i].x),
+                            g(route.ps[i].y),
+                            g(route.ps[i + 1].x),
+                            g(route.ps[i + 1].y),
+                            g(route.ps[i + 2].x),
+                            g(route.ps[i + 2].y)
+                        )?;
+                        i += 2;
+                    } else {
+                        write!(fp, "{} {} {} ", route.ts[i], g(route.ps[i].x), g(route.ps[i].y))?;
+                    }
+                    i += 1;
+                }
+                fp.write_str("\" ")?;
+                self.write_conn_vis_directions_debug(conn_ref, fp)?;
+                fp.write_str("style=\"fill: none; stroke: black; stroke-width: 1px;\" />\n")?;
+            }
+        }
+        fp.write_str("</g>\n")?;
+
+        fp.write_str("<g inkscape:groupmode=\"layer\" inkscape:label=\"DisplayConnectors\">\n")?;
+        for &conn_ref in conn_list.iter() {
+            let route = self.conns[conn_ref].display_route().clone();
+            if !route.empty() {
+                write!(
+                    fp,
+                    "<path id=\"disp-{}\" d=\"M {} {} ",
+                    self.conns[conn_ref].m_id,
+                    g(route.ps[0].x),
+                    g(route.ps[0].y)
+                )?;
+                for i in 1..route.size() {
+                    write!(fp, "L {} {} ", g(route.ps[i].x), g(route.ps[i].y))?;
+                }
+                fp.write_str("\" ")?;
+                self.write_conn_vis_directions_debug(conn_ref, fp)?;
+                fp.write_str("style=\"fill: none; stroke: black; stroke-width: 1px;\" />\n")?;
+            }
+        }
+        fp.write_str("</g>\n")?;
+
+        fp.write_str("<g inkscape:groupmode=\"layer\" inkscape:label=\"ConnectorCheckpoints\">\n")?;
+        for &conn_ref in self.conn_refs.iter() {
+            let conn = &self.conns[conn_ref];
+            for (i, cp) in conn.m_checkpoints.iter().enumerate() {
+                write!(
+                    fp,
+                    "<circle id=\"checkpoint-{}-{}\" cx=\"{}\" cy=\"{}\" r=\"8\" style=\"stroke: none; fill: red; fill-opacity: 0.25;\"  />\n",
+                    conn.m_id,
+                    i as i32,
+                    g(cp.point.x),
+                    g(cp.point.y)
+                )?;
+            }
+        }
+        fp.write_str("</g>\n")?;
+
+        fp.write_str("</svg>\n")
+        //printInfo();
+    }
+
+    /// The `VisGraph-shape` (`conn == false`) or `VisGraph-conn` layer of
+    /// `outputInstanceToSVG()`.
+    fn write_vis_graph_edges(&self, fp: &mut dyn fmt::Write, conn: bool) -> fmt::Result {
+        let mut t = self.vis_graph.begin();
+        while let Some(e) = t {
+            t = self.edge_infs[e].lst_next;
+            let ids = self.edge_infs[e].ids(&self.vert_infs);
+            let is_conn = ids.0.is_conn_pt() || ids.1.is_conn_pt();
+            if is_conn != conn {
+                continue;
+            }
+            let (mut p1, mut p2) = self.edge_infs[e].points(&self.vert_infs);
+
+            reduce_range(&mut p1.x);
+            reduce_range(&mut p1.y);
+            reduce_range(&mut p2.x);
+            reduce_range(&mut p2.y);
+
+            write!(
+                fp,
+                "<path d=\"M {} {} L {} {}\" style=\"fill: none; stroke: {}; stroke-width: 1px;\" />\n",
+                g(p1.x),
+                g(p1.y),
+                g(p2.x),
+                g(p2.y),
+                if ids.0.is_conn_pt() || ids.1.is_conn_pt() { "blue" } else { "red" }
+            )?;
+        }
+        Ok(())
+    }
+
+    /// `outputInstanceToSVG()` as a string.
+    // upstream: router.cpp Router::outputInstanceToSVG()
+    pub fn output_instance_to_svg_string(&mut self) -> String {
+        let mut s = String::new();
+        let _ = self.write_instance_svg(&mut s);
+        s
+    }
+
+    /// Writes `<instance_name>.svg` (`libavoid-debug.svg` if the name is
+    /// empty): an SVG of the router state with C++ code that recreates
+    /// this instance in a comment.  Upstream returns silently if the file
+    /// cannot be opened; the port returns the error.  Not available where
+    /// there is no file system (returns an error on
+    /// wasm32-unknown-unknown); use [`Router::output_instance_to_svg_string`].
+    // upstream: router.cpp Router::outputInstanceToSVG()
+    pub fn output_instance_to_svg(&mut self, instance_name: &str) -> std::io::Result<()> {
+        let mut filename = if !instance_name.is_empty() {
+            instance_name.to_string()
+        } else {
+            "libavoid-debug".to_string()
+        };
+        filename.push_str(".svg");
+        crate::avoid::debug::write_file_with(&filename, |fp| self.write_instance_svg(fp))
+    }
+
+    /// `outputDiagramSVG()`: writes an SVG of the shapes and display
+    /// routes, plus the optional highlighted `line_reps`, to `fp`.
+    // upstream: router.cpp Router::outputDiagramSVG()
+    pub fn write_diagram_svg(&mut self, fp: &mut dyn fmt::Write, line_reps: Option<&LineReps>) -> fmt::Result {
+        let (min_x, min_y, max_x, max_y) = self.svg_bounds();
+
+        fp.write_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")?;
+        write!(
+            fp,
+            "<svg xmlns:inkscape=\"http://www.inkscape.org/namespaces/inkscape\" xmlns=\"http://www.w3.org/2000/svg\" width=\"100%\" height=\"100%\" viewBox=\"{} {} {} {}\">\n",
+            g(min_x),
+            g(min_y),
+            g(max_x - min_x),
+            g(max_y - min_y)
+        )?;
+
+        fp.write_str("<g inkscape:groupmode=\"layer\" inkscape:label=\"ShapesRect\">\n")?;
+        for &obstacle in self.m_obstacles.iter() {
+            let is_shape = self.obstacles[obstacle].is_shape();
+
+            if !is_shape {
+                // Don't output non-shape obstacles here, for now.
+                continue;
+            }
+
+            let b_box = self.obstacles[obstacle].m_polygon.offset_bounding_box(0.0);
+
+            write!(
+                fp,
+                "<rect id=\"rect-{}\" x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" style=\"stroke-width: 1px; stroke: black; fill: grey; stroke-opacity: 0.5; fill-opacity: 0.4;\" />\n",
+                self.obstacles[obstacle].m_id,
+                g(b_box.min.x),
+                g(b_box.min.y),
+                g(b_box.max.x - b_box.min.x),
+                g(b_box.max.y - b_box.min.y)
+            )?;
+        }
+        fp.write_str("</g>\n")?;
+
+        fp.write_str("<g inkscape:groupmode=\"layer\" inkscape:label=\"DisplayConnectors\">\n")?;
+        let conn_list = self.conn_refs.clone();
+        for &conn_ref in conn_list.iter() {
+            let route = self.conns[conn_ref].display_route().clone();
+            if !route.empty() {
+                write!(
+                    fp,
+                    "<path id=\"disp-{}\" d=\"M {} {} ",
+                    self.conns[conn_ref].m_id,
+                    g(route.ps[0].x),
+                    g(route.ps[0].y)
+                )?;
+                for i in 1..route.size() {
+                    write!(fp, "L {} {} ", g(route.ps[i].x), g(route.ps[i].y))?;
+                }
+                fp.write_str("\" ")?;
+                fp.write_str("style=\"fill: none; stroke: black; stroke-width: 1px;\" />\n")?;
+                // (A commented-out block upstream would mark segments with
+                // checkpoints.)
+            }
+        }
+        fp.write_str("</g>\n")?;
+
+        if let Some(line_reps) = line_reps {
+            for it in line_reps.iter() {
+                write!(fp, "<path d=\"M {} {} ", g(it.begin.x), g(it.begin.y))?;
+                write!(fp, "L {} {}\" ", g(it.end.x), g(it.end.y))?;
+                fp.write_str("style=\"fill: none; stroke: red; stroke-width: 1px; stroke-opacity: 0.7;\" />\n")?;
+            }
+        }
+
+        fp.write_str("</svg>\n")
+    }
+
+    /// `outputDiagramSVG()` as a string.
+    // upstream: router.cpp Router::outputDiagramSVG()
+    pub fn output_diagram_svg_string(&mut self, line_reps: Option<&LineReps>) -> String {
+        let mut s = String::new();
+        let _ = self.write_diagram_svg(&mut s, line_reps);
+        s
+    }
+
+    /// Writes `<instance_name>.svg` (`libavoid-diagram.svg` if the name is
+    /// empty) with the shapes, display routes and `line_reps`.  Errors as
+    /// for [`Router::output_instance_to_svg`].
+    // upstream: router.cpp Router::outputDiagramSVG()
+    pub fn output_diagram_svg(&mut self, instance_name: &str, line_reps: Option<&LineReps>) -> std::io::Result<()> {
+        let mut filename = if !instance_name.is_empty() {
+            instance_name.to_string()
+        } else {
+            "libavoid-diagram".to_string()
+        };
+        filename.push_str(".svg");
+        crate::avoid::debug::write_file_with(&filename, |fp| self.write_diagram_svg(fp, line_reps))
+    }
+
+    /// Writes `outputDiagramText()` (and, with the `svg-output` feature,
+    /// upstream's `SVG_OUTPUT`, `outputInstanceToSVG()`) for `instance_name`.
+    // upstream: router.cpp Router::outputDiagram()
+    pub fn output_diagram(&mut self, instance_name: &str) -> std::io::Result<()> {
+        self.output_diagram_text_file(instance_name)?;
+        #[cfg(feature = "svg-output")]
+        self.output_instance_to_svg(instance_name)?;
+        Ok(())
+    }
+
+    /// Writes `<instance_name>.txt` (`libavoid-diagram.txt` if the name is
+    /// empty) with the text of [`Router::output_diagram_text_g`] (upstream's
+    /// own `%g` format).  Errors as for [`Router::output_instance_to_svg`].
+    // upstream: router.cpp Router::outputDiagramText()
+    pub fn output_diagram_text_file(&mut self, instance_name: &str) -> std::io::Result<()> {
+        let mut filename = if !instance_name.is_empty() {
+            instance_name.to_string()
+        } else {
+            "libavoid-diagram".to_string()
+        };
+        filename.push_str(".txt");
+        let text = self.output_diagram_text_g();
+        crate::avoid::debug::write_file_with(&filename, |fp| fp.write_str(&text))
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;

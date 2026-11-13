@@ -28,6 +28,7 @@ use crate::avoid::connend::{
 };
 use crate::avoid::geomtypes::{Box, Point, Polygon, PolygonInterface, XDIM, YDIM};
 use crate::avoid::obstacle::{Obstacle, ObstacleKind};
+use crate::avoid::debug::pg;
 use crate::avoid::router::Router;
 
 /// Describes the type of transformation that has been applied to a shape
@@ -355,8 +356,35 @@ impl ShapeRef {
         router.obstacles[self.0].m_polygon.translate(diff.x, diff.y);
     }
 
-    // (upstream: shape.cpp ShapeRef::outputCode() — debug code output, not
-    // ported.)
+    /// Writes C++ code that recreates this shape and its connection pins
+    /// (part of `Router::outputInstanceToSVG()`'s reproduction code).
+    // upstream: shape.cpp ShapeRef::outputCode()
+    pub fn output_code(self, router: &Router, fp: &mut dyn std::fmt::Write) -> std::fmt::Result {
+        let obs = &router.obstacles[self.0];
+        let id = obs.m_id;
+        let polygon = &obs.m_polygon;
+        write!(fp, "    // shapeRef{}\n", id)?;
+        write!(fp, "    polygon = Polygon({});\n", polygon.size())?;
+        for i in 0..polygon.size() {
+            write!(
+                fp,
+                "    polygon.ps[{}] = Point({}, {});\n",
+                i,
+                pg(polygon.at(i).x),
+                pg(polygon.at(i).y)
+            )?;
+        }
+
+        fp.write_str("    ")?;
+        if !obs.m_connection_pins.items.is_empty() {
+            write!(fp, "ShapeRef *shapeRef{} = ", id)?;
+        }
+        write!(fp, "new ShapeRef(router, polygon, {});\n", id)?;
+        for &curr in obs.m_connection_pins.items.iter() {
+            router.pins[curr].output_code(router, fp)?;
+        }
+        fp.write_str("\n")
+    }
     // (upstream: ShapeRef::assignPinVisibilityTo() is declared but never
     // defined upstream.)
 }

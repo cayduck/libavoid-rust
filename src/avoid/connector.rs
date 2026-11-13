@@ -47,6 +47,7 @@ use std::fmt;
 
 use crate::avoid::arena::{ConnIdx, ObstacleIdx, RerouteFlagIdx, VertIdx};
 use crate::avoid::connend::{ConnDirFlags, ConnEnd, ConnEndRef, CONN_DIR_ALL, CONN_DIR_NONE};
+use crate::avoid::debug::pg;
 use crate::avoid::geometry::{
     corner_side, euclidean_dist, manhattan_dist, point_on_line, segment_intersect_point, vec_dir, DO_INTERSECT,
 };
@@ -528,8 +529,79 @@ impl ConnRef {
         }
     }
 
-    // (upstream: connector.cpp ConnRef::outputCode() — debug code output,
-    // not ported.)
+    /// Writes C++ code that recreates this connector (part of
+    /// `Router::outputInstanceToSVG()`'s reproduction code).
+    // upstream: connector.cpp ConnRef::outputCode()
+    pub fn output_code(&self, router: &Router, fp: &mut dyn fmt::Write) -> fmt::Result {
+        let id = self.m_id;
+        write!(fp, "    // connRef{}\n", id)?;
+        write!(fp, "    connRef = new ConnRef(router, {});\n", id)?;
+        if let Some(ce) = &self.m_src_connend {
+            ce.output_code(router, fp, "src")?;
+            fp.write_str("    connRef->setSourceEndpoint(srcPt);\n")?;
+        } else if let Some(src) = self.src() {
+            let v = &router.vert_infs[src];
+            write!(
+                fp,
+                "    srcPt = ConnEnd(Point({}, {}), {});\n",
+                pg(v.point.x),
+                pg(v.point.y),
+                v.vis_directions
+            )?;
+            fp.write_str("    connRef->setSourceEndpoint(srcPt);\n")?;
+        }
+        if let Some(ce) = &self.m_dst_connend {
+            ce.output_code(router, fp, "dst")?;
+            fp.write_str("    connRef->setDestEndpoint(dstPt);\n")?;
+        } else if let Some(dst) = self.dst() {
+            let v = &router.vert_infs[dst];
+            write!(
+                fp,
+                "    dstPt = ConnEnd(Point({}, {}), {});\n",
+                pg(v.point.x),
+                pg(v.point.y),
+                v.vis_directions
+            )?;
+            fp.write_str("    connRef->setDestEndpoint(dstPt);\n")?;
+        }
+        write!(fp, "    connRef->setRoutingType((ConnType){});\n", self.routing_type() as u32)?;
+
+        if self.m_has_fixed_route {
+            let curr_route = self.route();
+            write!(fp, "    newRoute._id = {};\n", id)?;
+            write!(fp, "    newRoute.ps.resize({});\n", curr_route.size() as i32)?;
+            for i in 0..curr_route.size() {
+                write!(
+                    fp,
+                    "    newRoute.ps[{}] = Point({}, {});\n",
+                    i as i32,
+                    pg(curr_route.ps[i].x),
+                    pg(curr_route.ps[i].y)
+                )?;
+                write!(fp, "    newRoute.ps[{}].id = {};\n", i as i32, curr_route.ps[i].id)?;
+                write!(fp, "    newRoute.ps[{}].vn = {};\n", i as i32, curr_route.ps[i].vn)?;
+            }
+            fp.write_str("    connRef->setFixedRoute(newRoute);\n")?;
+        }
+
+        if !self.m_checkpoints.is_empty() {
+            write!(fp, "    std::vector<Checkpoint> checkpoints{}({});\n", id, self.m_checkpoints.len() as i32)?;
+            for (c_ind, cp) in self.m_checkpoints.iter().enumerate() {
+                write!(
+                    fp,
+                    "    checkpoints{}[{}] = Checkpoint(Point({}, {}), (ConnDirFlags) {}, (ConnDirFlags) {});\n",
+                    id,
+                    c_ind as i32,
+                    pg(cp.point.x),
+                    pg(cp.point.y),
+                    cp.arrival_directions as i32,
+                    cp.departure_directions as i32
+                )?;
+            }
+            write!(fp, "    connRef->setRoutingCheckpoints(checkpoints{});\n", id)?;
+        }
+        fp.write_str("\n")
+    }
 
     // upstream: connector.cpp ConnRef::endpointAnchors()
     pub fn endpoint_anchors(&self) -> (Option<ObstacleIdx>, Option<ObstacleIdx>) {

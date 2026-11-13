@@ -34,9 +34,12 @@
 //!   never deleted (leaked upstream), so their destructor never resets the
 //!   nodes' set pointers.
 //!
-//! (`outputHyperedgesToSVG` is debug output and is not ported; it is a
-//! no-op unless `HYPEREDGE_DEBUG` is defined upstream.  Timers are not
-//! ported.  The unused `CmpHyperedgeSegmentDirOrder` is `#if 0` upstream.)
+//! (`outputHyperedgesToSVG` is a no-op unless upstream's `HYPEREDGE_DEBUG`
+//! is defined, here the `hyperedge-debug` feature; the SVG itself is
+//! available through [`HyperedgeImprover::write_hyperedges_svg`].  The
+//! `MAJOR_HYPEREDGE_IMPROVEMENT_DEBUG` reports are compiled in with the
+//! `major-hyperedge-improvement-debug` feature.  The unused
+//! `CmpHyperedgeSegmentDirOrder` is `#if 0` upstream.)
 
 #![allow(dead_code)]
 #![allow(clippy::new_without_default, clippy::collapsible_if, clippy::collapsible_else_if)]
@@ -666,6 +669,21 @@ impl HyperedgeImprover {
                         let other_junction = other_junction.unwrap();
                         let self_junction = self_junction.unwrap();
 
+                        #[cfg(feature = "major-hyperedge-improvement-debug")]
+                        {
+                            use crate::avoid::debug::err_printf;
+                            err_printf!(
+                                "HyperedgeImprover: Coalescing junctions {} and {}:\n",
+                                self_junction.id(router),
+                                other_junction.id(router)
+                            );
+                            err_printf!("                   Deleted junction {}\n", other_junction.id(router));
+                            err_printf!(
+                                "                   Deleted connector {}\n",
+                                router.conns[self.m_tree.edge(edge).conn.expect("tree edge without connector")].m_id
+                            );
+                        }
+
                         // Delete one of the junctions.
                         self.m_deleted_junctions.push(other_junction);
                         let other_key = junction_key(router, other_junction);
@@ -713,7 +731,7 @@ impl HyperedgeImprover {
     // merges segments to improve the overall cost (length + bend penalties)
     // for the hyperedge.
     // upstream: hyperedgeimprover.cpp HyperedgeImprover::nudgeHyperedgeSegments()
-    fn nudge_hyperedge_segments(&mut self, dimension: usize, version_number: &mut u32) {
+    fn nudge_hyperedge_segments(&mut self, router: &Router, dimension: usize, version_number: &mut u32) {
         // For each hyperedge...
         // PTR-ORDER: iterates std::set<JunctionRef *>.
         let roots: Vec<JunctionKey> = self.m_hyperedge_tree_roots.iter().copied().collect();
@@ -748,6 +766,7 @@ impl HyperedgeImprover {
                     s.adjust_position(&mut self.m_tree);
                     self.m_segments[segment] = s;
                     *version_number = version_number.wrapping_add(1);
+                    self.output_hyperedges_to_svg(router, *version_number, Some(segment));
                     self.merge_overlapping_segments(&mut segment_list);
                     change = true;
                 }
@@ -779,6 +798,139 @@ impl HyperedgeImprover {
 
                 self.m_tree.node_write_edges_to_conns(router, node, None, pass);
             }
+        }
+    }
+
+    // Output the hyperedge tree to an SVG file, optionally highlighting
+    // a segment of interest (usually the segment being moved).
+    /// The SVG of `outputHyperedgesToSVG()`: the shapes and the hyperedge
+    /// trees, optionally highlighting `active_segment` (usually the segment
+    /// being moved).
+    // upstream: hyperedgeimprover.cpp HyperedgeImprover::outputHyperedgesToSVG()
+    pub fn write_hyperedges_svg(
+        &self,
+        router: &Router,
+        fp: &mut dyn std::fmt::Write,
+        pass: u32,
+        active_segment: Option<HyperedgeShiftSegmentIdx>,
+    ) -> std::fmt::Result {
+        use crate::avoid::debug::g;
+        use crate::avoid::geomtypes::PolygonInterface;
+        // Reasonable initial limit for diagram bounds.
+        const LIMIT: f64 = 100000000.0;
+
+        let mut min_x = LIMIT;
+        let mut min_y = LIMIT;
+        let mut max_x = -LIMIT;
+        let mut max_y = -LIMIT;
+
+        let mut curr = router.vertices.conns_begin();
+        while let Some(c) = curr {
+            let p = router.vert_infs[c].point;
+
+            if p.x > -LIMIT {
+                min_x = cpp_min(min_x, p.x);
+            }
+            if p.x < LIMIT {
+                max_x = cpp_max(max_x, p.x);
+            }
+            if p.y > -LIMIT {
+                min_y = cpp_min(min_y, p.y);
+            }
+            if p.y < LIMIT {
+                max_y = cpp_max(max_y, p.y);
+            }
+            curr = router.vert_infs[c].lst_next;
+        }
+        min_x -= 50.0;
+        min_y -= 50.0;
+        max_x += 50.0;
+        max_y += 50.0;
+
+        fp.write_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")?;
+        write!(
+            fp,
+            "<svg xmlns:inkscape=\"http://www.inkscape.org/namespaces/inkscape\" xmlns=\"http://www.w3.org/2000/svg\" width=\"100%\" height=\"100%\" viewBox=\"{} {} {} {}\">\n",
+            g(min_x),
+            g(min_y),
+            g(max_x - min_x),
+            g(max_y - min_y)
+        )?;
+
+        fp.write_str("<g inkscape:groupmode=\"layer\" inkscape:label=\"ShapesRect\">\n")?;
+        for &obstacle in router.m_obstacles.iter() {
+            let is_shape = router.obstacles[obstacle].is_shape();
+
+            if !is_shape {
+                // Don't output obstacles here, for now.
+                continue;
+            }
+
+            let b_box = router.obstacles[obstacle].m_polygon.offset_bounding_box(0.0);
+
+            write!(
+                fp,
+                "<rect id=\"rect-{}\" x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" style=\"stroke-width: 1px; stroke: {}; fill: blue; fill-opacity: 0.3;\" />\n",
+                router.obstacles[obstacle].m_id,
+                g(b_box.min.x),
+                g(b_box.min.y),
+                g(b_box.max.x - b_box.min.x),
+                g(b_box.max.y - b_box.min.y),
+                if is_shape { "blue" } else { "red" }
+            )?;
+        }
+        fp.write_str("</g>\n")?;
+
+        write!(fp, "<g inkscape:groupmode=\"layer\" inkscape:label=\"Hyperedge-{}\">\n", pass)?;
+        if let Some(active) = active_segment {
+            let seg = &self.m_segments[active];
+            let low = seg.low_point(&self.m_tree);
+            let high = seg.high_point(&self.m_tree);
+            write!(
+                fp,
+                "<path d=\"M {} {} L {} {}\" style=\"fill: none; stroke: {}; stroke-width: 12px; stroke-opacity: 0.5;\" />\n",
+                g(low.x),
+                g(low.y),
+                g(high.x),
+                g(high.y),
+                if seg.settled() { "red" } else { "orange" }
+            )?;
+        }
+
+        // PTR-ORDER: iterates std::set<JunctionRef *>.
+        for curr in self.m_hyperedge_tree_roots.iter() {
+            let node = self.tree_junction_node(curr);
+
+            self.m_tree.node_output_edges_except(node, fp, None)?;
+        }
+        fp.write_str("</g>\n")?;
+        fp.write_str("</svg>\n")
+    }
+
+    /// Output the hyperedge tree to an SVG file
+    /// (`DEBUG/hyperedges-NNNNN.svg`, NNNNN = `pass`), optionally
+    /// highlighting a segment of interest (usually the segment being
+    /// moved).  Does nothing unless the `hyperedge-debug` feature
+    /// (upstream's `HYPEREDGE_DEBUG`) is on.  Upstream crashes when the
+    /// file cannot be created; the port skips it.
+    // upstream: hyperedgeimprover.cpp HyperedgeImprover::outputHyperedgesToSVG()
+    #[inline]
+    pub fn output_hyperedges_to_svg(
+        &self,
+        router: &Router,
+        pass: u32,
+        active_segment: Option<HyperedgeShiftSegmentIdx>,
+    ) {
+        #[cfg(not(feature = "hyperedge-debug"))]
+        {
+            let _ = (router, pass, active_segment);
+        }
+        #[cfg(feature = "hyperedge-debug")]
+        {
+            let filename = format!("DEBUG/hyperedges-{:05}.svg", pass);
+            let _ = crate::avoid::debug::write_file_with(&filename, |fp| {
+                self.write_hyperedges_svg(router, fp, pass, active_segment)
+            });
         }
     }
 
@@ -977,6 +1129,7 @@ impl HyperedgeImprover {
 
         // Debug output.
         let mut version_number: u32 = 1;
+        self.output_hyperedges_to_svg(router, version_number, None);
 
         // Remove zero length edges.
         self.remove_zero_length_edges_all(router);
@@ -986,6 +1139,7 @@ impl HyperedgeImprover {
 
         // Debug output.
         version_number += 1;
+        self.output_hyperedges_to_svg(router, version_number, None);
 
         for count in 0..4usize {
             let dimension = count % 2;
@@ -1005,13 +1159,14 @@ impl HyperedgeImprover {
                 }
             }
             // Nudge hyperedge segments to locally improve the route.
-            self.nudge_hyperedge_segments(dimension, &mut version_number);
+            self.nudge_hyperedge_segments(router, dimension, &mut version_number);
             // Remove resulting zero length edges.
             self.remove_zero_length_edges_all(router);
             // Move junctions to divergence points.
             self.move_junctions_along_common_edges(router);
             // Debug output.
             version_number += 1;
+            self.output_hyperedges_to_svg(router, version_number, None);
 
             // Clean up shift segments.
             let roots: Vec<JunctionKey> = self.m_hyperedge_tree_roots.iter().copied().collect();
@@ -1024,7 +1179,6 @@ impl HyperedgeImprover {
             self.m_root_shift_segments.clear();
             self.m_all_shift_segments.clear();
         }
-        let _ = version_number;
 
         // Rewrite updated connector attachments to junctions.
         if self.m_can_make_major_changes {
@@ -1253,6 +1407,19 @@ impl HyperedgeImprover {
                 ConnRef::update_end_point(router, conn, VertID::TAR as u32, &tar_connend);
                 self.m_tree.edge_mut(common_edges[0]).conn = Some(conn);
                 self.m_new_connectors.push(conn);
+
+                #[cfg(feature = "major-hyperedge-improvement-debug")]
+                {
+                    use crate::avoid::debug::err_printf;
+                    err_printf!("HyperedgeImprover: Split junction {}:\n", self_junction.id(router));
+                    err_printf!("                   Added junction {}\n", new_junction.id(router));
+                    err_printf!(
+                        "                   Added connector {} (between junctions {} and {})\n",
+                        router.conns[conn].m_id,
+                        self_junction.id(router),
+                        new_junction.id(router)
+                    );
+                }
 
                 new_self = Some(this);
 

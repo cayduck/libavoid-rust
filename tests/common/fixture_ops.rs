@@ -24,7 +24,7 @@
 #![allow(clippy::uninlined_format_args)]
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::panic::{self, AssertUnwindSafe};
 use std::rc::Rc;
 
@@ -418,6 +418,12 @@ struct Interp {
     golden_mode: bool,
     /// Interpreter self-test: poly-line router, nothing compared.
     dry_run: bool,
+    /// When set, every diagram dump (`output` op and the final dump of a
+    /// deleted router) also records `outputInstanceToSVG()` as `NAME.svg`
+    /// and `outputDiagramSVG()` as `NAME-diagram.svg`, as the patched C++
+    /// of `tools/oracle/svg_oracle.sh` does (a later dump of the same name
+    /// replaces the earlier one, as the file would be overwritten).
+    svg_capture: Option<BTreeMap<String, String>>,
 }
 
 impl Interp {
@@ -1477,6 +1483,7 @@ impl Interp {
             }
             Op::Output { router, golden, checked } => {
                 self.check_router_var(router);
+                self.capture_svg(golden);
                 if self.golden_mode && *checked && !self.dry_run {
                     self.compare_output(golden);
                 } else {
@@ -1487,6 +1494,10 @@ impl Interp {
             }
             Op::Delete { router, golden } => {
                 self.check_router_var(router);
+                // The C++ dumps the final state from ~Router() as
+                // `<script>-final` (tools/oracle/build.sh).
+                let final_name = golden.clone().unwrap_or_else(|| format!("{}-final", self.name));
+                self.capture_svg(&final_name);
                 match golden {
                     Some(g) if self.golden_mode && !self.dry_run => {
                         self.compare_output(g);
@@ -1562,6 +1573,20 @@ impl Interp {
         }
     }
 
+    /// Records the SVG debug output for the dump `name` (see
+    /// `svg_capture`).  Called before the diagram text is taken, as the
+    /// patched C++ does.
+    fn capture_svg(&mut self, name: &str) {
+        if self.svg_capture.is_none() {
+            return;
+        }
+        let instance = self.r().output_instance_to_svg_string();
+        let diagram = self.r().output_diagram_svg_string(None);
+        let cap = self.svg_capture.as_mut().unwrap();
+        cap.insert(format!("{}.svg", name), instance);
+        cap.insert(format!("{}-diagram.svg", name), diagram);
+    }
+
     fn check_router_var(&self, router: &str) {
         if self.router_var.as_deref() != Some(router) {
             self.err(&format!("{} is not the router", router));
@@ -1633,7 +1658,27 @@ fn run_fixture_impl(name: &str, dry_run: bool) -> FixtureRun {
     run_script(name, script, dry_run)
 }
 
+/// Runs a golden-mode script like [`run_fixture`] (comparing everything)
+/// and returns the SVG debug output of every diagram dump, keyed by the
+/// file name the patched C++ of `tools/oracle/svg_oracle.sh` writes.
+#[allow(dead_code)]
+pub fn run_fixture_capturing_svg(name: &str) -> (FixtureRun, BTreeMap<String, String>) {
+    let path = ops_path(name);
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {}: {}", path, e));
+    let script = parse_script(name, &text);
+    run_script_impl(name, script, false, true)
+}
+
 fn run_script(name: &str, script: Script, dry_run: bool) -> FixtureRun {
+    run_script_impl(name, script, dry_run, false).0
+}
+
+fn run_script_impl(
+    name: &str,
+    script: Script,
+    dry_run: bool,
+    capture_svg: bool,
+) -> (FixtureRun, BTreeMap<String, String>) {
     let mut it = Interp {
         name: name.to_string(),
         router: None,
@@ -1646,6 +1691,7 @@ fn run_script(name: &str, script: Script, dry_run: bool) -> FixtureRun {
         line: 0,
         golden_mode: script.golden_mode,
         dry_run,
+        svg_capture: if capture_svg { Some(BTreeMap::new()) } else { None },
     };
     it.exec_block(&script.body);
     let exit_code = it.ret.unwrap_or_else(|| script_err(name, 0, "script ended without ret"));
@@ -1674,5 +1720,6 @@ fn run_script(name: &str, script: Script, dry_run: bool) -> FixtureRun {
     }
     // Leaving the router undeleted (improveHyperedge05 never deletes it)
     // mirrors upstream, where it is leaked.
-    FixtureRun { exit_code, stdout: it.stdout, golden_mode: script.golden_mode }
+    let svgs = it.svg_capture.take().unwrap_or_default();
+    (FixtureRun { exit_code, stdout: it.stdout, golden_mode: script.golden_mode }, svgs)
 }

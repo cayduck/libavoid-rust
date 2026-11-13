@@ -494,7 +494,16 @@ impl Obstacle {
 
     // (upstream: Obstacle::computeVisibilityNaive()/computeVisibilitySweep()
     // live in visibility.cpp: see `crate::avoid::visibility`.)
-    // (upstream: Obstacle::outputCode() — debug code output, not ported.)
+
+    /// Writes C++ code that recreates this obstacle (pure virtual upstream;
+    /// dispatches to `ShapeRef::outputCode()` / `JunctionRef::outputCode()`).
+    // upstream: obstacle.h Obstacle::outputCode()
+    pub fn output_code(router: &Router, o: ObstacleIdx, fp: &mut dyn std::fmt::Write) -> std::fmt::Result {
+        match router.obstacles[o].kind {
+            ObstacleKind::Shape => ShapeRef(o).output_code(router, fp),
+            ObstacleKind::Junction(_) => JunctionRef(o).output_code(router, fp),
+        }
+    }
 }
 
 /// Public-API convenience methods on obstacle handles.

@@ -4,7 +4,7 @@
 //! `&mut Router` (the rerouter lives in `Router::m_hyperedge_rerouter`).
 //!
 //! (`setRouter()` has no counterpart: the router is passed explicitly.
-//! `outputInstanceToSVG()` is debug output and is not ported.)
+//! `outputInstanceToSVG(FILE *)` writes to a `std::fmt::Write`.)
 
 #![allow(dead_code)]
 #![allow(clippy::new_without_default)]
@@ -124,6 +124,43 @@ impl HyperedgeRerouter {
         }
     }
 
+
+    /// Writes C++ code that registers the pending hyperedges with a
+    /// `hyperedgeRerouter` (reproduction code in the style of
+    /// `Router::outputInstanceToSVG()`; upstream never calls it itself).
+    /// `router` is the router this rerouter belongs to, for object ids.
+    // upstream: hyperedge.cpp HyperedgeRerouter::outputInstanceToSVG()
+    pub fn output_instance_to_svg(&self, router: &Router, fp: &mut dyn std::fmt::Write) -> std::fmt::Result {
+        if self.count() == 0 {
+            return Ok(());
+        }
+
+        fp.write_str("    HyperedgeRerouter *hyperedgeRerouter = router->hyperedgeRerouter();\n")?;
+        let num_hyperedges = self.count();
+        for i in 0..num_hyperedges {
+            if let Some(root) = self.m_root_junction_vector[i] {
+                // MISUSE: a root junction freed since registration prints id
+                // 0 (upstream would read freed memory).
+                write!(
+                    fp,
+                    "    hyperedgeRerouter->registerHyperedgeForRerouting(junctionRef{});\n",
+                    root.id(router)
+                )?;
+            } else {
+                write!(fp, "    ConnEndList heConnList{};\n", i as u32)?;
+                for it in self.m_terminals_vector[i].iter() {
+                    it.output_code(router, fp, "heEnd")?;
+                    write!(fp, "    heConnList{}.push_back(heEndPt);\n", i as u32)?;
+                }
+                write!(
+                    fp,
+                    "    hyperedgeRerouter->registerHyperedgeForRerouting(heConnList{});\n",
+                    i as u32
+                )?;
+            }
+        }
+        fp.write_str("\n")
+    }
     // Follow connected junctions and connectors from the given connector to
     // determine the hyperedge topology, saving objects to the deleted-objects
     // vectors as we go.

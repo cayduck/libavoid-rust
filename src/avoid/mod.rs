@@ -45,6 +45,7 @@ pub mod arena;
 pub mod connectionpin;
 pub mod connector;
 pub mod connend;
+pub mod debug;
 pub mod geometry;
 pub mod geomtypes;
 pub mod graph;

@@ -37,6 +37,7 @@ use crate::avoid::arena::{ConnIdx, ObstacleIdx, PinIdx, PtrKey, VertIdx};
 use crate::avoid::connectionpin::{CONNECTIONPIN_CENTRE, CONNECTIONPIN_UNSET};
 use crate::avoid::geometry::{euclidean_dist, manhattan_dist, rotational_angle};
 use crate::avoid::geomtypes::{cpp_max, Point, K_UNASSIGNED_VERTEX_NUMBER};
+use crate::avoid::debug::pg;
 use crate::avoid::graph::EdgeInf;
 use crate::avoid::junction::JunctionRef;
 use crate::avoid::obstacle::{Obstacle, ObstacleKind};
@@ -567,6 +568,37 @@ impl ConnEnd {
         (added_vertex, vertex.expect("ConnEnd::getHyperedgeVertex(): no vertex"))
     }
 
-    // (upstream: connend.cpp ConnEnd::outputCode() — debug code output, not
-    // ported.)
+    /// Writes C++ code that recreates this ConnEnd as the variable
+    /// `<src_dst>Pt` (part of `Router::outputInstanceToSVG()`'s
+    /// reproduction code).
+    // upstream: connend.cpp ConnEnd::outputCode()
+    pub fn output_code(&self, router: &Router, fp: &mut dyn std::fmt::Write, src_dst: &str) -> std::fmt::Result {
+        // MISUSE: an anchor freed since this (copied) ConnEnd was made reads
+        // as a free point end (router.rs "Public-API misuse"); upstream
+        // would read freed memory.
+        let anchor = self.m_anchor_obj.filter(|&a| router.obstacles.contains(a));
+        let is_junction = anchor.is_some_and(|a| !router.obstacles[a].is_shape());
+        let is_shape = anchor.is_some_and(|a| router.obstacles[a].is_shape());
+        if is_junction {
+            write!(fp, "    {}Pt = ConnEnd(junctionRef{});\n", src_dst, router.obstacles[anchor.unwrap()].m_id)?;
+        } else if is_shape {
+            write!(
+                fp,
+                "    {}Pt = ConnEnd(shapeRef{}, {});\n",
+                src_dst,
+                router.obstacles[anchor.unwrap()].m_id,
+                self.m_connection_pin_class_id
+            )?;
+        } else {
+            write!(
+                fp,
+                "    {}Pt = ConnEnd(Point({}, {}), (ConnDirFlags) {});\n",
+                src_dst,
+                pg(self.m_point.x),
+                pg(self.m_point.y),
+                self.m_directions
+            )?;
+        }
+        Ok(())
+    }
 }

@@ -1,0 +1,678 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="-53 -51 416 416">
+<!-- Source code to generate this instance:
+#include "libavoid/libavoid.h"
+using namespace Avoid;
+int main(void) {
+    Router *router = new Router(PolyLineRouting | OrthogonalRouting);
+    router->setRoutingParameter((RoutingParameter)0, 50);
+    router->setRoutingParameter((RoutingParameter)1, 200);
+    router->setRoutingParameter((RoutingParameter)2, 200);
+    router->setRoutingParameter((RoutingParameter)3, 4000);
+    router->setRoutingParameter((RoutingParameter)4, 0);
+    router->setRoutingParameter((RoutingParameter)5, 0);
+    router->setRoutingParameter((RoutingParameter)6, 0);
+    router->setRoutingParameter((RoutingParameter)7, 4);
+    router->setRoutingParameter((RoutingParameter)8, 0);
+    router->setRoutingOption((RoutingOption)0, false);
+    router->setRoutingOption((RoutingOption)1, true);
+    router->setRoutingOption((RoutingOption)2, false);
+    router->setRoutingOption((RoutingOption)3, false);
+    router->setRoutingOption((RoutingOption)4, true);
+    router->setRoutingOption((RoutingOption)5, false);
+    router->setRoutingOption((RoutingOption)6, true);
+    Polygon polygon;
+    ConnRef *connRef = nullptr;
+    ConnEnd srcPt;
+    ConnEnd dstPt;
+    ConnEnd heConnPt;
+    PolyLine newRoute;
+    ShapeConnectionPin *connPin = nullptr;
+
+    // shapeRef1
+    polygon = Polygon(4);
+    polygon.ps[0] = Point(80, 0);
+    polygon.ps[1] = Point(80, 25);
+    polygon.ps[2] = Point(50, 25);
+    polygon.ps[3] = Point(50, 0);
+    new ShapeRef(router, polygon, 1);
+
+    // connRef2
+    connRef = new ConnRef(router, 2);
+    srcPt = ConnEnd(Point(355, 332), 15);
+    connRef->setSourceEndpoint(srcPt);
+    dstPt = ConnEnd(Point(230, 307), 10);
+    connRef->setDestEndpoint(dstPt);
+    connRef->setRoutingType((ConnType)1);
+
+    // connRef3
+    connRef = new ConnRef(router, 3);
+    srcPt = ConnEnd(Point(250, 32), 15);
+    connRef->setSourceEndpoint(srcPt);
+    dstPt = ConnEnd(Point(-45, 0), 15);
+    connRef->setDestEndpoint(dstPt);
+    connRef->setRoutingType((ConnType)2);
+    std::vector<Checkpoint> checkpoints3(2);
+    checkpoints3[0] = Checkpoint(Point(100, 332), (ConnDirFlags) 8, (ConnDirFlags) 4);
+    checkpoints3[1] = Checkpoint(Point(-20, 207), (ConnDirFlags) 15, (ConnDirFlags) 4);
+    connRef->setRoutingCheckpoints(checkpoints3);
+
+    // connRef4
+    connRef = new ConnRef(router, 4);
+    srcPt = ConnEnd(Point(250, 357), 15);
+    connRef->setSourceEndpoint(srcPt);
+    dstPt = ConnEnd(Point(-25, 225), 15);
+    connRef->setDestEndpoint(dstPt);
+    connRef->setRoutingType((ConnType)1);
+    std::vector<Checkpoint> checkpoints4(1);
+    checkpoints4[0] = Checkpoint(Point(55, 282), (ConnDirFlags) 15, (ConnDirFlags) 15);
+    connRef->setRoutingCheckpoints(checkpoints4);
+
+    // connRef5
+    connRef = new ConnRef(router, 5);
+    srcPt = ConnEnd(Point(275, 57), 15);
+    connRef->setSourceEndpoint(srcPt);
+    dstPt = ConnEnd(Point(105, 100), 15);
+    connRef->setDestEndpoint(dstPt);
+    connRef->setRoutingType((ConnType)2);
+
+    // connRef6
+    connRef = new ConnRef(router, 6);
+    srcPt = ConnEnd(Point(300, -43), 13);
+    connRef->setSourceEndpoint(srcPt);
+    dstPt = ConnEnd(Point(325, 357), 15);
+    connRef->setDestEndpoint(dstPt);
+    connRef->setRoutingType((ConnType)2);
+    std::vector<Checkpoint> checkpoints6(2);
+    checkpoints6[0] = Checkpoint(Point(280, 125), (ConnDirFlags) 2, (ConnDirFlags) 8);
+    checkpoints6[1] = Checkpoint(Point(25, 107), (ConnDirFlags) 15, (ConnDirFlags) 15);
+    connRef->setRoutingCheckpoints(checkpoints6);
+
+    // connRef7
+    connRef = new ConnRef(router, 7);
+    srcPt = ConnEnd(Point(75, -25), 15);
+    connRef->setSourceEndpoint(srcPt);
+    dstPt = ConnEnd(Point(275, 75), 15);
+    connRef->setDestEndpoint(dstPt);
+    connRef->setRoutingType((ConnType)1);
+
+    router->processTransaction();
+    router->outputInstanceToSVG();
+    delete router;
+    return 0;
+};
+-->
+<g inkscape:groupmode="layer" inkscape:label="Clusters">
+</g>
+<g inkscape:groupmode="layer" style="display: none;" inkscape:label="ShapePolygons">
+<path id="poly-1" style="stroke-width: 1px; stroke: black; fill: grey; fill-opacity: 0.3;" d="M 80 0 L 80 25 L 50 25 L 50 0 Z" />
+</g>
+<g inkscape:groupmode="layer" style="display: none;" inkscape:label="ObstaclePolygons">
+<path id="poly-1" style="stroke-width: 1px; stroke: black; fill: grey; fill-opacity: 0.3;" d="M 80 0 L 80 25 L 50 25 L 50 0 Z" />
+</g>
+<g inkscape:groupmode="layer" style="display: none;" inkscape:label="IdealJunctions">
+</g>
+<g inkscape:groupmode="layer" inkscape:label="ObstacleRects">
+<rect id="rect-1" x="50" y="0" width="30" height="25" style="stroke-width: 1px; stroke: black; fill: grey; stroke-opacity: 0.1; fill-opacity: 0.1;" />
+</g>
+<g inkscape:groupmode="layer" inkscape:label="VisGraph">
+<g inkscape:groupmode="layer" style="display: none;" inkscape:label="VisGraph-shape">
+<path d="M 80 25 L 80 0" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 25 L 80 25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 0 L 80 0" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 0 L 50 25" style="fill: none; stroke: red; stroke-width: 1px;" />
+</g>
+<g inkscape:groupmode="layer" style="display: none;" inkscape:label="VisGraph-conn">
+<path d="M 355 332 L 80 0" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 355 332 L 50 25" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 230 307 L 80 0" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 230 307 L 50 25" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 230 307 L 355 332" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 250 32 L 80 0" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 250 32 L 50 25" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M -45 0 L 80 0" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M -45 0 L 50 25" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M -45 0 L 50 0" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 100 332 L -20 207" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 100 332 L 100 332" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 100 332 L 80 0" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 100 332 L 50 25" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M -20 207 L -20 207" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M -20 207 L 100 332" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M -20 207 L 80 25" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M -20 207 L 50 0" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 250 357 L 80 0" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 250 357 L 50 25" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M -25 225 L 80 25" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M -25 225 L 50 0" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M -25 225 L 250 357" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 55 282 L 55 282" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 55 282 L 80 25" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 55 282 L 50 25" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 275 57 L 80 0" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 275 57 L 50 25" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 105 100 L 80 0" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 105 100 L 50 25" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 105 100 L 275 57" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 300 -43 L 80 25" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 300 -43 L 50 0" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 325 357 L 80 0" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 325 357 L 50 25" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 325 357 L 300 -43" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 280 125 L 25 107" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 280 125 L 280 125" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 280 125 L 80 0" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 280 125 L 50 25" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 25 107 L 25 107" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 25 107 L 280 125" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 25 107 L 80 25" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 25 107 L 50 0" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 75 -25 L 80 0" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 75 -25 L 50 0" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 275 75 L 80 0" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 275 75 L 50 25" style="fill: none; stroke: blue; stroke-width: 1px;" />
+<path d="M 275 75 L 75 -25" style="fill: none; stroke: blue; stroke-width: 1px;" />
+</g>
+</g>
+<g inkscape:groupmode="layer" style="display: none;" inkscape:label="OrthogVisGraph">
+<path d="M -45 -43 L -45 -25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -45 -25 L -45 0" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -45 -25 L -45 0" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M -45 0 L -45 25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -45 0 L -45 25" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M -45 25 L -45 32" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -45 32 L -45 57" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -45 57 L -45 75" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -45 75 L -45 100" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -45 100 L -45 107" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -45 107 L -45 125" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -45 125 L -45 207" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -45 207 L -45 225" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -45 225 L -45 282" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -45 282 L -45 332" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -45 332 L -45 357" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -25 -43 L -25 -25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -25 -25 L -25 0" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -25 0 L -25 25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -25 25 L -25 32" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -25 32 L -25 57" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -25 57 L -25 75" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -25 75 L -25 100" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -25 100 L -25 107" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -25 107 L -25 125" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -25 125 L -25 207" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -25 207 L -25 225" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -25 207 L -25 225" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M -25 225 L -25 282" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -25 225 L -25 282" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M -25 282 L -25 332" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -25 332 L -25 357" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -20 -43 L -20 -25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -20 -25 L -20 0" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -20 0 L -20 25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -20 25 L -20 32" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -20 32 L -20 57" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -20 57 L -20 75" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -20 75 L -20 100" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -20 100 L -20 107" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -20 107 L -20 125" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -20 125 L -20 207" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -20 125 L -20 207" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M -20 207 L -20 225" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -20 207 L -20 225" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M -20 225 L -20 282" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -20 282 L -20 332" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -20 332 L -20 357" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 25 -43 L 25 -25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 25 -25 L 25 0" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 25 0 L 25 25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 25 25 L 25 32" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 25 32 L 25 57" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 25 57 L 25 75" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 25 75 L 25 100" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 25 100 L 25 107" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 25 100 L 25 107" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 25 107 L 25 125" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 25 107 L 25 125" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 25 125 L 25 207" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 25 207 L 25 225" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 25 225 L 25 282" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 25 282 L 25 332" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 25 332 L 25 357" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 -43 L 50 -25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 -25 L 50 0" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 0 L 50 25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 25 L 50 32" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 32 L 50 57" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 57 L 50 75" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 75 L 50 100" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 100 L 50 107" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 107 L 50 125" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 125 L 50 207" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 207 L 50 225" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 225 L 50 282" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 282 L 50 332" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 332 L 50 357" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 55 25 L 55 32" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 55 32 L 55 57" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 55 57 L 55 75" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 55 75 L 55 100" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 55 100 L 55 107" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 55 107 L 55 125" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 55 125 L 55 207" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 55 207 L 55 225" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 55 225 L 55 282" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 55 225 L 55 282" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 55 282 L 55 332" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 55 282 L 55 332" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 55 332 L 55 357" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 75 -43 L 75 -25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 75 -43 L 75 -25" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 75 -25 L 75 0" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 75 -25 L 75 0" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 80 -43 L 80 -25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 80 -25 L 80 0" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 80 0 L 80 25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 80 25 L 80 32" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 80 32 L 80 57" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 80 57 L 80 75" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 80 75 L 80 100" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 80 100 L 80 107" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 80 107 L 80 125" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 80 125 L 80 207" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 80 207 L 80 225" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 80 225 L 80 282" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 80 282 L 80 332" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 80 332 L 80 357" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 100 -43 L 100 -25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 100 -25 L 100 0" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 100 0 L 100 25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 100 25 L 100 32" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 100 32 L 100 57" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 100 57 L 100 75" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 100 75 L 100 100" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 100 100 L 100 107" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 100 107 L 100 125" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 100 125 L 100 207" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 100 207 L 100 225" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 100 225 L 100 282" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 100 282 L 100 332" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 100 282 L 100 332" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 100 332 L 100 357" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 100 332 L 100 357" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 105 -43 L 105 -25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 105 -25 L 105 0" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 105 0 L 105 25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 105 25 L 105 32" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 105 32 L 105 57" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 105 57 L 105 75" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 105 75 L 105 100" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 105 75 L 105 100" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 105 100 L 105 107" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 105 100 L 105 107" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 105 107 L 105 125" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 105 125 L 105 207" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 105 207 L 105 225" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 105 225 L 105 282" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 105 282 L 105 332" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 105 332 L 105 357" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 230 307 L 230 332" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 230 307 L 230 332" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 230 332 L 230 357" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 250 -43 L 250 -25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 250 -25 L 250 0" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 250 0 L 250 25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 250 25 L 250 32" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 250 25 L 250 32" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 250 32 L 250 57" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 250 32 L 250 57" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 250 57 L 250 75" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 250 75 L 250 100" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 250 100 L 250 107" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 250 107 L 250 125" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 250 125 L 250 207" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 250 207 L 250 225" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 250 225 L 250 282" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 250 282 L 250 307" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 250 307 L 250 332" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 250 332 L 250 357" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 250 332 L 250 357" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 275 -43 L 275 -25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 275 -25 L 275 0" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 275 0 L 275 25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 275 25 L 275 32" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 275 32 L 275 57" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 275 32 L 275 57" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 275 57 L 275 75" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 275 57 L 275 75" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 275 57 L 275 75" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 275 57 L 275 75" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 275 57 L 275 100" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 275 57 L 275 75" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 275 75 L 275 100" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 275 75 L 275 100" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 275 100 L 275 107" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 275 107 L 275 125" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 275 125 L 275 207" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 275 207 L 275 225" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 275 225 L 275 282" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 275 282 L 275 307" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 275 307 L 275 332" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 275 332 L 275 357" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 280 -43 L 280 -25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 280 -25 L 280 0" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 280 0 L 280 25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 280 25 L 280 32" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 280 32 L 280 57" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 280 57 L 280 75" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 280 75 L 280 100" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 280 100 L 280 107" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 280 107 L 280 125" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 280 107 L 280 125" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 280 125 L 280 207" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 280 125 L 280 207" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 280 207 L 280 225" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 280 225 L 280 282" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 280 282 L 280 307" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 280 307 L 280 332" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 280 332 L 280 357" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 325 -43 L 325 -25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 325 -25 L 325 0" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 325 0 L 325 25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 325 25 L 325 32" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 325 32 L 325 57" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 325 57 L 325 75" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 325 75 L 325 100" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 325 100 L 325 107" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 325 107 L 325 125" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 325 125 L 325 207" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 325 207 L 325 225" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 325 225 L 325 282" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 325 282 L 325 307" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 325 307 L 325 332" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 325 332 L 325 357" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 325 332 L 325 357" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 355 -43 L 355 -25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 355 -25 L 355 0" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 355 0 L 355 25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 355 25 L 355 32" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 355 32 L 355 57" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 355 57 L 355 75" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 355 75 L 355 100" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 355 100 L 355 107" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 355 107 L 355 125" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 355 125 L 355 207" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 355 207 L 355 225" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 355 225 L 355 282" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 355 282 L 355 307" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 355 307 L 355 332" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 355 307 L 355 332" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 355 332 L 355 357" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 355 332 L 355 357" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M -45 -43 L -25 -43" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -25 -43 L -20 -43" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -20 -43 L 25 -43" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 25 -43 L 50 -43" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 -43 L 75 -43" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 75 -43 L 80 -43" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 80 -43 L 100 -43" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 100 -43 L 105 -43" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 105 -43 L 250 -43" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 250 -43 L 275 -43" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 275 -43 L 280 -43" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 280 -43 L 300 -43" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 280 -43 L 300 -43" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 300 -43 L 325 -43" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 300 -43 L 325 -43" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 325 -43 L 355 -43" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -45 -25 L -25 -25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -25 -25 L -20 -25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -20 -25 L 25 -25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 25 -25 L 50 -25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 -25 L 75 -25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 -25 L 75 -25" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 75 -25 L 80 -25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 75 -25 L 80 -25" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 80 -25 L 100 -25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 100 -25 L 105 -25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 105 -25 L 250 -25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 250 -25 L 275 -25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 275 -25 L 280 -25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 280 -25 L 325 -25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 325 -25 L 355 -25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -45 0 L -25 0" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -45 0 L -25 0" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M -25 0 L -20 0" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -20 0 L 25 0" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 25 0 L 50 0" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 0 L 75 0" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 75 0 L 80 0" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 80 0 L 100 0" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 100 0 L 105 0" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 105 0 L 250 0" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 250 0 L 275 0" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 275 0 L 280 0" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 280 0 L 325 0" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 325 0 L 355 0" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -45 25 L -25 25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -25 25 L -20 25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -20 25 L 25 25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 25 25 L 50 25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 25 L 55 25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 55 25 L 80 25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 80 25 L 100 25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 100 25 L 105 25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 105 25 L 250 25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 250 25 L 275 25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 275 25 L 280 25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 280 25 L 325 25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 325 25 L 355 25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -45 32 L -25 32" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -25 32 L -20 32" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -20 32 L 25 32" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 25 32 L 50 32" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 32 L 55 32" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 55 32 L 80 32" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 80 32 L 100 32" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 100 32 L 105 32" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 105 32 L 250 32" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 105 32 L 250 32" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 250 32 L 275 32" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 250 32 L 275 32" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 275 32 L 280 32" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 280 32 L 325 32" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 325 32 L 355 32" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -45 57 L -25 57" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -25 57 L -20 57" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -20 57 L 25 57" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 25 57 L 50 57" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 57 L 55 57" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 55 57 L 80 57" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 80 57 L 100 57" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 100 57 L 105 57" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 105 57 L 250 57" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 250 57 L 275 57" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 250 57 L 275 57" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 275 57 L 280 57" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 275 57 L 280 57" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 280 57 L 325 57" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 325 57 L 355 57" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -45 75 L -25 75" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -25 75 L -20 75" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -20 75 L 25 75" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 25 75 L 50 75" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 75 L 55 75" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 55 75 L 80 75" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 80 75 L 100 75" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 100 75 L 105 75" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 105 75 L 250 75" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 250 75 L 275 75" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 250 75 L 275 75" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 275 75 L 280 75" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 275 75 L 280 75" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 280 75 L 325 75" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 325 75 L 355 75" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -45 100 L -25 100" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -25 100 L -20 100" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -20 100 L 25 100" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 25 100 L 50 100" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 100 L 55 100" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 55 100 L 80 100" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 80 100 L 100 100" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 100 100 L 105 100" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 100 100 L 105 100" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 105 100 L 250 100" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 105 100 L 250 100" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 250 100 L 275 100" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 275 100 L 280 100" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 280 100 L 325 100" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 325 100 L 355 100" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -45 107 L -25 107" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -25 107 L -20 107" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -20 107 L 25 107" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -20 107 L 25 107" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 25 107 L 50 107" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 25 107 L 50 107" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 50 107 L 55 107" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 55 107 L 80 107" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 80 107 L 100 107" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 100 107 L 105 107" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 105 107 L 250 107" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 250 107 L 275 107" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 275 107 L 280 107" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 280 107 L 325 107" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 325 107 L 355 107" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -45 125 L -25 125" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -25 125 L -20 125" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -20 125 L 25 125" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 25 125 L 50 125" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 125 L 55 125" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 55 125 L 80 125" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 80 125 L 100 125" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 100 125 L 105 125" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 105 125 L 250 125" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 250 125 L 275 125" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 275 125 L 280 125" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 275 125 L 280 125" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 280 125 L 325 125" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 280 125 L 325 125" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 325 125 L 355 125" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -45 207 L -25 207" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -25 207 L -20 207" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -25 207 L -20 207" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M -20 207 L 25 207" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -20 207 L 25 207" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 25 207 L 50 207" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 207 L 55 207" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 55 207 L 80 207" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 80 207 L 100 207" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 100 207 L 105 207" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 105 207 L 250 207" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 250 207 L 275 207" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 275 207 L 280 207" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 280 207 L 325 207" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 325 207 L 355 207" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -45 225 L -25 225" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -45 225 L -25 225" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M -25 225 L -20 225" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -25 225 L -20 225" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M -20 225 L 25 225" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 25 225 L 50 225" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 225 L 55 225" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 55 225 L 80 225" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 80 225 L 100 225" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 100 225 L 105 225" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 105 225 L 250 225" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 250 225 L 275 225" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 275 225 L 280 225" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 280 225 L 325 225" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 325 225 L 355 225" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -45 282 L -25 282" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -25 282 L -20 282" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -20 282 L 25 282" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 25 282 L 50 282" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 282 L 55 282" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 282 L 55 282" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 55 282 L 80 282" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 55 282 L 80 282" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 80 282 L 100 282" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 100 282 L 105 282" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 105 282 L 250 282" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 250 282 L 275 282" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 275 282 L 280 282" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 280 282 L 325 282" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 325 282 L 355 282" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -45 332 L -25 332" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -25 332 L -20 332" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -20 332 L 25 332" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 25 332 L 50 332" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 332 L 55 332" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 55 332 L 80 332" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 80 332 L 100 332" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 80 332 L 100 332" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 100 332 L 105 332" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 100 332 L 105 332" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 105 332 L 230 332" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 230 332 L 250 332" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 250 332 L 275 332" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 275 332 L 280 332" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 280 332 L 325 332" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 325 332 L 355 332" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 325 332 L 355 332" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M -45 357 L -25 357" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -25 357 L -20 357" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M -20 357 L 25 357" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 25 357 L 50 357" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 357 L 55 357" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 55 357 L 80 357" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 80 357 L 100 357" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 100 357 L 105 357" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 105 357 L 230 357" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 230 357 L 250 357" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 230 357 L 250 357" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 250 357 L 275 357" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 250 357 L 275 357" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 275 357 L 280 357" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 280 357 L 325 357" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 280 357 L 325 357" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 325 357 L 355 357" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 325 357 L 355 357" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 230 307 L 250 307" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 230 307 L 250 307" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 250 307 L 275 307" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 275 307 L 280 307" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 280 307 L 325 307" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 325 307 L 355 307" style="fill: none; stroke: red; stroke-width: 1px;" />
+</g>
+<g inkscape:groupmode="layer" style="display: none;" inkscape:label="RawConnectors">
+<path id="raw-7" d="M 75 -25 L 275 75 " debug="src: 15 dst: 15" style="fill: none; stroke: black; stroke-width: 1px;" />
+<path id="raw-6" d="M 300 -43 L 280 -43 L 280 -25 L 280 0 L 280 25 L 280 32 L 280 57 L 280 75 L 280 100 L 280 107 L 280 125 L 325 125 L 325 107 L 280 107 L 275 107 L 250 107 L 105 107 L 100 107 L 80 107 L 55 107 L 50 107 L 25 107 L -20 107 L -25 107 L -25 125 L -25 207 L -25 225 L -25 282 L -25 332 L -25 357 L -20 357 L 25 357 L 50 357 L 55 357 L 80 357 L 100 357 L 105 357 L 230 357 L 250 357 L 275 357 L 280 357 L 325 357 " debug="src: 13 dst: 15" style="fill: none; stroke: black; stroke-width: 1px;" />
+<path id="raw-5" d="M 275 57 L 275 75 L 275 100 L 250 100 L 105 100 " debug="src: 15 dst: 15" style="fill: none; stroke: black; stroke-width: 1px;" />
+<path id="raw-4" d="M 250 357 L -25 225 " debug="src: 15 dst: 15" style="fill: none; stroke: black; stroke-width: 1px;" />
+<path id="raw-3" d="M 250 32 L 105 32 L 105 57 L 105 75 L 105 100 L 105 107 L 105 125 L 105 207 L 105 225 L 105 282 L 105 332 L 100 332 L 80 332 L 55 332 L 50 332 L 25 332 L -20 332 L -25 332 L -25 282 L -25 225 L -25 207 L -20 207 L -45 0 " debug="src: 15 dst: 15" style="fill: none; stroke: black; stroke-width: 1px;" />
+<path id="raw-2" d="M 355 332 L 230 307 " debug="src: 15 dst: 10" style="fill: none; stroke: black; stroke-width: 1px;" />
+</g>
+<g inkscape:groupmode="layer" style="display: none;" inkscape:label="CurvedDisplayConnectors">
+<path id="curved-7" d="M 75 -25 L 275 75 " debug="src: 15 dst: 15" style="fill: none; stroke: black; stroke-width: 1px;" />
+<path id="curved-6" d="M 300 -43 L 288 -43 C 284 -43 280 -39 280 -35L 280 117 C 280 121 284 125 288 125L 317 125 C 321 125 325 121 325 117L 325 115 C 325 111 321 107 317 107L -19 107 C -23 107 -27 111 -27 115L -27 349 C -27 353 -23 357 -19 357L 325 357 " debug="src: 13 dst: 15" style="fill: none; stroke: black; stroke-width: 1px;" />
+<path id="curved-5" d="M 275 57 L 275 92 C 275 96 271 100 267 100L 105 100 " debug="src: 15 dst: 15" style="fill: none; stroke: black; stroke-width: 1px;" />
+<path id="curved-4" d="M 250 357 L -25 225 " debug="src: 15 dst: 15" style="fill: none; stroke: black; stroke-width: 1px;" />
+<path id="curved-3" d="M 250 32 L 183 32 C 179 32 175 36 175 40L 175 324 C 175 328 171 332 167 332L -15 332 C -19 332 -23 328 -23 324L -23 215 C -23 211 -22.25 207 -21.5 207L -21.5 207 C -20.75 207 -20.4831 203 -20.9662 199L -45 0 " debug="src: 15 dst: 15" style="fill: none; stroke: black; stroke-width: 1px;" />
+<path id="curved-2" d="M 355 332 L 230 307 " debug="src: 15 dst: 10" style="fill: none; stroke: black; stroke-width: 1px;" />
+</g>
+<g inkscape:groupmode="layer" inkscape:label="DisplayConnectors">
+<path id="disp-7" d="M 75 -25 L 275 75 " debug="src: 15 dst: 15" style="fill: none; stroke: black; stroke-width: 1px;" />
+<path id="disp-6" d="M 300 -43 L 280 -43 L 280 125 L 325 125 L 325 107 L -27 107 L -27 357 L 325 357 " debug="src: 13 dst: 15" style="fill: none; stroke: black; stroke-width: 1px;" />
+<path id="disp-5" d="M 275 57 L 275 100 L 105 100 " debug="src: 15 dst: 15" style="fill: none; stroke: black; stroke-width: 1px;" />
+<path id="disp-4" d="M 250 357 L -25 225 " debug="src: 15 dst: 15" style="fill: none; stroke: black; stroke-width: 1px;" />
+<path id="disp-3" d="M 250 32 L 175 32 L 175 332 L -23 332 L -23 207 L -20 207 L -45 0 " debug="src: 15 dst: 15" style="fill: none; stroke: black; stroke-width: 1px;" />
+<path id="disp-2" d="M 355 332 L 230 307 " debug="src: 15 dst: 10" style="fill: none; stroke: black; stroke-width: 1px;" />
+</g>
+<g inkscape:groupmode="layer" inkscape:label="ConnectorCheckpoints">
+<circle id="checkpoint-6-0" cx="280" cy="125" r="8" style="stroke: none; fill: red; fill-opacity: 0.25;"  />
+<circle id="checkpoint-6-1" cx="25" cy="107" r="8" style="stroke: none; fill: red; fill-opacity: 0.25;"  />
+<circle id="checkpoint-4-0" cx="55" cy="282" r="8" style="stroke: none; fill: red; fill-opacity: 0.25;"  />
+<circle id="checkpoint-3-0" cx="100" cy="332" r="8" style="stroke: none; fill: red; fill-opacity: 0.25;"  />
+<circle id="checkpoint-3-1" cx="-20" cy="207" r="8" style="stroke: none; fill: red; fill-opacity: 0.25;"  />
+</g>
+</svg>

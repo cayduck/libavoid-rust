@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="-8 -8 66 46">
+<!-- Source code to generate this instance:
+#include "libavoid/libavoid.h"
+using namespace Avoid;
+int main(void) {
+    Router *router = new Router(OrthogonalRouting);
+    router->setRoutingParameter((RoutingParameter)0, 10);
+    router->setRoutingParameter((RoutingParameter)1, 0);
+    router->setRoutingParameter((RoutingParameter)2, 0);
+    router->setRoutingParameter((RoutingParameter)3, 4000);
+    router->setRoutingParameter((RoutingParameter)4, 0);
+    router->setRoutingParameter((RoutingParameter)5, 0);
+    router->setRoutingParameter((RoutingParameter)6, 0);
+    router->setRoutingParameter((RoutingParameter)7, 4);
+    router->setRoutingParameter((RoutingParameter)8, 0);
+    router->setRoutingOption((RoutingOption)0, false);
+    router->setRoutingOption((RoutingOption)1, true);
+    router->setRoutingOption((RoutingOption)2, false);
+    router->setRoutingOption((RoutingOption)3, false);
+    router->setRoutingOption((RoutingOption)4, true);
+    router->setRoutingOption((RoutingOption)5, false);
+    router->setRoutingOption((RoutingOption)6, true);
+    Polygon polygon;
+    ConnRef *connRef = nullptr;
+    ConnEnd srcPt;
+    ConnEnd dstPt;
+    ConnEnd heConnPt;
+    PolyLine newRoute;
+    ShapeConnectionPin *connPin = nullptr;
+
+    // shapeRef1
+    polygon = Polygon(4);
+    polygon.ps[0] = Point(10, 0);
+    polygon.ps[1] = Point(10, 10);
+    polygon.ps[2] = Point(0, 10);
+    polygon.ps[3] = Point(0, 0);
+    ShapeRef *shapeRef1 = new ShapeRef(router, polygon, 1);
+    connPin = new ShapeConnectionPin(shapeRef1, 1, 0.5, 0.5, true, 0, (ConnDirFlags) 0);
+
+    // shapeRef2
+    polygon = Polygon(4);
+    polygon.ps[0] = Point(50, 20);
+    polygon.ps[1] = Point(50, 30);
+    polygon.ps[2] = Point(40, 30);
+    polygon.ps[3] = Point(40, 20);
+    ShapeRef *shapeRef2 = new ShapeRef(router, polygon, 2);
+    connPin = new ShapeConnectionPin(shapeRef2, 1, 0.5, 0.5, true, 0, (ConnDirFlags) 0);
+
+    // connRef3
+    connRef = new ConnRef(router, 3);
+    srcPt = ConnEnd(shapeRef2, 1);
+    connRef->setSourceEndpoint(srcPt);
+    dstPt = ConnEnd(shapeRef1, 1);
+    connRef->setDestEndpoint(dstPt);
+    connRef->setRoutingType((ConnType)2);
+
+    router->processTransaction();
+    router->outputInstanceToSVG();
+    delete router;
+    return 0;
+};
+-->
+<g inkscape:groupmode="layer" inkscape:label="Clusters">
+</g>
+<g inkscape:groupmode="layer" style="display: none;" inkscape:label="ShapePolygons">
+<path id="poly-2" style="stroke-width: 1px; stroke: black; fill: grey; fill-opacity: 0.3;" d="M 50 20 L 50 30 L 40 30 L 40 20 Z" />
+<path id="poly-1" style="stroke-width: 1px; stroke: black; fill: grey; fill-opacity: 0.3;" d="M 10 0 L 10 10 L 0 10 L 0 0 Z" />
+</g>
+<g inkscape:groupmode="layer" style="display: none;" inkscape:label="ObstaclePolygons">
+<path id="poly-2" style="stroke-width: 1px; stroke: black; fill: grey; fill-opacity: 0.3;" d="M 50 20 L 50 30 L 40 30 L 40 20 Z" />
+<path id="poly-1" style="stroke-width: 1px; stroke: black; fill: grey; fill-opacity: 0.3;" d="M 10 0 L 10 10 L 0 10 L 0 0 Z" />
+</g>
+<g inkscape:groupmode="layer" style="display: none;" inkscape:label="IdealJunctions">
+</g>
+<g inkscape:groupmode="layer" inkscape:label="ObstacleRects">
+<rect id="rect-2" x="40" y="20" width="10" height="10" style="stroke-width: 1px; stroke: black; fill: grey; stroke-opacity: 0.1; fill-opacity: 0.1;" />
+<rect id="rect-1" x="0" y="0" width="10" height="10" style="stroke-width: 1px; stroke: black; fill: grey; stroke-opacity: 0.1; fill-opacity: 0.1;" />
+</g>
+<g inkscape:groupmode="layer" inkscape:label="VisGraph">
+<g inkscape:groupmode="layer" style="display: none;" inkscape:label="VisGraph-shape">
+</g>
+<g inkscape:groupmode="layer" style="display: none;" inkscape:label="VisGraph-conn">
+</g>
+</g>
+<g inkscape:groupmode="layer" style="display: none;" inkscape:label="OrthogVisGraph">
+<path d="M 0 0 L 0 5" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 0 5 L 0 10" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 0 10 L 0 20" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 0 20 L 0 25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 0 25 L 0 30" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 5 0 L 5 5" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 5 5 L 5 10" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 5 10 L 5 20" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 5 20 L 5 25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 5 25 L 5 30" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 10 0 L 10 5" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 10 5 L 10 10" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 10 10 L 10 20" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 10 20 L 10 25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 10 25 L 10 30" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 40 0 L 40 5" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 40 5 L 40 10" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 40 10 L 40 20" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 40 20 L 40 25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 40 25 L 40 30" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 45 0 L 45 5" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 45 5 L 45 10" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 45 10 L 45 20" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 45 20 L 45 25" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 45 25 L 45 30" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 50 0 L 50 5" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 5 L 50 10" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 10 L 50 20" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 20 L 50 25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 50 25 L 50 30" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 0 0 L 5 0" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 5 0 L 10 0" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 10 0 L 40 0" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 40 0 L 45 0" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 45 0 L 50 0" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 0 5 L 5 5" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 5 5 L 10 5" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 10 5 L 40 5" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 40 5 L 45 5" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 45 5 L 50 5" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 0 10 L 5 10" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 5 10 L 10 10" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 10 10 L 40 10" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 40 10 L 45 10" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 45 10 L 50 10" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 0 20 L 5 20" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 5 20 L 10 20" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 10 20 L 40 20" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 40 20 L 45 20" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 45 20 L 50 20" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 0 25 L 5 25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 5 25 L 10 25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 10 25 L 40 25" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 40 25 L 45 25" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 45 25 L 50 25" style="fill: none; stroke: green; stroke-width: 1px;" />
+<path d="M 0 30 L 5 30" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 5 30 L 10 30" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 10 30 L 40 30" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 40 30 L 45 30" style="fill: none; stroke: red; stroke-width: 1px;" />
+<path d="M 45 30 L 50 30" style="fill: none; stroke: red; stroke-width: 1px;" />
+</g>
+<g inkscape:groupmode="layer" style="display: none;" inkscape:label="RawConnectors">
+<path id="raw-3" d="M 45 25 L 45 20 L 45 10 L 45 5 L 40 5 L 10 5 L 5 5 " debug="src: 0 dst: 0" style="fill: none; stroke: black; stroke-width: 1px;" />
+</g>
+<g inkscape:groupmode="layer" style="display: none;" inkscape:label="CurvedDisplayConnectors">
+<path id="curved-3" d="M 45 25 L 45 13 C 45 9 41 5 37 5L 5 5 " debug="src: 0 dst: 0" style="fill: none; stroke: black; stroke-width: 1px;" />
+</g>
+<g inkscape:groupmode="layer" inkscape:label="DisplayConnectors">
+<path id="disp-3" d="M 45 25 L 45 5 L 5 5 " debug="src: 0 dst: 0" style="fill: none; stroke: black; stroke-width: 1px;" />
+</g>
+<g inkscape:groupmode="layer" inkscape:label="ConnectorCheckpoints">
+</g>
+</svg>

@@ -26,6 +26,7 @@ use crate::avoid::connectionpin::{ShapeConnectionPin, CONNECTIONPIN_CENTRE};
 use crate::avoid::connend::{ConnEnd, CONN_DIR_ALL, CONN_DIR_DOWN, CONN_DIR_LEFT, CONN_DIR_RIGHT, CONN_DIR_UP};
 use crate::avoid::geomtypes::{cpp_min, Point, Polygon, Rectangle, XDIM, YDIM};
 use crate::avoid::obstacle::{Obstacle, ObstacleKind};
+use crate::avoid::debug::g;
 use crate::avoid::router::{Router, RoutingParameter};
 use crate::avoid::vertices::VertID;
 
@@ -228,8 +229,33 @@ impl JunctionRef {
         router.obstacles[self.0].junction_data_mut().m_recommended_position = *position;
     }
 
-    // (upstream: junction.cpp JunctionRef::outputCode() — debug code output,
-    // not ported.)
+    /// Writes C++ code that recreates this junction (part of
+    /// `Router::outputInstanceToSVG()`'s reproduction code).
+    // upstream: junction.cpp JunctionRef::outputCode()
+    pub fn output_code(self, router: &Router, fp: &mut dyn std::fmt::Write) -> std::fmt::Result {
+        let obs = &router.obstacles[self.0];
+        let id = obs.m_id;
+        let position = obs.junction_data().m_position;
+        write!(
+            fp,
+            "    JunctionRef *junctionRef{} = new JunctionRef(router, Point({}, {}), {});\n",
+            id,
+            g(position.x),
+            g(position.y),
+            id
+        )?;
+        if obs.junction_data().m_position_fixed {
+            write!(fp, "    junctionRef{}->setPositionFixed(true);\n", id)?;
+        }
+
+        fp.write_str("    /*\n")?;
+        fp.write_str("    // This may be useful if junction pins are modified.\n")?;
+        for &curr in obs.m_connection_pins.items.iter() {
+            router.pins[curr].output_code(router, fp)?;
+        }
+        fp.write_str("    */\n")?;
+        fp.write_str("\n")
+    }
 
     // upstream: junction.cpp JunctionRef::moveAttachedConns()
     pub fn move_attached_conns(self, router: &mut Router, new_position: &Point) {

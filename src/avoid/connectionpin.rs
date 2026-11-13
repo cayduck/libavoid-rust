@@ -33,6 +33,7 @@
 use std::collections::BTreeSet;
 
 use crate::avoid::arena::{Arena, ObstacleIdx, PinIdx, PtrKey, VertIdx};
+use crate::avoid::debug::{g, pg};
 use crate::avoid::connend::{
     ConnDirFlags, ConnEnd, ConnEndRef, CONN_DIR_ALL, CONN_DIR_DOWN, CONN_DIR_LEFT, CONN_DIR_NONE,
     CONN_DIR_RIGHT, CONN_DIR_UP,
@@ -437,8 +438,40 @@ impl ShapeConnectionPin {
         vis_dir
     }
 
-    // (upstream: connectionpin.cpp ShapeConnectionPin::outputCode() — debug
-    // code output, not ported.)
+    /// Writes C++ code that recreates this pin (part of
+    /// `Router::outputInstanceToSVG()`'s reproduction code).
+    // upstream: connectionpin.cpp ShapeConnectionPin::outputCode()
+    pub fn output_code(&self, router: &Router, fp: &mut dyn std::fmt::Write) -> std::fmt::Result {
+        debug_assert!(self.m_shape.is_some() || self.m_junction.is_some());
+        if let Some(shape) = self.m_shape {
+            write!(
+                fp,
+                "    connPin = new ShapeConnectionPin(shapeRef{}, {}, {}, {}, {}, {}, (ConnDirFlags) {});\n",
+                router.obstacles[shape].m_id,
+                self.m_class_id,
+                pg(self.m_x_offset),
+                pg(self.m_y_offset),
+                if self.m_using_proportional_offsets { "true" } else { "false" },
+                g(self.m_inside_offset),
+                self.m_visibility_directions
+            )?;
+        } else if let Some(junction) = self.m_junction {
+            write!(
+                fp,
+                "    connPin = new ShapeConnectionPin(junctionRef{}, {}, (ConnDirFlags) {});\n",
+                router.obstacles[junction].m_id,
+                self.m_class_id,
+                self.m_visibility_directions
+            )?;
+        }
+
+        let vertex_vis_directions = self.m_vertex.map(|v| router.vert_infs[v].vis_directions);
+        if (vertex_vis_directions != Some(CONN_DIR_ALL)) && !self.m_exclusive {
+            // Directional port is not exclusive (the default), so output this.
+            fp.write_str("    connPin->setExclusive(false);\n")?;
+        }
+        Ok(())
+    }
 
     // upstream: connectionpin.cpp ShapeConnectionPin::ids()
     pub fn ids(&self, obstacles: &ObstacleArena) -> ConnectionPinIds {

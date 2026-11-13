@@ -10,6 +10,26 @@ repository = "https://github.com/cayduck/libavoid-rust"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = []
+# Upstream debugging switches (preprocessor defines upstream), all off by
+# default; see src/avoid/debug.rs, debughandler.rs and timer.rs.
+# LIBAVOID_DEBUG: db_printf() writes to stdout.
+libavoid-debug = []
+# HIGH_PRECISION_DEBUG: PREC is ".16" in the SVG/reproduction-code output.
+high-precision-debug = []
+# DEBUGHANDLER: the router calls its DebugHandler (Router::set_debug_handler).
+debug-handler = []
+# HYPEREDGE_DEBUG: HyperedgeImprover writes DEBUG/hyperedges-NNNNN.svg.
+hyperedge-debug = []
+# MAJOR_HYPEREDGE_IMPROVEMENT_DEBUG: hyperedge improvement reports its
+# topology changes on stderr.
+major-hyperedge-improvement-debug = []
+# SVG_OUTPUT: Router::output_diagram() also writes outputInstanceToSVG().
+svg-output = []
+# AVOID_PROFILE: Router::timers and the TIMER_* instrumentation.
+avoid-profile = []
+
 [dependencies]
 wasm-bindgen = "0.2.126"
 
