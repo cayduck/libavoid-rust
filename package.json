@@ -73,6 +73,7 @@
     "routing",
     "diagram"
   ],
+  "author": "Cayduck (https://github.com/cayduck)",
   "license": "LGPL-2.1-or-later",
   "devDependencies": {
     "wasm-pack": "^0.13.1"

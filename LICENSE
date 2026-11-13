@@ -1,7 +1,7 @@
 libavoid-rust is a translation into Rust of libavoid, the connector-routing
 library of Adaptagrams (https://github.com/mjwybrow/adaptagrams, the source
 at commit 840ebcf), with a JavaScript/WebAssembly interface added.  It is a
-modified version of libavoid, made in 2026 by the libavoid-rust contributors
+modified version of libavoid, made in 2026 by Cayduck
 (https://github.com/cayduck/libavoid-rust), and is distributed under the
 same terms as libavoid: the GNU Lesser General Public License, version 2.1
 or (at your option) any later version, reproduced below.
