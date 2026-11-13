@@ -1,7 +1,7 @@
 // UI of the demo: renders the editor's router state as SVG and turns
-// pointer / keyboard input into editor calls.  The router comes from the
-// package's browser entry (index.mjs), copied next to this file by
-// scripts/build-demo.cjs.
+// pointer / keyboard input into editor calls.  The Avoid namespace comes
+// from the package's browser entry (index.mjs), copied next to this file
+// by scripts/build-demo.cjs.
 
 import { Editor, OPTIONS, PARAMETERS, PIN_ANY, SIDES } from "./editor.js";
 import { SCENES } from "./scenes.js";
@@ -349,7 +349,6 @@ class App {
   /** Renders after a transaction: connectors in `updated` only, or all when null. */
   render(updated) {
     const ed = this.editor;
-    const r = ed.router;
     const u = this.unit();
     for (const m of this.markers) {
       m.setAttribute("markerWidth", 10 * u);
@@ -357,7 +356,7 @@ class App {
     }
 
     // clusters
-    this.syncKeys(this.els.clusters, r.clusterIds(), (id) => {
+    this.syncKeys(this.els.clusters, ed.ids("cluster"), (id) => {
       const g = svg("g", { class: "cluster", "data-kind": "cluster", "data-id": id }, this.layers.clusters);
       svg("path", {}, g);
       svg("text", {}, g);
@@ -374,7 +373,7 @@ class App {
     }
 
     // shapes, their pins and buffers
-    this.syncKeys(this.els.shapes, r.shapeIds(), (id) => {
+    this.syncKeys(this.els.shapes, ed.ids("shape"), (id) => {
       const g = svg("g", { class: "shape", "data-kind": "shape", "data-id": id, tabindex: 0 }, this.layers.shapes);
       svg("path", { class: "body", "vector-effect": "non-scaling-stroke" }, g);
       svg("text", { class: "label" }, g);
@@ -408,8 +407,7 @@ class App {
     }
 
     // connectors
-    const connectorIds = r.connectorIds();
-    this.syncKeys(this.els.connectors, connectorIds, (id) => {
+    this.syncKeys(this.els.connectors, ed.ids("connector"), (id) => {
       const g = svg("g", { "data-kind": "connector", "data-id": id }, this.layers.connectors);
       svg("path", { class: "conn-hit" }, g);
       svg("path", { class: "conn", "vector-effect": "non-scaling-stroke" }, g);
@@ -438,7 +436,7 @@ class App {
     }
 
     // junctions (above connectors)
-    this.syncKeys(this.els.junctions, r.junctionIds(), (id) => {
+    this.syncKeys(this.els.junctions, ed.ids("junction"), (id) => {
       const el = svg("circle", { class: "junction", "data-kind": "junction", "data-id": id, tabindex: 0, "vector-effect": "non-scaling-stroke" }, this.layers.handles);
       el.addEventListener("focus", () => this.select(id));
       return el;
@@ -536,7 +534,7 @@ class App {
       }
       if (kind === "connector") {
         button("Clear checkpoints", () => {
-          this.editor.transact(() => this.editor.router.setConnectorRoutingCheckpoints(id, []));
+          this.editor.setCheckpoints(id, []);
           this.afterEdit(true);
         });
       }
@@ -544,7 +542,7 @@ class App {
         const label = document.createElement("label");
         label.innerHTML = '<input type="checkbox"> Fixed position';
         const box = label.querySelector("input");
-        box.checked = Boolean(this.editor.router.junctionPositionFixed(id));
+        box.checked = this.editor.get(id).positionFixed();
         box.addEventListener("change", () => {
           this.editor.setJunctionFixed(id, box.checked);
           this.afterEdit(true);
@@ -569,7 +567,6 @@ class App {
 
   describeEnd(end) {
     if (!end) return "nothing";
-    const r = this.editor.router;
     const p = `(${Math.round(end.position.x)}, ${Math.round(end.position.y)})`;
     if (end.type === "point") return `a free end at ${p}`;
     if (end.type === "junction") return `junction ${end.junctionId}`;
@@ -578,7 +575,7 @@ class App {
       const pin = end.classId === PIN_ANY ? "best side" : SIDE_NAMES[end.classId] ?? `pin class ${end.classId}`;
       return `${label} (${pin})`;
     }
-    return r ? "an empty end" : "";
+    return "an empty end";
   }
 
   updateSelectionText() {
@@ -586,17 +583,16 @@ class App {
     const text = $("selection-text");
     if (!id) return;
     const ed = this.editor;
-    const r = ed.router;
     const kind = ed.kindOf(id);
     if (kind === "shape") {
       const s = ed.shapeGeometry(id);
-      text.textContent = `${s.label}: ${Math.round(s.box.right - s.box.left)} × ${Math.round(s.box.bottom - s.box.top)} at (${Math.round(s.box.left)}, ${Math.round(s.box.top)}), ${r.shapeAttachedConnectors(id).length} connectors. Arrow keys move it.`;
+      text.textContent = `${s.label}: ${Math.round(s.box.right - s.box.left)} × ${Math.round(s.box.bottom - s.box.top)} at (${Math.round(s.box.left)}, ${Math.round(s.box.top)}), ${ed.get(id).attachedConnectors().length} connectors. Arrow keys move it.`;
     } else if (kind === "connector") {
       const c = ed.connectorGeometry(id);
       const segs = Math.max(c.display.length - 1, 0);
       text.textContent = `Connector from ${this.describeEnd(c.ends?.source)} to ${this.describeEnd(c.ends?.destination)}: ${segs} segment${segs === 1 ? "" : "s"}, ${c.checkpoints.length} checkpoint${c.checkpoints.length === 1 ? "" : "s"}.`;
     } else if (kind === "junction") {
-      const n = r.junctionAttachedConnectors(id).length;
+      const n = ed.get(id).attachedConnectors().length;
       text.textContent = `Junction ${id} joining ${n} connector${n === 1 ? "" : "s"}. Arrow keys move it.`;
     } else if (kind === "cluster") {
       text.textContent = `Cluster ${ed.meta.get(id)?.label ?? id}.`;
@@ -707,7 +703,7 @@ class App {
             this.announce("Split the connector with a junction");
           } else {
             this.announce("This connector cannot be split here");
-            $("tool-hint").textContent = "That connector cannot be split there (libavoid needs a segment between two bends, and no free destination end).";
+            $("tool-hint").textContent = "That connector cannot be split there (libavoid splits a connector only at a segment of its current route).";
           }
         } else if (hit.kind === "canvas") {
           const id = ed.addJunction(p.x, p.y);
@@ -743,11 +739,11 @@ class App {
   }
 
   anchorOf(hit, p) {
-    const r = this.editor.router;
-    if (hit.kind === "pin") return r.shapeConnectionPinPosition(hit.id, hit.el.dataset.pin);
-    if (hit.kind === "junction") return r.junctionPosition(hit.id);
+    const ed = this.editor;
+    if (hit.kind === "pin") return ed.pinPosition(hit.id, hit.el.dataset.pin);
+    if (hit.kind === "junction") return ed.get(hit.id).position();
     if (hit.kind === "shape") {
-      const b = r.shapeBoundingBox(hit.id);
+      const b = ed.shapeGeometry(hit.id).box;
       return { x: (b.left + b.right) / 2, y: (b.top + b.bottom) / 2 };
     }
     return p;

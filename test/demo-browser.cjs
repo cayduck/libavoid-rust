@@ -129,6 +129,7 @@ async function desktop(browser, base) {
   assert.ok(changed(paths, after).length >= 3, "dragging the gateway should re-route its connectors");
   assert.match(await page.textContent("#t-updated"), /^\d+ of \d+$/);
   assert.equal(await page.isVisible("#selection"), true, "dragged box is selected");
+  await page.screenshot({ path: path.join(shots, "desktop-basics-dragged.png") });
   paths = after;
 
   // Switch to poly-line routing.

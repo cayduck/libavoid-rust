@@ -1,6 +1,7 @@
-// DOM-free core of the demo: owns the AvoidRouter, applies edits as
+// DOM-free core of the demo: owns the Avoid.Router, applies edits as
 // transactions and times them.  The router is the single source of truth
-// for geometry; the editor only keeps display metadata (labels, colours).
+// for geometry; the editor only keeps display metadata (labels, colours,
+// pin names) keyed by upstream's object ids (`obj.id()`, as strings).
 // app.js renders the snapshot and turns pointer / keyboard input into calls.
 
 /**
@@ -14,11 +15,11 @@
  */
 export const PIN_ANY = 1;
 export const SIDES = [
-  // [pin id, classId in the "sides" model, xOffset, yOffset, direction name]
-  ["top", 2, 0.5, 0, "Up"],
-  ["right", 3, 1, 0.5, "Right"],
-  ["bottom", 4, 0.5, 1, "Down"],
-  ["left", 5, 0, 0.5, "Left"],
+  // [pin name, classId in the "sides" model, xOffset, yOffset, visibility direction]
+  ["top", 2, 0.5, 0, "ConnDirUp"],
+  ["right", 3, 1, 0.5, "ConnDirRight"],
+  ["bottom", 4, 0.5, 1, "ConnDirDown"],
+  ["left", 5, 0, 0.5, "ConnDirLeft"],
 ];
 
 /**
@@ -63,6 +64,8 @@ export const DEFAULT_OPTIONS = {
 
 const HISTORY = 120;
 
+const END_TYPES = ["point", "shapePin", "junction", "empty"]; // upstream ConnEndType order
+
 export class Editor {
   constructor(api) {
     this.api = api;
@@ -70,11 +73,17 @@ export class Editor {
     this.mode = "orthogonal";
     this.params = {};
     this.options = {};
-    this.meta = new Map(); // id -> { label?, colour? }
-    this.counter = 0;
+    this.objects = new Map(); // id -> ShapeRef / JunctionRef / ConnRef / ClusterRef, in creation order
+    this.meta = new Map(); // id -> { label?, colour?, pins? }
+    this.hooked = new WeakSet(); // connectors whose callback is set
+    this.changed = new Set(); // ids of connectors whose callback fired
+    this.boxCounter = 0;
     this.colourCounter = 0;
     this.timings = [];
     this.last = null;
+    // upstream: void (*cb)(void *ptr), registered with ConnRef::setCallback();
+    // `ptr` is the connector's id.
+    this.routeChanged = (id) => this.changed.add(id);
   }
 
   // --- scene lifecycle -----------------------------------------------------
@@ -82,24 +91,26 @@ export class Editor {
   /** Replaces the router and builds `scene` (see scenes.js). */
   load(scene) {
     const { api } = this;
-    if (this.router) this.router.free();
-    this.router = new api.AvoidRouter(api.RouterFlag.OrthogonalRouting | api.RouterFlag.PolyLineRouting);
+    if (this.router) this.router.delete();
+    this.router = new api.Router(api.OrthogonalRouting | api.PolyLineRouting);
+    this.objects.clear();
     this.meta.clear();
-    this.counter = 0;
+    this.hooked = new WeakSet();
+    this.boxCounter = 0;
     this.colourCounter = 0;
     this.timings = [];
     this.mode = scene.mode ?? "orthogonal";
     this.params = { ...DEFAULT_PARAMS, ...scene.params };
     this.options = {};
     for (const { key } of OPTIONS) {
-      this.options[key] = this.router.routingOption(api.RoutingOption[key]);
+      this.options[key] = this.router.routingOption(api[key]);
     }
     Object.assign(this.options, DEFAULT_OPTIONS, scene.options);
     for (const [key, value] of Object.entries(this.params)) {
-      this.router.setRoutingParameter(api.RoutingParameter[key], value);
+      this.router.setRoutingParameter(api[key], value);
     }
     for (const [key, value] of Object.entries(this.options)) {
-      this.router.setRoutingOption(api.RoutingOption[key], value);
+      this.router.setRoutingOption(api[key], value);
     }
     this.sceneDefaults = { params: { ...this.params }, options: { ...this.options } };
     return this.transact(() => scene.build(this));
@@ -111,47 +122,78 @@ export class Editor {
     this.params = { ...this.sceneDefaults.params };
     this.options = { ...this.sceneDefaults.options };
     return this.transact(() => {
-      for (const [key, value] of Object.entries(this.params)) router.setRoutingParameter(api.RoutingParameter[key], value);
-      for (const [key, value] of Object.entries(this.options)) router.setRoutingOption(api.RoutingOption[key], value);
+      for (const [key, value] of Object.entries(this.params)) router.setRoutingParameter(api[key], value);
+      for (const [key, value] of Object.entries(this.options)) router.setRoutingOption(api[key], value);
       router.markAllObstaclesAsMoved();
     });
   }
 
-  /** Runs `fn` (queued edits), processes the transaction and times it. */
+  /**
+   * Runs `fn` (queued edits), processes the transaction and times it.  The
+   * connectors whose callback fired are the ones the transaction rerouted.
+   */
   transact(fn) {
     const r = this.router;
     const before = this.structureKey();
     const result = fn ? fn() : undefined;
+    this.changed.clear();
     let t0 = performance.now();
     r.processTransaction();
     let ms = performance.now() - t0;
-    const updated = new Set(r.lastTransactionUpdatedConnectorIds());
+    this.sync();
     const structural = before !== this.structureKey();
-    // Connectors the router created (hyperedge rerouting / improvement) get
-    // its default type, poly-line under both routing flags: give them the
-    // current mode and route them again (which may create more of them).
+    // Connectors the router created (hyperedge rerouting / improvement,
+    // splitAtSegment) get its default type, poly-line under both routing
+    // flags: give them the current mode and route them again (which may
+    // create more of them).
     for (let round = 0; structural && round < 4; round++) {
       const type = this.connType();
-      const wrong = r.connectorIds().filter((id) => r.connectorRoutingType(id) !== type);
+      const wrong = this.ofKind("connector").filter((c) => c.routingType() !== type);
       if (!wrong.length) break;
-      {
-        for (const id of wrong) r.setConnectorRoutingType(id, type);
-        t0 = performance.now();
-        r.processTransaction();
-        ms += performance.now() - t0;
-        for (const id of r.lastTransactionUpdatedConnectorIds()) updated.add(id);
-      }
+      for (const c of wrong) c.setRoutingType(type);
+      t0 = performance.now();
+      r.processTransaction();
+      ms += performance.now() - t0;
+      this.sync();
     }
-    const total = r.connectorIds().length;
-    this.last = { ms, updated: [...updated], total, structural };
+    const total = this.ofKind("connector").length;
+    this.last = { ms, updated: [...this.changed].filter((id) => this.objects.has(id)), total, structural };
     this.timings.push(ms);
     if (this.timings.length > HISTORY) this.timings.shift();
     return result;
   }
 
-  structureKey() {
+  /**
+   * Brings `objects` in line with the router's lists after a transaction:
+   * drops objects the router deleted, adds those it created (keeping the
+   * creation order) and sets the route callback on new connectors.
+   */
+  sync() {
     const r = this.router;
-    return [r.shapeIds(), r.junctionIds(), r.connectorIds(), r.clusterIds()].map((ids) => ids.join(",")).join("|");
+    const live = new Map();
+    for (const list of [r.m_obstacles, r.connRefs, r.clusterRefs]) {
+      for (const obj of list) live.set(String(obj.id()), obj);
+    }
+    for (const id of [...this.objects.keys()]) {
+      if (!live.has(id)) {
+        this.objects.delete(id);
+        this.meta.delete(id);
+      }
+    }
+    for (const [id, obj] of live) {
+      if (!this.objects.has(id)) this.objects.set(id, obj);
+      if (obj instanceof this.api.ConnRef) this.hook(obj);
+    }
+  }
+
+  hook(conn) {
+    if (this.hooked.has(conn)) return;
+    conn.setCallback(this.routeChanged, String(conn.id()));
+    this.hooked.add(conn);
+  }
+
+  structureKey() {
+    return [...this.objects.keys()].join(",");
   }
 
   stats() {
@@ -164,80 +206,91 @@ export class Editor {
     };
   }
 
-  freshId(prefix) {
-    let id;
-    do id = `${prefix}${++this.counter}`;
-    while (!this.router.objectIdIsUnused(id));
-    return id;
-  }
-
   connType() {
-    return this.mode === "orthogonal" ? this.api.ConnType.Orthogonal : this.api.ConnType.PolyLine;
+    return this.mode === "orthogonal" ? this.api.ConnType_Orthogonal : this.api.ConnType_PolyLine;
   }
 
   nextColour() {
     return this.colourCounter++ % 6;
   }
 
+  /** Registers an object the editor created; returns its id. */
+  add(obj, meta) {
+    const id = String(obj.id());
+    this.objects.set(id, obj);
+    this.meta.set(id, meta);
+    if (obj instanceof this.api.ConnRef) this.hook(obj);
+    return id;
+  }
+
   // --- building blocks (no transaction of their own; used by scenes) ------
 
   /** A rectangle (or a polygon given as unit-box fractions) with demo pins ("any", "sides" or false). */
-  box(label, x, y, w, h, { id = this.freshId("box"), polygon, pins = "any" } = {}) {
+  box(label, x, y, w, h, { polygon, pins = "any" } = {}) {
     const { api, router } = this;
+    let poly;
     if (polygon) {
-      router.addPolygonShape(id, polygon.map(([fx, fy]) => [x + fx * w, y + fy * h]));
+      poly = new api.Polygon(polygon.length);
+      polygon.forEach(([fx, fy], i) => (poly.ps[i] = new api.Point(x + fx * w, y + fy * h)));
     } else {
-      router.addShape(id, x, y, x + w, y + h);
+      poly = new api.Rectangle(new api.Point(x, y), new api.Point(x + w, y + h));
     }
+    const shape = new api.ShapeRef(router, poly);
+    const id = this.add(shape, { label, polygon: Boolean(polygon), pins: [] });
     if (pins) {
-      for (const [pin, sideClass, xOffset, yOffset, dir] of SIDES) {
-        router.addShapeConnectionPinWithOptions(id, pin, {
-          classId: pins === "sides" ? sideClass : PIN_ANY,
-          xOffset,
-          yOffset,
-          proportional: true,
-          visibilityDirections: api.ConnDir[dir],
-          // Upstream pins are exclusive (one connector each) by default; a
-          // box with more connectors than pins would leave some unrouted.
-          exclusive: false,
-        });
+      for (const [name, sideClass, xOffset, yOffset, dir] of SIDES) {
+        const pin = this.pin(id, name, pins === "sides" ? sideClass : PIN_ANY, xOffset, yOffset, api[dir]);
+        // Upstream pins are exclusive (one connector each) by default; a
+        // box with more connectors than pins would leave some unrouted.
+        pin.setExclusive(false);
       }
     }
-    this.meta.set(id, { label, polygon: Boolean(polygon) });
     return id;
   }
 
-  junction(x, y, { id = this.freshId("j") } = {}) {
-    this.router.addJunction(id, x, y);
-    this.meta.set(id, {});
-    return id;
+  /** A proportional ShapeConnectionPin on shape `id`, named `name` for the UI. */
+  pin(id, name, classId, xOffset, yOffset, visDirs) {
+    const pin = new this.api.ShapeConnectionPin(this.objects.get(id), classId, xOffset, yOffset, true, 0, visDirs);
+    this.meta.get(id).pins.push({ name, classId, pin });
+    return pin;
+  }
+
+  junction(x, y) {
+    const { api } = this;
+    return this.add(new api.JunctionRef(this.router, new api.Point(x, y)), {});
   }
 
   cluster(label, x, y, w, h) {
-    const id = this.freshId("cluster");
-    this.router.addClusterRectangle(id, x, y, x + w, y + h);
-    this.meta.set(id, { label });
-    return id;
+    const { api } = this;
+    return this.add(new api.ClusterRef(this.router, new api.Rectangle(new api.Point(x, y), new api.Point(x + w, y + h))), { label });
   }
 
   /**
    * A connector between two ends: `[x, y]` (free point), `"shape"` (class
-   * PIN_ANY), `"shape.pin"` (the class of that pin) or `{ junctionId }` / any ConnEnd.
+   * PIN_ANY), `"shape.pin"` (the class of that pin), a junction id, or
+   * `{ shapeId, pinId }` / `{ junctionId }`.
    */
-  connect(src, dst, { checkpoints, id = this.freshId("c") } = {}) {
-    const { router } = this;
-    router.addConnectorWithConnEnds(id, this.end(src), this.end(dst));
-    router.setConnectorRoutingType(id, this.connType());
-    if (checkpoints) router.setConnectorRoutingCheckpoints(id, checkpoints);
-    this.meta.set(id, { colour: this.nextColour() });
-    return id;
+  connect(src, dst, { checkpoints } = {}) {
+    const { api } = this;
+    const conn = new api.ConnRef(this.router, this.end(src), this.end(dst));
+    conn.setRoutingType(this.connType());
+    if (checkpoints) conn.setRoutingCheckpoints(checkpoints.map(([x, y]) => new api.Checkpoint(new api.Point(x, y))));
+    return this.add(conn, { colour: this.nextColour() });
   }
 
   end(spec) {
-    if (typeof spec !== "string") return spec;
-    if (this.router.junctionIds().includes(spec)) return { junctionId: spec };
-    const [shapeId, side] = spec.split(".");
-    return side ? { shapeId, pinId: side } : { shapeId, classId: PIN_ANY };
+    const { api } = this;
+    if (Array.isArray(spec)) return new api.ConnEnd(new api.Point(spec[0], spec[1]));
+    if (typeof spec === "string") {
+      if (this.kindOf(spec) === "junction") spec = { junctionId: spec };
+      else {
+        const [shapeId, pinId] = spec.split(".");
+        spec = { shapeId, pinId };
+      }
+    }
+    if (spec.junctionId) return new api.ConnEnd(this.objects.get(spec.junctionId));
+    const pin = spec.pinId && this.meta.get(spec.shapeId)?.pins.find((p) => p.name === spec.pinId);
+    return new api.ConnEnd(this.objects.get(spec.shapeId), pin ? pin.classId : PIN_ANY);
   }
 
   // --- interactive edits (each one transaction) -------------------------
@@ -245,14 +298,14 @@ export class Editor {
   setMode(mode) {
     this.mode = mode;
     return this.transact(() => {
-      for (const id of this.router.connectorIds()) this.router.setConnectorRoutingType(id, this.connType());
+      for (const c of this.ofKind("connector")) c.setRoutingType(this.connType());
     });
   }
 
   setParam(key, value) {
     this.params[key] = value;
     return this.transact(() => {
-      this.router.setRoutingParameter(this.api.RoutingParameter[key], value);
+      this.router.setRoutingParameter(this.api[key], value);
       this.router.markAllObstaclesAsMoved();
     });
   }
@@ -260,14 +313,13 @@ export class Editor {
   setOption(key, value) {
     this.options[key] = value;
     return this.transact(() => {
-      this.router.setRoutingOption(this.api.RoutingOption[key], value);
+      this.router.setRoutingOption(this.api[key], value);
       this.router.markAllObstaclesAsMoved();
     });
   }
 
   addBox(x, y) {
-    const id = this.freshId("box");
-    return this.transact(() => this.box(`Box ${id.slice(3)}`, Math.round(x - 50), Math.round(y - 30), 100, 60, { id }));
+    return this.transact(() => this.box(`Box ${++this.boxCounter}`, Math.round(x - 50), Math.round(y - 30), 100, 60));
   }
 
   addJunction(x, y) {
@@ -279,56 +331,64 @@ export class Editor {
   }
 
   moveShapeBy(id, dx, dy) {
-    return this.transact(() => this.router.moveShapeBy(id, dx, dy));
+    return this.transact(() => this.router.moveShape(this.objects.get(id), dx, dy));
   }
 
   moveJunction(id, x, y) {
-    return this.transact(() => this.router.moveJunction(id, x, y));
+    return this.transact(() => this.router.moveJunction(this.objects.get(id), new this.api.Point(x, y)));
   }
 
   /** Moves the free (point) source or destination of a connector. */
   moveEndpoint(id, which, x, y) {
-    return this.transact(() =>
-      which === "source" ? this.router.setConnectorSourceEndpoint(id, [x, y]) : this.router.setConnectorDestEndpoint(id, [x, y]),
-    );
+    const conn = this.objects.get(id);
+    const end = new this.api.ConnEnd(new this.api.Point(x, y));
+    return this.transact(() => (which === "source" ? conn.setSourceEndpoint(end) : conn.setDestEndpoint(end)));
   }
 
   checkpoints(id) {
-    return (this.router.connectorRoutingCheckpoints(id) ?? []).map((c) => c.point);
+    return this.objects.get(id).routingCheckpoints().map((c) => c.point);
+  }
+
+  setCheckpoints(id, points) {
+    const { api } = this;
+    const conn = this.objects.get(id);
+    return this.transact(() => conn.setRoutingCheckpoints(points.map((p) => new api.Checkpoint(new api.Point(p.x, p.y)))));
   }
 
   /** Inserts a checkpoint at `point`, ordered along the current route. */
   addCheckpoint(id, point) {
-    const route = this.router.displayConnectorRoute(id) ?? [];
+    const route = this.objects.get(id).displayRoute().ps;
     const pts = [...this.checkpoints(id), point];
     pts.sort((a, b) => arcPosition(route, a) - arcPosition(route, b));
-    return this.transact(() => this.router.setConnectorRoutingCheckpoints(id, pts));
+    return this.setCheckpoints(id, pts);
   }
 
   moveCheckpoint(id, index, point) {
     const pts = this.checkpoints(id);
     pts[index] = point;
-    return this.transact(() => this.router.setConnectorRoutingCheckpoints(id, pts));
+    return this.setCheckpoints(id, pts);
   }
 
   removeCheckpoint(id, index) {
     const pts = this.checkpoints(id);
     pts.splice(index, 1);
-    return this.transact(() => this.router.setConnectorRoutingCheckpoints(id, pts));
+    return this.setCheckpoints(id, pts);
   }
 
-  /** Splits a connector at the display-route segment nearest `point` with a new junction. */
+  /**
+   * Splits a connector at the display-route segment nearest `point` with a
+   * new junction (ConnRef::splitAtSegment); null if libavoid did not split.
+   */
   splitConnector(id, point) {
-    const route = this.router.displayConnectorRoute(id) ?? [];
-    const segment = nearestSegment(route, point);
-    const junctionId = this.freshId("j");
-    const connectorId = this.freshId("c");
+    const conn = this.objects.get(id);
+    const segment = nearestSegment(conn.displayRoute().ps, point);
     let result = null;
     this.transact(() => {
-      result = this.router.splitConnectorAtSegment(id, segment, junctionId, connectorId);
-      if (result) {
-        this.meta.set(junctionId, {});
-        this.meta.set(connectorId, { colour: this.meta.get(id)?.colour ?? this.nextColour() });
+      const [junction, newConn] = conn.splitAtSegment(segment);
+      if (junction) {
+        const junctionId = this.add(junction, {});
+        this.add(newConn, { colour: this.meta.get(id)?.colour ?? this.nextColour() });
+        result = { junctionId };
       }
     });
     return result;
@@ -337,30 +397,31 @@ export class Editor {
   /** Removes a shape (with its connectors), junction (merging if possible), connector or cluster. */
   remove(id) {
     const r = this.router;
+    const obj = this.objects.get(id);
+    const kind = this.kindOf(id);
     return this.transact(() => {
-      if (r.shapeIds().includes(id)) {
-        for (const c of r.shapeAttachedConnectors(id) ?? []) r.removeConnector(c);
-        r.removeShape(id);
-      } else if (r.junctionIds().includes(id)) {
-        const attached = r.junctionAttachedConnectors(id) ?? [];
-        if (attached.length === 2 && r.removeJunctionAndMergeConnectors(id) !== null) return;
-        for (const c of attached) r.removeConnector(c);
-        r.removeJunction(id);
-      } else if (r.connectorIds().includes(id)) {
-        r.removeConnector(id);
-      } else if (r.clusterIds().includes(id)) {
-        r.removeCluster(id);
+      if (kind === "shape") {
+        for (const c of new Set(obj.attachedConnectors())) r.deleteConnector(c);
+        r.deleteShape(obj);
+      } else if (kind === "junction") {
+        const attached = new Set(obj.attachedConnectors());
+        if (attached.size === 2 && obj.removeJunctionAndMergeConnectors() !== null) return;
+        for (const c of attached) r.deleteConnector(c);
+        r.deleteJunction(obj);
+      } else if (kind === "connector") {
+        r.deleteConnector(obj);
+      } else if (kind === "cluster") {
+        r.deleteCluster(obj);
       }
-      this.meta.delete(id);
     });
   }
 
   rotatePins(id) {
-    return this.transact(() => this.router.transformShapeConnectionPinPositions(id, this.api.ShapeTransformation.CW90));
+    return this.transact(() => this.objects.get(id).transformConnectionPinPositions(this.api.TransformationType_CW90));
   }
 
   setJunctionFixed(id, fixed) {
-    return this.transact(() => this.router.setJunctionPositionFixed(id, fixed));
+    return this.transact(() => this.objects.get(id).setPositionFixed(fixed));
   }
 
   /**
@@ -369,7 +430,7 @@ export class Editor {
    * against each other) by the following transaction, so run one more.
    */
   rerouteHyperedge(junctionId) {
-    const result = this.transact(() => this.router.registerHyperedgeForReroutingJunction(junctionId));
+    const result = this.transact(() => this.router.hyperedgeRerouter().registerHyperedgeForRerouting(this.objects.get(junctionId)));
     const first = this.last;
     this.transact();
     this.last = { ...this.last, ms: first.ms + this.last.ms, structural: true, updated: [...new Set([...first.updated, ...this.last.updated])] };
@@ -379,29 +440,47 @@ export class Editor {
   // --- geometry for rendering -------------------------------------------
 
   kindOf(id) {
-    const r = this.router;
-    if (r.shapeIds().includes(id)) return "shape";
-    if (r.junctionIds().includes(id)) return "junction";
-    if (r.connectorIds().includes(id)) return "connector";
-    if (r.clusterIds().includes(id)) return "cluster";
+    const obj = this.objects.get(id);
+    const { api } = this;
+    if (obj instanceof api.ShapeRef) return "shape";
+    if (obj instanceof api.JunctionRef) return "junction";
+    if (obj instanceof api.ConnRef) return "connector";
+    if (obj instanceof api.ClusterRef) return "cluster";
     return null;
   }
 
+  /** Ids of the objects of one kind ("shape", "junction", "connector", "cluster"). */
+  ids(kind) {
+    return [...this.objects.keys()].filter((id) => this.kindOf(id) === kind);
+  }
+
+  ofKind(kind) {
+    return this.ids(kind).map((id) => this.objects.get(id));
+  }
+
+  get(id) {
+    return this.objects.get(id);
+  }
+
   shapeGeometry(id) {
-    const r = this.router;
-    const pins = [];
-    for (const pin of r.shapeConnectionPinIdList(id) ?? []) {
-      const pos = r.shapeConnectionPinPosition(id, pin);
-      if (pos) pins.push({ id: pin, ...pos });
-    }
+    const shape = this.objects.get(id);
+    const meta = this.meta.get(id) ?? {};
+    const polygon = shape.polygon().ps;
     return {
       id,
-      label: this.meta.get(id)?.label ?? id,
-      polygon: r.shapePolygon(id),
-      box: r.shapeBoundingBox(id),
-      routingPolygon: r.shapeRoutingPolygon(id),
-      pins,
+      label: meta.label ?? id,
+      polygon,
+      box: boundsOf(polygon),
+      routingPolygon: shape.routingPolygon().ps,
+      pins: (meta.pins ?? []).map(({ name, pin }) => {
+        const p = pin.position();
+        return { id: name, x: p.x, y: p.y };
+      }),
     };
+  }
+
+  pinPosition(shapeId, name) {
+    return this.meta.get(shapeId).pins.find((p) => p.name === name).pin.position();
   }
 
   /**
@@ -410,27 +489,50 @@ export class Editor {
    * (upstream leaves position() as the caller set it).
    */
   junctionGeometry(id) {
-    const r = this.router;
-    return { id, ...(r.junctionRecommendedPosition(id) ?? r.junctionPosition(id)), fixed: r.junctionPositionFixed(id) };
+    const junction = this.objects.get(id);
+    const p = junction.recommendedPosition();
+    return { id, x: p.x, y: p.y, fixed: junction.positionFixed() };
   }
 
   clusterGeometry(id) {
-    return { id, label: this.meta.get(id)?.label ?? id, polygon: this.router.clusterPolygon(id) };
+    const poly = this.objects.get(id).polygon();
+    const polygon = [];
+    for (let i = 0; i < poly.size(); i++) polygon.push(poly.at(i));
+    return { id, label: this.meta.get(id)?.label ?? id, polygon };
   }
 
   connectorGeometry(id, { curve = 0 } = {}) {
-    const r = this.router;
+    const conn = this.objects.get(id);
     const meta = this.meta.get(id) ?? this.adopt(id);
-    const ends = r.connectorEndpointConnEnds(id);
+    const display = conn.displayRoute();
+    const [source, destination] = conn.endpointConnEnds();
+    let curved = null;
+    if (curve > 0) {
+      const c = display.curvedPolyline(curve);
+      curved = { points: c.ps, commands: c.ts };
+    }
     return {
       id,
       colour: meta.colour,
-      display: r.displayConnectorRoute(id) ?? [],
-      raw: r.routeConnector(id) ?? [],
-      curved: curve > 0 ? r.connectorCurvedRoute(id, curve) : null,
+      display: display.ps,
+      raw: conn.route().ps,
+      curved,
       checkpoints: this.checkpoints(id),
-      ends,
+      ends: { source: this.endInfo(source), destination: this.endInfo(destination) },
     };
+  }
+
+  /** A ConnEnd as plain data for the UI. */
+  endInfo(end) {
+    const type = END_TYPES[end.type()];
+    const info = { type, position: end.position() };
+    if (type === "shapePin") {
+      info.shapeId = String(end.shape().id());
+      info.classId = end.pinClassId();
+    } else if (type === "junction") {
+      info.junctionId = String(end.junction().id());
+    }
+    return info;
   }
 
   /** Metadata for objects the router created itself (hyperedge rerouting). */
@@ -441,31 +543,31 @@ export class Editor {
   }
 
   snapshot(options) {
-    const r = this.router;
     return {
-      clusters: r.clusterIds().map((id) => this.clusterGeometry(id)),
-      shapes: r.shapeIds().map((id) => this.shapeGeometry(id)),
-      junctions: r.junctionIds().map((id) => this.junctionGeometry(id)),
-      connectors: r.connectorIds().map((id) => this.connectorGeometry(id, options)),
+      clusters: this.ids("cluster").map((id) => this.clusterGeometry(id)),
+      shapes: this.ids("shape").map((id) => this.shapeGeometry(id)),
+      junctions: this.ids("junction").map((id) => this.junctionGeometry(id)),
+      connectors: this.ids("connector").map((id) => this.connectorGeometry(id, options)),
     };
   }
 
   /** Bounding box of everything in the scene. */
   bounds() {
     const s = this.snapshot();
-    const xs = [];
-    const ys = [];
-    const add = (p) => {
-      xs.push(p.x);
-      ys.push(p.y);
-    };
-    s.clusters.forEach((c) => c.polygon.forEach(add));
-    s.shapes.forEach((sh) => sh.polygon.forEach(add));
-    s.junctions.forEach(add);
-    s.connectors.forEach((c) => c.display.forEach(add));
-    if (!xs.length) return { left: 0, top: 0, right: 800, bottom: 500 };
-    return { left: Math.min(...xs), top: Math.min(...ys), right: Math.max(...xs), bottom: Math.max(...ys) };
+    const points = [];
+    s.clusters.forEach((c) => points.push(...c.polygon));
+    s.shapes.forEach((sh) => points.push(...sh.polygon));
+    points.push(...s.junctions);
+    s.connectors.forEach((c) => points.push(...c.display));
+    if (!points.length) return { left: 0, top: 0, right: 800, bottom: 500 };
+    return boundsOf(points);
   }
+}
+
+function boundsOf(points) {
+  const xs = points.map((p) => p.x);
+  const ys = points.map((p) => p.y);
+  return { left: Math.min(...xs), top: Math.min(...ys), right: Math.max(...xs), bottom: Math.max(...ys) };
 }
 
 // --- route geometry helpers ------------------------------------------------

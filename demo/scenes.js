@@ -1,6 +1,6 @@
 // Preset scenes.  Each `build(editor)` queues objects through the editor's
-// building blocks (box / junction / cluster / connect); the editor then
-// processes them in one transaction.  Coordinates are router units.
+// building blocks (box / pin / junction / cluster / connect); the editor
+// then processes them in one transaction.  Coordinates are router units.
 
 const DIAMOND = [
   [0.5, 0],
@@ -60,17 +60,8 @@ export const SCENES = [
     blurb: "The controller has four numbered pins on its right edge. The power net fans out through a junction; drag the junction dot.",
     mode: "orthogonal",
     build(ed) {
-      const { ConnDir } = ed.api;
       const ctrl = ed.box("Controller", 60, 120, 150, 300, { pins: "sides" });
-      for (let i = 0; i < 4; i++) {
-        ed.router.addShapeConnectionPinWithOptions(ctrl, `io${i + 1}`, {
-          classId: 10 + i,
-          xOffset: 1,
-          yOffset: 0.2 + i * 0.2,
-          proportional: true,
-          visibilityDirections: ConnDir.Right,
-        });
-      }
+      for (let i = 0; i < 4; i++) ed.pin(ctrl, `io${i + 1}`, 10 + i, 1, 0.2 + i * 0.2, ed.api.ConnDirRight);
       const devices = ["Motor", "Sensor", "Display", "Speaker"].map((name, i) => ed.box(name, 720, 30 + i * 130, 120, 56, { pins: "sides" }));
       ed.connect(`${ctrl}.io1`, `${devices[2]}.left`);
       ed.connect(`${ctrl}.io2`, `${devices[0]}.left`);
@@ -95,7 +86,7 @@ export const SCENES = [
       {
         label: "Reroute hyperedge",
         run(ed, selection) {
-          const ids = ed.router.junctionIds();
+          const ids = ed.ids("junction");
           const j = ids.includes(selection) ? selection : ids[0];
           if (j) ed.rerouteHyperedge(j);
         },
