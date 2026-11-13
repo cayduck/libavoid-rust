@@ -9,6 +9,17 @@
 //! |------------------------|------------------------|--------|
 //! | `LIBAVOID_DEBUG`       | `libavoid-debug`       | `db_printf` writes to stdout (otherwise it compiles to nothing) |
 //! | `HIGH_PRECISION_DEBUG` | `high-precision-debug` | `PREC` is `".16"` instead of `""` |
+//! | `PATHDEBUG`, `ASTAR_DEBUG` | `pathdebug`, `astar-debug` | path search traces (connector.rs, makepath.rs) through `db_printf` |
+//! | `DEBUGHANDLER`         | `debug-handler`        | the router calls its `DebugHandler` (debughandler.rs) |
+//! | `AVOID_PROFILE`        | `avoid-profile`        | `Router::timers` and the `TIMER_*` instrumentation (timer.rs) |
+//! | `HYPEREDGE_DEBUG`      | `hyperedge-debug`      | `HyperedgeImprover::outputHyperedgesToSVG()` writes its files |
+//! | `MAJOR_HYPEREDGE_IMPROVEMENT_DEBUG` | `major-hyperedge-improvement-debug` | hyperedge topology reports on stderr |
+//! | `ESTIMATED_COST_DEBUG` | `estimated-cost-debug` | A* cost targets on stderr (makepath.rs) |
+//! | `NUDGE_DEBUG`, `NUDGE_DEBUG_SVG` | `nudge-debug`, `nudge-debug-svg` | nudging reports on stderr/stdout (orthogonal.rs) |
+//! | `SVG_OUTPUT`           | `svg-output`           | `Router::outputDiagram()` also writes `outputInstanceToSVG()` |
+//!
+//! (`SELECTIVE_DEBUG` and `LIBVPSC_LOGGING` do not compile upstream at the
+//! ported commit and have no feature; see PORTING.md, "Debug output".)
 //!
 //! `err_printf` always writes to stderr, as upstream does outside MSVC's
 //! `USE_ATLTRACE` mode (which has no counterpart here).

@@ -47,7 +47,10 @@ fn sha256_known_answers() {
 
 /// `script -> (file -> (sha256, bytes))`.
 fn read_manifest() -> BTreeMap<String, BTreeMap<String, (String, usize)>> {
-    let path = format!("{}/tests/golden-svg/manifest.txt", env!("CARGO_MANIFEST_DIR"));
+    // With HIGH_PRECISION_DEBUG upstream (`PREC` ".16"): the goldens of
+    // `SVG_MODE=svg-high-precision tools/oracle/svg_oracle.sh`.
+    let name = if cfg!(feature = "high-precision-debug") { "high-precision-manifest.txt" } else { "manifest.txt" };
+    let path = format!("{}/tests/golden-svg/{}", env!("CARGO_MANIFEST_DIR"), name);
     let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {}: {}", path, e));
     let mut out: BTreeMap<String, BTreeMap<String, (String, usize)>> = BTreeMap::new();
     let mut cur: Option<String> = None;
@@ -100,7 +103,7 @@ fn check_script(script: &str, expected: &BTreeMap<String, (String, usize)>) -> R
                 svg.len(),
                 bytes
             );
-            if let Some(full) = full_golden(file) {
+            if let Some(full) = full_golden(file).filter(|_| !cfg!(feature = "high-precision-debug")) {
                 if let Some((i, (a, b))) = svg.lines().zip(full.lines()).enumerate().find(|(_, (a, b))| a != b) {
                     msg.push_str(&format!("\n  first difference at line {}:\n  rust: {}\n  c++:  {}", i + 1, a, b));
                 }

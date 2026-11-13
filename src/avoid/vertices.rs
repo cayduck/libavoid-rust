@@ -123,6 +123,7 @@ impl VertID {
     /// `print()` through `db_printf` (only with the `libavoid-debug`
     /// feature, upstream's `LIBAVOID_DEBUG`).
     // upstream: vertices.cpp VertID::db_print()
+    #[inline]
     pub fn db_print(&self) {
         crate::avoid::debug::db_printf!("[{},{}, p={}]", self.obj_id, self.vn, self.props);
     }

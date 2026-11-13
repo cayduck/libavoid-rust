@@ -1,0 +1,11 @@
+    HyperedgeRerouter *hyperedgeRerouter = router->hyperedgeRerouter();
+    hyperedgeRerouter->registerHyperedgeForRerouting(junctionRef9);
+    ConnEndList heConnList1;
+    heEndPt = ConnEnd(Point(1.5, 2), (ConnDirFlags) 1);
+    heConnList1.push_back(heEndPt);
+    heEndPt = ConnEnd(shapeRef7, 2);
+    heConnList1.push_back(heEndPt);
+    heEndPt = ConnEnd(junctionRef9);
+    heConnList1.push_back(heEndPt);
+    hyperedgeRerouter->registerHyperedgeForRerouting(heConnList1);
+

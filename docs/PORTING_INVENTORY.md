@@ -267,11 +267,11 @@ Ported items by mapping method: `upstream:` comment 918, name match 19, manual m
 | Upstream item | Kind | Upstream | Status | Rust location / reason |
 | --- | --- | --- | --- | --- |
 | `NOMINMAX` | define — conditional (#if defined(_MSC_VER) && defined(USE_ATLTRACE)) | debug.h:35 | not-ported: not-applicable | MSVC-only guard against windows.h min/max macros |
-| `db_printf` | define — conditional (#ifdef LIBAVOID_DEBUG) | debug.h:51 | ported (comment) | debug.rs:35 `macro_rules! db_printf` |
-| `db_printf(const char *, ...)` | function (inline) | debug.h:53<br>debug.h:64 | ported (comment) | debug.rs:36 `macro_rules! db_printf` |
-| `err_printf` | define — conditional (#if defined(_MSC_VER) && defined(USE_ATLTRACE)) | debug.h:73 | ported (comment) | debug.rs:50 `macro_rules! err_printf` |
-| `err_printf(const char *, ...)` | function (inline) | debug.h:78 | ported (comment) | debug.rs:51 `macro_rules! err_printf` |
-| `PREC` | define | debug.h:93<br>debug.h:95 | ported (comment) | debug.rs:22 `const PREC`<br>debug.rs:25 `const PREC` |
+| `db_printf` | define — conditional (#ifdef LIBAVOID_DEBUG) | debug.h:51 | ported (comment) | debug.rs:46 `macro_rules! db_printf` |
+| `db_printf(const char *, ...)` | function (inline) | debug.h:53<br>debug.h:64 | ported (comment) | debug.rs:47 `macro_rules! db_printf` |
+| `err_printf` | define — conditional (#if defined(_MSC_VER) && defined(USE_ATLTRACE)) | debug.h:73 | ported (comment) | debug.rs:61 `macro_rules! err_printf` |
+| `err_printf(const char *, ...)` | function (inline) | debug.h:78 | ported (comment) | debug.rs:62 `macro_rules! err_printf` |
+| `PREC` | define | debug.h:93<br>debug.h:95 | ported (comment) | debug.rs:33 `const PREC`<br>debug.rs:36 `const PREC` |
 
 <a id="debughandler"></a>
 ### debughandler
@@ -408,18 +408,18 @@ Ported items by mapping method: `upstream:` comment 918, name match 19, manual m
 | `EdgeInf::addCycleBlocker()` | method | graph.h:58 (decl)<br>graph.cpp:335 | ported (comment) | graph.rs:490 `fn add_cycle_blocker` |
 | `EdgeInf::addBlocker(int)` | method | graph.h:59 (decl)<br>graph.cpp:342 | ported (comment) | graph.rs:496 `fn add_blocker` |
 | `EdgeInf::added()` | method | graph.h:60 (decl)<br>graph.cpp:308 | ported (comment) | graph.rs:458 `fn added` |
-| `EdgeInf::isOrthogonal() const` | method | graph.h:61 (decl)<br>graph.cpp:562 | ported (comment) | graph.rs:712 `fn is_orthogonal` |
-| `EdgeInf::isDummyConnection() const` | method | graph.h:62 (decl)<br>graph.cpp:569 | ported (comment) | graph.rs:720 `fn is_dummy_connection` |
+| `EdgeInf::isOrthogonal() const` | method | graph.h:61 (decl)<br>graph.cpp:562 | ported (comment) | graph.rs:713 `fn is_orthogonal` |
+| `EdgeInf::isDummyConnection() const` | method | graph.h:62 (decl)<br>graph.cpp:569 | ported (comment) | graph.rs:721 `fn is_dummy_connection` |
 | `EdgeInf::isDisabled() const` | method | graph.h:63 (decl)<br>graph.cpp:293 | ported (comment) | graph.rs:440 `fn is_disabled` |
 | `EdgeInf::setDisabled(const bool)` | method | graph.h:64 (decl)<br>graph.cpp:298 | ported (comment) | graph.rs:446 `fn set_disabled` |
 | `EdgeInf::rotationLessThan(const VertInf *, const EdgeInf *) const` | method | graph.h:65 (decl)<br>graph.cpp:135 | ported (comment) | graph.rs:264 `fn rotation_less_than` |
 | `EdgeInf::ids() const` | method | graph.h:66 (decl)<br>graph.cpp:361 | ported (comment) | graph.rs:513 `fn ids` |
 | `EdgeInf::points() const` | method | graph.h:67 (decl)<br>graph.cpp:367 | ported (comment) | graph.rs:518 `fn points` |
 | `EdgeInf::db_print()` | method | graph.h:68 (decl)<br>graph.cpp:373 | ported (comment) | graph.rs:525 `fn db_print` |
-| `EdgeInf::checkVis()` | method | graph.h:69 (decl)<br>graph.cpp:383 | ported (comment) | graph.rs:538 `fn check_vis` |
-| `EdgeInf::otherVert(const VertInf *) const` | method | graph.h:70 (decl)<br>graph.cpp:578 | ported (comment) | graph.rs:729 `fn other_vert` |
-| `EdgeInf::checkEdgeVisibility(VertInf *, VertInf *, bool)` | method (static member) | graph.h:71 (decl)<br>graph.cpp:586 | ported (comment) | graph.rs:742 `fn check_edge_visibility` |
-| `EdgeInf::existingEdge(VertInf *, VertInf *)` | method (static member) | graph.h:73 (decl)<br>graph.cpp:622 | ported (comment) | graph.rs:777 `fn existing_edge`<br>graph.rs:795 `fn existing_edge_walk` |
+| `EdgeInf::checkVis()` | method | graph.h:69 (decl)<br>graph.cpp:383 | ported (comment) | graph.rs:539 `fn check_vis` |
+| `EdgeInf::otherVert(const VertInf *) const` | method | graph.h:70 (decl)<br>graph.cpp:578 | ported (comment) | graph.rs:730 `fn other_vert` |
+| `EdgeInf::checkEdgeVisibility(VertInf *, VertInf *, bool)` | method (static member) | graph.h:71 (decl)<br>graph.cpp:586 | ported (comment) | graph.rs:743 `fn check_edge_visibility` |
+| `EdgeInf::existingEdge(VertInf *, VertInf *)` | method (static member) | graph.h:73 (decl)<br>graph.cpp:622 | ported (comment) | graph.rs:778 `fn existing_edge`<br>graph.rs:796 `fn existing_edge_walk` |
 | `EdgeInf::blocker() const` | method | graph.h:74 (decl)<br>graph.cpp:313 | ported (comment) | graph.rs:464 `fn blocker` |
 | `EdgeInf::isHyperedgeSegment() const` | method | graph.h:76 (decl)<br>graph.cpp:288 | ported (comment) | graph.rs:434 `fn is_hyperedge_segment` |
 | `EdgeInf::setHyperedgeSegment(const bool)` | method | graph.h:77 (decl)<br>graph.cpp:303 | ported (comment) | graph.rs:452 `fn set_hyperedge_segment` |
@@ -427,17 +427,17 @@ Ported items by mapping method: `upstream:` comment 918, name match 19, manual m
 | `EdgeInf::setMtstDist(const double)` | method | graph.h:79 (decl)<br>graph.cpp:278 | ported (comment) | graph.rs:422 `fn set_mtst_dist` |
 | `EdgeInf::makeActive()` | method | graph.h:87 (decl)<br>graph.cpp:185 | ported (comment) | graph.rs:316 `fn make_active` |
 | `EdgeInf::makeInactive()` | method | graph.h:88 (decl)<br>graph.cpp:221 | ported (comment) | graph.rs:360 `fn make_inactive` |
-| `EdgeInf::firstBlocker()` | method | graph.h:89 (decl)<br>graph.cpp:486 | ported (comment) | graph.rs:634 `fn first_blocker` |
-| `EdgeInf::isBetween(VertInf *, VertInf *)` | method | graph.h:90 (decl)<br>graph.cpp:550 | ported (comment) | graph.rs:700 `fn is_between` |
-| `EdgeList` | class | graph.h:109 | ported (comment) | graph.rs:871 `struct EdgeList` |
-| `EdgeList::EdgeList(bool)` | ctor | graph.h:113 (decl)<br>graph.cpp:672 | ported (comment) | graph.rs:881 `fn new` |
+| `EdgeInf::firstBlocker()` | method | graph.h:89 (decl)<br>graph.cpp:486 | ported (comment) | graph.rs:635 `fn first_blocker` |
+| `EdgeInf::isBetween(VertInf *, VertInf *)` | method | graph.h:90 (decl)<br>graph.cpp:550 | ported (comment) | graph.rs:701 `fn is_between` |
+| `EdgeList` | class | graph.h:109 | ported (comment) | graph.rs:872 `struct EdgeList` |
+| `EdgeList::EdgeList(bool)` | ctor | graph.h:113 (decl)<br>graph.cpp:672 | ported (comment) | graph.rs:882 `fn new` |
 | `EdgeList::~EdgeList()` | dtor | graph.h:114 (decl)<br>graph.cpp:681 | not-ported: subsumed | only runs at Router destruction (deletes remaining edges via clear()); arenas are dropped with the Router |
-| `EdgeList::clear()` | method | graph.h:115 (decl)<br>graph.cpp:687 | ported (comment) | graph.rs:893 `fn clear` |
-| `EdgeList::begin()` | method | graph.h:116 (decl)<br>graph.cpp:771 | ported (comment) | graph.rs:971 `fn begin` |
-| `EdgeList::end()` | method | graph.h:117 (decl)<br>graph.cpp:777 | ported (comment) | graph.rs:977 `fn end` |
-| `EdgeList::size() const` | method | graph.h:118 (decl)<br>graph.cpp:701 | ported (comment) | graph.rs:906 `fn size` |
-| `EdgeList::addEdge(EdgeInf *)` | method | graph.h:120 (decl)<br>graph.cpp:707 | ported (comment) | graph.rs:912 `fn add_edge` |
-| `EdgeList::removeEdge(EdgeInf *)` | method | graph.h:121 (decl)<br>graph.cpp:740 | ported (comment) | graph.rs:946 `fn remove_edge` |
+| `EdgeList::clear()` | method | graph.h:115 (decl)<br>graph.cpp:687 | ported (comment) | graph.rs:894 `fn clear` |
+| `EdgeList::begin()` | method | graph.h:116 (decl)<br>graph.cpp:771 | ported (comment) | graph.rs:972 `fn begin` |
+| `EdgeList::end()` | method | graph.h:117 (decl)<br>graph.cpp:777 | ported (comment) | graph.rs:978 `fn end` |
+| `EdgeList::size() const` | method | graph.h:118 (decl)<br>graph.cpp:701 | ported (comment) | graph.rs:907 `fn size` |
+| `EdgeList::addEdge(EdgeInf *)` | method | graph.h:120 (decl)<br>graph.cpp:707 | ported (comment) | graph.rs:913 `fn add_edge` |
+| `EdgeList::removeEdge(EdgeInf *)` | method | graph.h:121 (decl)<br>graph.cpp:740 | ported (comment) | graph.rs:947 `fn remove_edge` |
 | `orthogTurnOrder(const Point &, const Point &, const Point &)` | function (static, inline) | graph.cpp:85 | ported (comment) | graph.rs:177 `fn orthog_turn_order` |
 
 <a id="hyperedge"></a>
@@ -625,7 +625,7 @@ Ported items by mapping method: `upstream:` comment 918, name match 19, manual m
 | `estimatedCostSpecific(ConnRef *, const Point *, const Point &, const VertInf *, const unsigned int)` | function (static) | makepath.cpp:782 | ported (comment) | makepath.rs:743 `fn estimated_cost_specific` |
 | `CmpVisEdgeRotation` | class | makepath.cpp:879 | ported (comment) | makepath.rs:816 |
 | `CmpVisEdgeRotation::CmpVisEdgeRotation(const VertInf *)` | ctor | makepath.cpp:882 | not-ported: subsumed | stores lastPt; the ported comparator takes it as an argument (graph.rs) |
-| `CmpVisEdgeRotation::operator()(const EdgeInf *, const EdgeInf *) const` | operator | makepath.cpp:886 | ported (comment) | graph.rs:846 `fn cmp_vis_edge_rotation` |
+| `CmpVisEdgeRotation::operator()(const EdgeInf *, const EdgeInf *) const` | operator | makepath.cpp:886 | ported (comment) | graph.rs:847 `fn cmp_vis_edge_rotation` |
 | `pointAlignedWithOneOf(const Point &, const std::vector<Point> &, const size_t)` | function (static, inline) | makepath.cpp:901 | ported (comment) | makepath.rs:820 `fn point_aligned_with_one_of` |
 
 <a id="mtst"></a>
@@ -1026,7 +1026,7 @@ Ported items by mapping method: `upstream:` comment 918, name match 19, manual m
 
 | Upstream item | Kind | Upstream | Status | Rust location / reason |
 | --- | --- | --- | --- | --- |
-| `EdgeInfList` | typedef | vertices.h:44 | ported (name) | vertices.rs:278 |
+| `EdgeInfList` | typedef | vertices.h:44 | ported (name) | vertices.rs:279 |
 | `VertexPair` | typedef | vertices.h:45 | ported (comment) | mtst.rs:75 `type VertexPair`<br>vertices.rs:47 `type VertexPair` |
 | `ConnDirFlags` | typedef | vertices.h:47 | ported (comment) | vertices.rs:50 `type ConnDirFlags` |
 | `VertIDProps` | typedef | vertices.h:48 | ported (comment) | vertices.rs:52 `type VertIDProps` |
@@ -1042,64 +1042,64 @@ Ported items by mapping method: `upstream:` comment 918, name match 19, manual m
 | `VertID::VertID(unsigned int, unsigned short, VertIDProps)` | ctor | vertices.h:69 (decl)<br>vertices.cpp:48 | ported (comment) | vertices.rs:87 `fn new` |
 | `VertID::VertID(const VertID &)` | ctor | vertices.h:70 (decl)<br>vertices.cpp:56 | not-ported: subsumed | member-wise copy ctor; VertID derives Clone/Copy |
 | `VertID::operator=(const VertID &)` | operator | vertices.h:71 (decl)<br>vertices.cpp:64 | not-ported: subsumed | member-wise assignment; VertID derives Copy |
-| `VertID::operator==(const VertID &) const` | operator | vertices.h:72 (decl)<br>vertices.cpp:77 | ported (comment) | vertices.rs:158 `fn eq` |
-| `VertID::operator!=(const VertID &) const` | operator | vertices.h:73 (decl)<br>vertices.cpp:87 | ported (comment) | vertices.rs:158 `fn eq` |
-| `VertID::operator<(const VertID &) const` | operator | vertices.h:74 (decl)<br>vertices.cpp:97 | ported (comment) | vertices.rs:182 `fn cmp` |
+| `VertID::operator==(const VertID &) const` | operator | vertices.h:72 (decl)<br>vertices.cpp:77 | ported (comment) | vertices.rs:159 `fn eq` |
+| `VertID::operator!=(const VertID &) const` | operator | vertices.h:73 (decl)<br>vertices.cpp:87 | ported (comment) | vertices.rs:159 `fn eq` |
+| `VertID::operator<(const VertID &) const` | operator | vertices.h:74 (decl)<br>vertices.cpp:97 | ported (comment) | vertices.rs:183 `fn cmp` |
 | `VertID::operator+(const int &) const` | operator | vertices.h:75 (decl)<br>vertices.cpp:108 | ported (comment) | vertices.rs:97 `fn add` |
 | `VertID::operator-(const int &) const` | operator | vertices.h:76 (decl)<br>vertices.cpp:114 | ported (comment) | vertices.rs:103 `fn sub` |
 | `VertID::operator++(int)` | operator | vertices.h:77 (decl)<br>vertices.cpp:120 | ported (comment) | vertices.rs:111 `fn post_inc` |
 | `VertID::print(FILE *) const` | method | vertices.h:78 (decl)<br>vertices.cpp:127 | ported (comment) | vertices.rs:118 `fn print_string` |
 | `VertID::db_print() const` | method | vertices.h:79 (decl)<br>vertices.cpp:132 | ported (comment) | vertices.rs:125 `fn db_print` |
-| `operator<<(ostream &, const VertID &)` | operator (friend) | vertices.h:80 (decl)<br>vertices.cpp:149 | ported (comment) | vertices.rs:189 `fn fmt` |
-| `VertID::isOrthShapeEdge() const` | method (inline) | vertices.h:83 | ported (comment) | vertices.rs:130 `fn is_orth_shape_edge` |
-| `VertID::isConnPt() const` | method (inline) | vertices.h:87 | ported (comment) | vertices.rs:135 `fn is_conn_pt` |
-| `VertID::isConnectionPin() const` | method (inline) | vertices.h:91 | ported (comment) | vertices.rs:140 `fn is_connection_pin` |
-| `VertID::isConnCheckpoint() const` | method (inline) | vertices.h:95 | ported (comment) | vertices.rs:145 `fn is_conn_checkpoint` |
-| `VertID::isDummyPinHelper() const` | method (inline) | vertices.h:99 | ported (comment) | vertices.rs:150 `fn is_dummy_pin_helper` |
-| `dummyOrthogID` | constant | vertices.h:110 | ported (comment) | vertices.rs:198 `const DUMMY_ORTHOG_ID` |
-| `dummyOrthogShapeID` | constant | vertices.h:111 | ported (comment) | vertices.rs:198 `const DUMMY_ORTHOG_ID` |
-| `VertInf` | class | vertices.h:115 | ported (comment) | vertices.rs:581 `struct VertInf` |
-| `VertInf::VertInf(Router *, const VertID &, const Point &, const bool)` | ctor | vertices.h:118 (decl)<br>vertices.cpp:156 | ported (comment) | vertices.rs:620 `fn new` |
-| `VertInf::~VertInf()` | dtor | vertices.h:120 (decl)<br>vertices.cpp:184 | ported (comment) | vertices.rs:672 `fn delete` |
-| `VertInf::Reset(const VertID &, const Point &)` | method | vertices.h:121 (decl)<br>vertices.cpp:204 | ported (comment) | vertices.rs:697 `fn reset` |
-| `VertInf::Reset(const Point &)` | method | vertices.h:122 (decl)<br>vertices.cpp:213 | ported (comment) | vertices.rs:705 `fn reset_point` |
-| `VertInf::removeFromGraph(const bool)` | method | vertices.h:123 (decl)<br>vertices.cpp:228 | ported (comment) | vertices.rs:721 `fn remove_from_graph` |
-| `VertInf::orphaned()` | method | vertices.h:124 (decl)<br>vertices.cpp:222 | ported (comment) | vertices.rs:714 `fn orphaned` |
-| `VertInf::pathLeadsBackTo(const VertInf *) const` | method | vertices.h:126 (decl)<br>vertices.cpp:357 | ported (comment) | vertices.rs:814 `fn path_leads_back_to` |
-| `VertInf::setVisibleDirections(const ConnDirFlags)` | method | vertices.h:127 (decl)<br>vertices.cpp:320 | ported (comment) | vertices.rs:792 `fn set_visible_directions` |
-| `VertInf::directionFrom(const VertInf *) const` | method | vertices.h:128 (decl)<br>vertices.cpp:290 | ported (comment) | vertices.rs:767 `fn direction_from` |
-| `VertInf::hasNeighbour(VertInf *, bool) const` | method | vertices.h:130 (decl)<br>vertices.cpp:190 | ported (comment) | vertices.rs:679 `fn has_neighbour` |
-| `VertInf::orphan()` | method | vertices.h:131 (decl)<br>vertices.cpp:262 | ported (comment) | vertices.rs:746 `fn orphan` |
-| `VertInf::makeTreeRootPointer(VertInf *)` | method | vertices.h:133 (decl)<br>vertices.cpp:381 | ported (comment) | vertices.rs:842 `fn make_tree_root_pointer` |
-| `VertInf::treeRoot() const` | method | vertices.h:134 (decl)<br>vertices.cpp:388 | ported (comment) | vertices.rs:859 `fn tree_root` |
-| `VertInf::treeRootPointer() const` | method | vertices.h:135 (decl)<br>vertices.cpp:393 | ported (comment) | vertices.rs:870 `fn tree_root_pointer` |
-| `VertInf::setTreeRootPointer(VertInf **)` | method | vertices.h:136 (decl)<br>vertices.cpp:403 | ported (comment) | vertices.rs:886 `fn set_tree_root_pointer` |
-| `VertInf::clearTreeRootPointer()` | method | vertices.h:137 (decl)<br>vertices.cpp:398 | ported (comment) | vertices.rs:881 `fn clear_tree_root_pointer` |
-| `VertInf::setSPTFRoot(VertInf *)` | method | vertices.h:139 (decl)<br>vertices.cpp:408 | ported (comment) | vertices.rs:894 `fn set_sptf_root` |
-| `VertInf::sptfRoot() const` | method | vertices.h:140 (decl)<br>vertices.cpp:415 | ported (comment) | vertices.rs:903 `fn sptf_root` |
-| `XL_EDGE` | constant | vertices.h:176 | ported (comment) | vertices.rs:203 `const XL_EDGE` |
-| `XL_CONN` | constant | vertices.h:177 | ported (comment) | vertices.rs:203 `const XL_EDGE` |
-| `XH_EDGE` | constant | vertices.h:178 | ported (comment) | vertices.rs:203 `const XL_EDGE` |
-| `XH_CONN` | constant | vertices.h:179 | ported (comment) | vertices.rs:203 `const XL_EDGE` |
-| `YL_EDGE` | constant | vertices.h:180 | ported (comment) | vertices.rs:203 `const XL_EDGE` |
-| `YL_CONN` | constant | vertices.h:181 | ported (comment) | vertices.rs:203 `const XL_EDGE` |
-| `YH_EDGE` | constant | vertices.h:182 | ported (comment) | vertices.rs:203 `const XL_EDGE` |
-| `YH_CONN` | constant | vertices.h:183 | ported (comment) | vertices.rs:203 `const XL_EDGE` |
-| `directVis(VertInf *, VertInf *)` | function | vertices.h:186 (decl)<br>vertices.cpp:422 | ported (comment) | vertices.rs:955 `fn direct_vis` |
-| `VertInfList` | class | vertices.h:194 | ported (comment) | vertices.rs:1007 `struct VertInfList` |
-| `VertInfList::VertInfList()` | ctor | vertices.h:197 (decl)<br>vertices.cpp:464 | ported (comment) | vertices.rs:1019 `fn new` |
-| `VertInfList::addVertex(VertInf *)` | method | vertices.h:198 (decl)<br>vertices.cpp:494 | ported (comment) | vertices.rs:1061 `fn add_vertex` |
-| `VertInfList::removeVertex(VertInf *)` | method | vertices.h:199 (decl)<br>vertices.cpp:557 | ported (comment) | vertices.rs:1113 `fn remove_vertex` |
-| `VertInfList::getVertexByID(const VertID &)` | method | vertices.h:200 (decl)<br>vertices.cpp:660 | ported (comment) | vertices.rs:1194 `fn get_vertex_by_id` |
-| `VertInfList::getVertexByPos(const Point &)` | method | vertices.h:201 (decl)<br>vertices.cpp:688 | ported (comment) | vertices.rs:1218 `fn get_vertex_by_pos` |
-| `VertInfList::shapesBegin()` | method | vertices.h:202 (decl)<br>vertices.cpp:702 | ported (comment) | vertices.rs:1232 `fn shapes_begin` |
-| `VertInfList::connsBegin()` | method | vertices.h:203 (decl)<br>vertices.cpp:708 | ported (comment) | vertices.rs:1238 `fn conns_begin` |
-| `VertInfList::end()` | method | vertices.h:204 (decl)<br>vertices.cpp:719 | ported (comment) | vertices.rs:1248 `fn end` |
-| `VertInfList::connsSize() const` | method | vertices.h:205 (decl)<br>vertices.cpp:725 | ported (comment) | vertices.rs:1254 `fn conns_size` |
-| `VertInfList::shapesSize() const` | method | vertices.h:206 (decl)<br>vertices.cpp:731 | ported (comment) | vertices.rs:1260 `fn shapes_size` |
-| `ShapeSet` | typedef | vertices.h:217 | ported (comment) | vertices.rs:213 `type ShapeSet` |
-| `ContainsMap` | typedef | vertices.h:218 | ported (comment) | vertices.rs:215 `type ContainsMap` |
-| `checkVertInfListConditions()` | macro | vertices.cpp:475 | ported (comment) | vertices.rs:1024 `fn check_vert_inf_list_conditions` |
+| `operator<<(ostream &, const VertID &)` | operator (friend) | vertices.h:80 (decl)<br>vertices.cpp:149 | ported (comment) | vertices.rs:190 `fn fmt` |
+| `VertID::isOrthShapeEdge() const` | method (inline) | vertices.h:83 | ported (comment) | vertices.rs:131 `fn is_orth_shape_edge` |
+| `VertID::isConnPt() const` | method (inline) | vertices.h:87 | ported (comment) | vertices.rs:136 `fn is_conn_pt` |
+| `VertID::isConnectionPin() const` | method (inline) | vertices.h:91 | ported (comment) | vertices.rs:141 `fn is_connection_pin` |
+| `VertID::isConnCheckpoint() const` | method (inline) | vertices.h:95 | ported (comment) | vertices.rs:146 `fn is_conn_checkpoint` |
+| `VertID::isDummyPinHelper() const` | method (inline) | vertices.h:99 | ported (comment) | vertices.rs:151 `fn is_dummy_pin_helper` |
+| `dummyOrthogID` | constant | vertices.h:110 | ported (comment) | vertices.rs:199 `const DUMMY_ORTHOG_ID` |
+| `dummyOrthogShapeID` | constant | vertices.h:111 | ported (comment) | vertices.rs:199 `const DUMMY_ORTHOG_ID` |
+| `VertInf` | class | vertices.h:115 | ported (comment) | vertices.rs:582 `struct VertInf` |
+| `VertInf::VertInf(Router *, const VertID &, const Point &, const bool)` | ctor | vertices.h:118 (decl)<br>vertices.cpp:156 | ported (comment) | vertices.rs:621 `fn new` |
+| `VertInf::~VertInf()` | dtor | vertices.h:120 (decl)<br>vertices.cpp:184 | ported (comment) | vertices.rs:673 `fn delete` |
+| `VertInf::Reset(const VertID &, const Point &)` | method | vertices.h:121 (decl)<br>vertices.cpp:204 | ported (comment) | vertices.rs:698 `fn reset` |
+| `VertInf::Reset(const Point &)` | method | vertices.h:122 (decl)<br>vertices.cpp:213 | ported (comment) | vertices.rs:706 `fn reset_point` |
+| `VertInf::removeFromGraph(const bool)` | method | vertices.h:123 (decl)<br>vertices.cpp:228 | ported (comment) | vertices.rs:722 `fn remove_from_graph` |
+| `VertInf::orphaned()` | method | vertices.h:124 (decl)<br>vertices.cpp:222 | ported (comment) | vertices.rs:715 `fn orphaned` |
+| `VertInf::pathLeadsBackTo(const VertInf *) const` | method | vertices.h:126 (decl)<br>vertices.cpp:357 | ported (comment) | vertices.rs:815 `fn path_leads_back_to` |
+| `VertInf::setVisibleDirections(const ConnDirFlags)` | method | vertices.h:127 (decl)<br>vertices.cpp:320 | ported (comment) | vertices.rs:793 `fn set_visible_directions` |
+| `VertInf::directionFrom(const VertInf *) const` | method | vertices.h:128 (decl)<br>vertices.cpp:290 | ported (comment) | vertices.rs:768 `fn direction_from` |
+| `VertInf::hasNeighbour(VertInf *, bool) const` | method | vertices.h:130 (decl)<br>vertices.cpp:190 | ported (comment) | vertices.rs:680 `fn has_neighbour` |
+| `VertInf::orphan()` | method | vertices.h:131 (decl)<br>vertices.cpp:262 | ported (comment) | vertices.rs:747 `fn orphan` |
+| `VertInf::makeTreeRootPointer(VertInf *)` | method | vertices.h:133 (decl)<br>vertices.cpp:381 | ported (comment) | vertices.rs:843 `fn make_tree_root_pointer` |
+| `VertInf::treeRoot() const` | method | vertices.h:134 (decl)<br>vertices.cpp:388 | ported (comment) | vertices.rs:860 `fn tree_root` |
+| `VertInf::treeRootPointer() const` | method | vertices.h:135 (decl)<br>vertices.cpp:393 | ported (comment) | vertices.rs:871 `fn tree_root_pointer` |
+| `VertInf::setTreeRootPointer(VertInf **)` | method | vertices.h:136 (decl)<br>vertices.cpp:403 | ported (comment) | vertices.rs:887 `fn set_tree_root_pointer` |
+| `VertInf::clearTreeRootPointer()` | method | vertices.h:137 (decl)<br>vertices.cpp:398 | ported (comment) | vertices.rs:882 `fn clear_tree_root_pointer` |
+| `VertInf::setSPTFRoot(VertInf *)` | method | vertices.h:139 (decl)<br>vertices.cpp:408 | ported (comment) | vertices.rs:895 `fn set_sptf_root` |
+| `VertInf::sptfRoot() const` | method | vertices.h:140 (decl)<br>vertices.cpp:415 | ported (comment) | vertices.rs:904 `fn sptf_root` |
+| `XL_EDGE` | constant | vertices.h:176 | ported (comment) | vertices.rs:204 `const XL_EDGE` |
+| `XL_CONN` | constant | vertices.h:177 | ported (comment) | vertices.rs:204 `const XL_EDGE` |
+| `XH_EDGE` | constant | vertices.h:178 | ported (comment) | vertices.rs:204 `const XL_EDGE` |
+| `XH_CONN` | constant | vertices.h:179 | ported (comment) | vertices.rs:204 `const XL_EDGE` |
+| `YL_EDGE` | constant | vertices.h:180 | ported (comment) | vertices.rs:204 `const XL_EDGE` |
+| `YL_CONN` | constant | vertices.h:181 | ported (comment) | vertices.rs:204 `const XL_EDGE` |
+| `YH_EDGE` | constant | vertices.h:182 | ported (comment) | vertices.rs:204 `const XL_EDGE` |
+| `YH_CONN` | constant | vertices.h:183 | ported (comment) | vertices.rs:204 `const XL_EDGE` |
+| `directVis(VertInf *, VertInf *)` | function | vertices.h:186 (decl)<br>vertices.cpp:422 | ported (comment) | vertices.rs:956 `fn direct_vis` |
+| `VertInfList` | class | vertices.h:194 | ported (comment) | vertices.rs:1008 `struct VertInfList` |
+| `VertInfList::VertInfList()` | ctor | vertices.h:197 (decl)<br>vertices.cpp:464 | ported (comment) | vertices.rs:1020 `fn new` |
+| `VertInfList::addVertex(VertInf *)` | method | vertices.h:198 (decl)<br>vertices.cpp:494 | ported (comment) | vertices.rs:1062 `fn add_vertex` |
+| `VertInfList::removeVertex(VertInf *)` | method | vertices.h:199 (decl)<br>vertices.cpp:557 | ported (comment) | vertices.rs:1114 `fn remove_vertex` |
+| `VertInfList::getVertexByID(const VertID &)` | method | vertices.h:200 (decl)<br>vertices.cpp:660 | ported (comment) | vertices.rs:1195 `fn get_vertex_by_id` |
+| `VertInfList::getVertexByPos(const Point &)` | method | vertices.h:201 (decl)<br>vertices.cpp:688 | ported (comment) | vertices.rs:1219 `fn get_vertex_by_pos` |
+| `VertInfList::shapesBegin()` | method | vertices.h:202 (decl)<br>vertices.cpp:702 | ported (comment) | vertices.rs:1233 `fn shapes_begin` |
+| `VertInfList::connsBegin()` | method | vertices.h:203 (decl)<br>vertices.cpp:708 | ported (comment) | vertices.rs:1239 `fn conns_begin` |
+| `VertInfList::end()` | method | vertices.h:204 (decl)<br>vertices.cpp:719 | ported (comment) | vertices.rs:1249 `fn end` |
+| `VertInfList::connsSize() const` | method | vertices.h:205 (decl)<br>vertices.cpp:725 | ported (comment) | vertices.rs:1255 `fn conns_size` |
+| `VertInfList::shapesSize() const` | method | vertices.h:206 (decl)<br>vertices.cpp:731 | ported (comment) | vertices.rs:1261 `fn shapes_size` |
+| `ShapeSet` | typedef | vertices.h:217 | ported (comment) | vertices.rs:214 `type ShapeSet` |
+| `ContainsMap` | typedef | vertices.h:218 | ported (comment) | vertices.rs:216 `type ContainsMap` |
+| `checkVertInfListConditions()` | macro | vertices.cpp:475 | ported (comment) | vertices.rs:1025 `fn check_vert_inf_list_conditions` |
 
 <a id="viscluster"></a>
 ### viscluster

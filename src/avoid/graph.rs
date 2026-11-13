@@ -523,6 +523,7 @@ impl EdgeInf {
     /// Prints the edge with `db_printf` (only with the `libavoid-debug`
     /// feature, upstream's `LIBAVOID_DEBUG`).
     // upstream: graph.cpp EdgeInf::db_print()
+    #[inline]
     pub fn db_print(router: &Router, e: EdgeIdx) {
         if !cfg!(feature = "libavoid-debug") {
             return;
