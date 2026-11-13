@@ -41,10 +41,13 @@ async function main() {
     throw new Error("demo-dist/ is missing: run `npm run build:demo` first");
   }
   fs.mkdirSync(shots, { recursive: true });
-  const { chromium } = loadPlaywright();
+  // PLAYWRIGHT_BROWSER selects the engine: chromium (default), webkit or firefox.
+  const engineName = process.env.PLAYWRIGHT_BROWSER || "chromium";
+  const engine = loadPlaywright()[engineName];
+  if (!engine) throw new Error(`unknown PLAYWRIGHT_BROWSER "${engineName}"`);
   const server = await startServer(site, 0);
   const base = `http://127.0.0.1:${server.address().port}/`;
-  const browser = await chromium.launch();
+  const browser = await engine.launch();
   try {
     await desktop(browser, base);
     await phone(browser, base);
@@ -63,6 +66,9 @@ async function openPage(browser, base, contextOptions = {}, hash = "") {
   const page = await context.newPage();
   const errors = [];
   page.on("console", (msg) => {
+    // Firefox reports warnings raised by Playwright's own driver script
+    // (chrome://juggler/...); those are not the page's.
+    if (msg.text().includes("chrome://juggler/")) return;
     if (msg.type() === "error" || msg.type() === "warning") errors.push(`console.${msg.type()}: ${msg.text()}`);
   });
   page.on("pageerror", (err) => errors.push(`pageerror: ${err.message}`));
@@ -224,7 +230,12 @@ async function phone(browser, base) {
   await page.screenshot({ path: path.join(shots, "phone.png") });
   await page.screenshot({ path: path.join(shots, "phone-full.png"), fullPage: true });
 
-  // Touch drag of a box via CDP touch events.
+  // Touch drag of a box via CDP touch events (CDP exists only in Chromium).
+  if (browser.browserType().name() !== "chromium") {
+    assert.deepEqual(errors, [], "no console errors on phone");
+    await context.close();
+    return;
+  }
   const paths = await connectorPaths(page);
   const from = await centreOf(page, "#layer-shapes .shape:nth-child(2) .body");
   const cdp = await context.newCDPSession(page);
