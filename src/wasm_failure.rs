@@ -20,7 +20,7 @@
 //! (`scripts/build-wasm.cjs`).
 //!
 //! The module also holds the test-only trap trigger used by the Node tests
-//! (`AvoidRouter::__testPanic`, inert unless given [`TEST_PANIC_ARMING`]).
+//! (`RawRouter::__testPanic`, inert unless given [`TEST_PANIC_ARMING`]).
 
 #![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 
@@ -152,7 +152,7 @@ mod alloc {
 // Test-only trap trigger
 // ---------------------------------------------------------------------------
 
-/// The exact string `AvoidRouter::__testPanic` must be given to do anything.
+/// The exact string `RawRouter::__testPanic` must be given to do anything.
 /// It exists so that the shipped wasm can be tested as shipped while the
 /// trigger stays inert for any accidental call.
 pub const TEST_PANIC_ARMING: &str = "libavoid-rust: I want to trap this WebAssembly instance";

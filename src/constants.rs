@@ -1,7 +1,8 @@
-//! Flat numeric constants of the upstream libavoid public API, mirrored by
-//! the frozen objects exported from `index.cjs` (`RouterFlag`, `ConnDir`,
-//! `RoutingParameter`, ...).  The values are those of the upstream enums;
-//! `tests` below checks them against `crate::avoid`.
+//! Flat numeric constants of the upstream libavoid public API, with the
+//! values the JavaScript API exports under upstream's names
+//! (`Avoid.OrthogonalRouting`, `Avoid.ConnDirUp`, `Avoid.segmentPenalty`,
+//! ...; `CONSTANTS` in `lib/adapter.cjs`).  The values are those of the
+//! upstream enums; `tests` below checks them against `crate::avoid`.
 
 // upstream: router.h enum RouterFlag
 pub const POLY_LINE_ROUTING: u32 = 1;
