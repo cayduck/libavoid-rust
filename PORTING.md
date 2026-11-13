@@ -85,28 +85,25 @@ tools/oracle/e2e_fuzz.sh --seed 42 --scenes 2000   # fuzz fresh scenes against t
 ```
 
 Beyond the committed fuzz scenes, 20,000 further scenes from eight other
-seeds were run, and then all of them again on the final port
-(`tools/oracle/e2e_fuzz_campaign_final.log`, which records the port commit
-in every entry; the first run is in `tools/oracle/e2e_fuzz_campaign.log`).
-On the final port, 17,669 scenes are comparable with the C++. 17,654 match
-within the campaign's 20-second limit per scene. The other 15 are hyperedge
-improvement scenes that gain junctions on every transaction; run to
-completion (24 to 56 seconds), they match too. The remaining 2,331 scenes
-are excluded because the C++ crashes, runs out of memory or has undefined
-behaviour there. Three classes of that undefined behaviour were found by
-the campaign itself, because the sanitizer build had missed them, and the
-oracle now detects them: erasing the `std::set` element being iterated, a
-double free (detected by the bump allocator), and a connector used by the
-test driver after a transaction had freed it. All 20,000 scenes, including
-the excluded ones, run on the final port without a panic or an abort; 304
-excluded scenes take it more than 20 seconds.
+seeds were run against the C++. The record of the last full run, on the
+final port, is `tools/oracle/e2e_fuzz_campaign_final.log`; every entry
+names the port commit it ran on. An earlier run on an older port is in
+`tools/oracle/e2e_fuzz_campaign.log`.
 
-That campaign ran one commit before a later clean-up of the hyperedge
-rerouter's skip paths, which only run where upstream is undefined. After
-that change, 3,000 scenes from three further seeds were run: 2,620 are
-comparable and all match (one of them only when run to completion, 22
-seconds), and none of the 380 excluded scenes makes the port panic or abort
-(52 take more than 20 seconds).
+On the final port, 17,671 of the 20,000 scenes are comparable with the C++.
+17,655 match within the campaign's 20-second limit per scene. The other 16
+are hyperedge improvement scenes that gain junctions on every transaction;
+run to completion (19 to 40 seconds), they match too. The remaining 2,329
+scenes are excluded because the C++ crashes, runs out of memory or has
+undefined behaviour there, so there is nothing to compare against. On
+those the port must only keep working: none of them makes it panic or
+abort, and 300 take it more than 20 seconds.
+
+Three classes of that undefined behaviour were found by the campaign
+itself, because the sanitizer build had missed them, and the oracle now
+detects them: erasing the `std::set` element being iterated, a double free
+(detected by the bump allocator), and a connector used by the test driver
+after a transaction had freed it.
 
 On the port before the last two hyperedge guard changes, 336 scenes took
 more than 20 seconds. 328 of them never take one of the port's hyperedge

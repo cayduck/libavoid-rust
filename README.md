@@ -177,7 +177,7 @@ Run everything with `npm test` (Rust tests, WASM build, Node tests).
   that mix every feature over long transaction sequences. The 865 on which
   the C++ is well defined must match it exactly; the rest must run without
   panicking. A further 20,000 fuzz scenes were checked the same way on the
-  final port: 17,669 are comparable and all of them match (see
+  final port: 17,671 are comparable and all of them match (see
   `PORTING.md`).
 - **Function inventory.** `docs/PORTING_INVENTORY.md` maps every upstream
   class, function and constant to its Rust counterpart or to the reason it is
