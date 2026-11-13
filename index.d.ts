@@ -1,868 +1,700 @@
-// Type declarations for libavoid-rust, a Rust/WASM port of upstream C++
-// libavoid (adaptagrams).  `AvoidRouter` is a thin adapter over the ported
-// `Avoid::Router`: every method delegates to the upstream function named in
-// its comment, so routing behaviour is upstream libavoid's.
+// Type declarations for libavoid-rust: upstream C++ libavoid (adaptagrams,
+// namespace Avoid) ported to Rust/WebAssembly, with upstream's public API
+// in JavaScript.  The module exports mirror namespace Avoid: same class
+// names, method names, argument order, default arguments and semantics.
+// Routing is done by the faithful Rust port of upstream; the JavaScript
+// layer adds no behaviour of its own (test/fixtures-replay.cjs replays all
+// 83 upstream test programs through this API against the C++ output).
+// docs/JS_API_COVERAGE.md lists every upstream public item and its
+// JavaScript counterpart (or why there is none).
 //
-// Ids
-// ---
-// Shapes, junctions, connectors and clusters are named by caller-chosen
-// string ids, unique across all four kinds.  Each object also has the
-// upstream numeric id (`unsigned int`): pass `numericId` to the creating
-// method to choose it (accepted iff upstream `objectIdIsUnused(id)` holds),
-// otherwise the router assigns `newObjectId()` (largest id so far + 1), i.e.
-// sequential in creation order exactly as upstream.  Routing results can
-// depend on numeric ids, so passing the ids of an upstream scene reproduces
-// it exactly.  Objects the router creates itself (hyperedge rerouting /
-// improvement) are named by the decimal string of their numeric id
-// (suffixed "#2", "#3", ... if taken).  Connection pins are named per
-// owner shape/junction.
+//   const Avoid = require("libavoid-rust");      // ES modules / browsers:
+//                                                 //   import init, * as Avoid from "libavoid-rust"; await init();
+//   const router = new Avoid.Router(Avoid.OrthogonalRouting);
+//   const shape = new Avoid.ShapeRef(router, new Avoid.Rectangle(new Avoid.Point(0, 0), new Avoid.Point(50, 50)));
+//   new Avoid.ShapeConnectionPin(shape, 1, Avoid.ATTACH_POS_CENTRE, Avoid.ATTACH_POS_CENTRE, true, 0, Avoid.ConnDirNone);
+//   const conn = new Avoid.ConnRef(router, new Avoid.ConnEnd(shape, 1), new Avoid.ConnEnd(new Avoid.Point(200, 20)));
+//   conn.setCallback((c) => draw(c.displayRoute()), conn);
+//   router.processTransaction();
+//   const route = conn.displayRoute();          // Avoid.PolyLine: route.size(), route.at(i), route.ps
+//   router.moveShape(shape, 10, 0);
+//   router.processTransaction();
+//   router.delete();
 //
-// Transactions
-// ------------
-// As upstream, changes are queued until `processTransaction()` while
-// `transactionUse()` is true (the default); routes are only (re)computed
-// then.  With `setTransactionUse(false)` every change is processed
-// immediately.
+// How C++ maps to JavaScript (one rule each)
+// ------------------------------------------
+// * Names, argument order, defaults.  As upstream.  A parameter is optional
+//   iff the C++ parameter has a default argument, with the same default;
+//   passing `undefined` means "use the default".
+// * Overloads.  One JavaScript function per C++ name, dispatching on the
+//   number and types of the arguments: `router.moveShape(shape, polygon,
+//   first_move = false)` / `moveShape(shape, xDiff, yDiff)`, the
+//   constructors of `ConnEnd`, `ConnRef`, `ShapeConnectionPin`, `Point`,
+//   `Polygon`, `Rectangle`, `Checkpoint`, `ReferencingPolygon`, ...
+// * Numbers.  `double` is a number; integer types (`unsigned int`, `int`,
+//   `size_t`, enums) must be integers in range, `bool` must be a boolean,
+//   `ConnDirFlags` a combination of the ConnDir* bits (0..15), `char` a
+//   one-character string.  Anything else throws a TypeError.
+// * Value types (Point/Vector, Box, Edge, LineRep, Polygon/PolyLine,
+//   Rectangle, ReferencingPolygon, ConnEnd, Checkpoint,
+//   HyperedgeNewAndDeletedObjectLists) are plain JavaScript objects.  An
+//   argument passed by value or `const&` is copied when it is passed; a
+//   result is a fresh copy -- also where upstream returns a reference to
+//   internal state (`shape.polygon()`, `conn.displayRoute()`,
+//   `cluster.rectangularPolygon()`, ...): change the object through its
+//   methods, not by editing the returned copy.
+// * Objects owned by a router (ShapeRef, JunctionRef, ConnRef, ClusterRef,
+//   ShapeConnectionPin and the router's HyperedgeRerouter) are wrappers with
+//   identity: every getter returns the same wrapper for the same object,
+//   including objects the router creates itself (hyperedge rerouting and
+//   improvement, `splitAtSegment`).  After the object is deleted -- by you
+//   (`router.deleteShape(shape)`, `pin.delete()`, ...) or by the router
+//   (hyperedge improvement) -- its wrapper throws on every use, as the
+//   dangling pointer would be invalid upstream.  `obj.id()` is upstream's
+//   numeric id; constructors take upstream's optional `id` (0 = assign
+//   `router.newObjectId()`).
+// * Containers.  `std::list` / `std::vector` values are arrays; a
+//   `std::pair` is a two-element array.
+// * Out-parameters.  A container out-parameter is an array that is
+//   appended to, as upstream appends (`router.attachedShapes(shapes,
+//   shapeId, type)`); a scalar out-parameter (`bool&`, `double*`) is a
+//   one-element array whose element 0 is read (in/out) and set.
+// * Operators.  `operator==` is `equal(rhs)`, `!=` `notEqual(rhs)`, `<`
+//   `lessThan(rhs)`, `[]` `get(dim)` / `set(dim, value)`, `+` `add(rhs)`,
+//   `-` `sub(rhs)`.
+// * Public data members are properties with upstream's names
+//   (`point.x`, `point.id`, `poly.ps`, `poly._id`, `checkpoint.point`,
+//   `router.RubberBandRouting`, `router.st_checked_edges`, ...).  The
+//   router's object lists `m_obstacles`, `connRefs` and `clusterRefs` are
+//   read-only (fresh arrays of the wrappers, in upstream's list order).
+// * `delete obj` is `obj.delete()`: for a Router it frees the router and
+//   everything it owns (all its wrappers become invalid; a Router is also
+//   freed when it is garbage collected); for a ShapeConnectionPin it
+//   removes the pin; for value types it does nothing.  Shapes, junctions,
+//   connectors and clusters are deleted through the Router
+//   (`deleteShape`, `deleteJunction`, `deleteConnector`, `deleteCluster`),
+//   as upstream requires.
+// * Virtual methods.  Override by subclassing: `class MyRouter extends
+//   Avoid.Router { shouldContinueTransactionWithProgress(elapsedTime,
+//   phaseNumber, totalPhases, proportion) { ... } }`.  It is called with
+//   upstream's arguments at upstream's call sites during a transaction
+//   (`elapsedTime`: milliseconds since the JavaScript call that runs the
+//   transaction started).  It must not use its own router (that throws);
+//   an exception it throws counts as a stop request and is rethrown when
+//   the call returns.
+// * Callbacks.  `conn.setCallback(cb, ptr)`: `cb(ptr)` is invoked for each
+//   connector whose route changed, in the order upstream invokes the
+//   callbacks, after the routing finished and before the call that ran the
+//   transaction (`processTransaction()`, or any change while
+//   `transactionUse()` is false) returns, so a callback may use the
+//   router.  An exception thrown by a callback propagates out of that call;
+//   the remaining callbacks of the transaction are not invoked.
+// * `FILE*` / file-name output returns the text: `outputDiagramText()`,
+//   `outputDiagram()` and `printInfo()` return what upstream writes.
 //
-// Errors
+// Misuse
 // ------
-// * Structurally malformed arguments (a non-string id, a point that is
-//   neither [x, y] nor {x, y}, a non-array where an array is expected, a
-//   non-boolean flag, a non-number where a number is expected) throw a
-//   TypeError.
-// * Otherwise invalid input does not throw: mutators return `false` and
-//   queries return `null` for unknown ids, duplicate ids, non-finite
-//   numbers, out-of-range enum values and violated upstream preconditions
-//   (documented per method).
-// * The constructor throws an Error for invalid router flags.
-// * An internal failure (a bug: a Rust panic, a failed allocation, a stack
-//   overflow) throws an `AvoidInternalError`; see below.
+// Upstream checks its preconditions with COLA_ASSERT (abort in debug
+// builds, undefined behaviour otherwise).  Here a wrong argument type or
+// count throws a TypeError; a violated documented precondition, the use of
+// a deleted object, or an object of another Router throws an Error (the
+// analogue of the assert).  Neither changes any state.  The preconditions
+// checked: Router flags include PolyLineRouting or OrthogonalRouting; ids
+// are unused (`objectIdIsUnused`); routing parameter / option < its
+// `last...Marker`; a ConnEnd's pin class is > 0 and not
+// CONNECTIONPIN_UNSET; a pin's class is > 0; `setConnectionCost(cost)`
+// with cost >= 0; `Polygon.at` / `setPoint` index < size(); `Point.get` /
+// `set` dimension XDIM or YDIM; `vecDir` maybeZero >= 0; `setNewPoly`
+// keeps the point count and the obstacle is not in the visibility graph;
+// `makeActive` / `makeInactive` toggle; `ReferencingPolygon` / cluster
+// point ids name obstacles; `setEndpoint(type, end)` with type 1
+// (VertID::src) or 2 (VertID::tar).  Where upstream behaviour is undefined
+// and the Rust core defines a no-op ("Public-API misuse" in
+// src/avoid/router.rs), that is what happens.
 //
-// Failure containment
-// -------------------
-// The wasm module is built with `panic = "abort"`, so an internal failure
-// traps the WebAssembly instance.  The adapter catches the trap and throws
-// an `AvoidInternalError` that carries the method name, the Rust panic
-// message and source location when there was a panic (`kind` "panic"), or
-// says that an allocation failed ("out-of-memory") or the stack overflowed
-// ("stack-overflow"); `cause` is the original `WebAssembly.RuntimeError`.
-//
-// A trap leaves the whole instance in an unknown state: no Rust destructors
-// ran, the shadow stack it was using is never released, and the router
-// that was executing may be half-updated and stays borrowed.  Other routers
-// of the same instance often keep working for a while, but not reliably
-// (a stack overflow breaks every later call; repeated traps exhaust the
-// stack).  Therefore the first internal error *poisons the instance*: every
-// router created on it -- not only the one that failed -- throws
-// `AvoidInternalError` ("router is unusable after an internal error: ...",
-// `kind` "poisoned", `cause` the first error) from every later call
-// without entering wasm, and so does `new AvoidRouter()`.  `free()` and
-// `isPoisoned()` still work.  To recover, call `reset()` (ES-module entry:
-// `await reset()` or `await init()`), which instantiates a fresh wasm
-// module instance; routers created afterwards work normally.  The routers
-// of the old instance stay unusable; rebuild their scenes on new routers.
-// `internalError()` returns the error that poisoned the current instance.
-//
-// Long transactions
-// -----------------
-// `setTransactionTimeLimit(ms)` and `setTransactionProgressCallback(fn)`
-// map onto upstream's `shouldContinueTransactionWithProgress()`.  Upstream
-// calls it during the visibility-graph scans, the route search, crossing
-// detection, crossing reroutes and between nudging regions, but only acts
-// on a request to stop in the crossing-improvement phases
-// (`TransactionPhase.CrossingDetection` and `.RerouteSearch`, which run
-// only with a non-zero `crossingPenalty` or `fixedSharedPathPenalty`): the
-// remaining crossing work is skipped, everything else still runs, and the
-// router stays usable.  Nothing else can be interrupted: route search,
-// nudging, hyperedge rerouting and hyperedge improvement (the "Known slow
-// cases" of PORTING.md) run to completion.  After a cancelled transaction
-// the next `processTransaction()` runs the rerouting phase again even if
-// nothing new was queued, which finishes the cancelled work.  Time is
-// measured in JavaScript (`performance.now()`), from the start of the call
-// that runs the transaction.
+// WebAssembly infrastructure (no upstream counterpart)
+// ----------------------------------------------------
+// `init()` / `initSync()` (ES-module entry: load the wasm module before
+// the first `new Router()`), and failure containment: the wasm module is
+// built with `panic = "abort"`, so an internal failure (a bug: a Rust
+// panic, a failed allocation, a stack overflow) traps the WebAssembly
+// instance.  The call throws an `AvoidInternalError` (method name, Rust
+// panic message and source location, `kind`, `cause`), and the instance is
+// *poisoned*: every object created on it -- not only the one that failed
+// -- throws `AvoidInternalError` (`kind` "poisoned") from every later call
+// without entering wasm, as do `new Router()` and the wasm-backed free
+// functions; `delete()` stays allowed.  `reset()` (ES modules: `await
+// reset()` or `await init()`) instantiates a fresh module; objects created
+// afterwards work normally.  `internalError()` returns the error that
+// poisoned the current instance, or null.
 
-export interface Point {
-  x: number;
-  y: number;
-}
+// --- constants (upstream names) -------------------------------------------------
 
-export type Route = Point[];
-export type PointInput = Point | readonly [number, number];
+/** geomtypes.h */
+export const XDIM: 0;
+export const YDIM: 1;
+export const kUnassignedVertexNumber: 8;
+export const kShapeConnectionPin: 9;
+/** geometry.h segmentIntersectPoint() / rayIntersectPoint() results */
+export const DONT_INTERSECT: 0;
+export const DO_INTERSECT: 1;
+export const PARALLEL: 3;
 
-/** upstream `Checkpoint(point, arrivalDirections = All, departureDirections = All)`. */
-export type CheckpointInput =
-  | PointInput
-  | {
-      point: PointInput;
-      arrivalDirections?: number;
-      departureDirections?: number;
-    };
+/** router.h enum RouterFlag */
+export const PolyLineRouting: 1;
+export const OrthogonalRouting: 2;
+export type RouterFlag = 1 | 2;
+export const RouterFlag: { readonly PolyLineRouting: 1; readonly OrthogonalRouting: 2 };
 
-export interface Checkpoint {
-  point: Point;
-  arrivalDirections: number;
-  departureDirections: number;
-}
+/** router.h: connector relation for attachedShapes() / attachedConns() */
+export const runningTo: 1;
+export const runningFrom: 2;
+export const runningToAndFrom: 3;
 
-/**
- * An upstream `ConnEnd`:
- * - `[x, y]` / `{x, y}`: `ConnEnd(Point)` (directions `ConnDir.All`);
- * - `{point, directions}`: `ConnEnd(Point, ConnDirFlags)`;
- * - `{shapeId, classId}`: `ConnEnd(ShapeRef*, connectionPinClassID)`;
- * - `{shapeId, pinId}`: convenience for `{shapeId, classId: <class of that pin>}`
- *   (upstream connects to *any* suitable pin of the class, not that pin);
- * - `{junctionId}`: `ConnEnd(JunctionRef*)`.
- * Objects returned by `connectorEndpointConnEnds()` are accepted too.
- */
-export type ConnEndInput =
-  | PointInput
-  | { point: PointInput; directions?: number }
-  | { shapeId: string; classId: number }
-  | { shapeId: string; pinId: string }
-  | { junctionId: string }
-  | ConnEnd;
-
-/** upstream `ConnEnd` as returned by `ConnRef::endpointConnEnds()`. */
-export type ConnEnd =
-  | { type: "point"; position: Point; directions: number }
-  | { type: "shapePin"; position: Point; directions: number; shapeId: string | null; classId: number }
-  | { type: "junction"; position: Point; directions: number; junctionId: string | null; classId: number }
-  | { type: "empty"; position: Point; directions: number };
-
-export interface ConnectorEndpointConnEnds {
-  source: ConnEnd;
-  destination: ConnEnd;
-}
-
-export interface ConnectorSplitResult {
-  junctionId: string;
-  connectorId: string;
-  position: Point;
-}
-
-export interface Box {
-  left: number;
-  top: number;
-  right: number;
-  bottom: number;
-}
-
-export interface ShapeConnectionPinOptions {
-  /** Pin class id, 1..4294967295 (upstream asserts > 0). */
-  classId: number;
-  xOffset: number;
-  yOffset: number;
-  /** Default false (absolute offsets from the shape's top-left). */
-  proportional?: boolean;
-  /** Default 0. */
-  insideOffset?: number;
-  /** Default `ConnDir.None` (upstream: derive from the position). */
-  visibilityDirections?: number;
-  /** `setConnectionCost(cost)` (>= 0) if given. */
-  connectionCost?: number;
-  /** `setExclusive(exclusive)` if given (upstream default otherwise). */
-  exclusive?: boolean;
-}
-
-/** upstream `ShapeConnectionPin::ids()`. */
-export interface ConnectionPinIds {
-  objectId: string;
-  numericObjectId: number;
-  classId: number;
-}
-
-/** upstream `HyperedgeNewAndDeletedObjectLists`, with string ids. */
-export interface HyperedgeNewAndDeletedObjectLists {
-  newJunctionIds: string[];
-  deletedJunctionIds: string[];
-  newConnectorIds: string[];
-  deletedConnectorIds: string[];
-  changedConnectorIds: string[];
-}
-
-/** upstream `Polygon::curvedPolyline()`: points plus SVG path commands ("M", "L", "C", "Z"). */
-export interface CurvedPolyline {
-  points: Point[];
-  commands: string[];
-}
-
-export const RouterFlag: Readonly<{
-  PolyLineRouting: 1;
-  OrthogonalRouting: 2;
-}>;
-
-export const ConnType: Readonly<{
-  None: 0;
-  PolyLine: 1;
-  Orthogonal: 2;
-}>;
-
-export const ConnDir: Readonly<{
-  None: 0;
-  Up: 1;
-  Down: 2;
-  Left: 4;
-  Right: 8;
-  All: 15;
-}>;
-
-export const ConnEndType: Readonly<{
-  Point: 0;
-  ShapePin: 1;
-  Junction: 2;
-  Empty: 3;
-}>;
-
-export const ConnectorRelation: Readonly<{
-  RunningTo: 1;
-  RunningFrom: 2;
-  RunningToAndFrom: 3;
-}>;
-
-export const RoutingParameter: Readonly<{
-  segmentPenalty: 0;
-  anglePenalty: 1;
-  crossingPenalty: 2;
-  clusterCrossingPenalty: 3;
-  fixedSharedPathPenalty: 4;
-  portDirectionPenalty: 5;
-  shapeBufferDistance: 6;
-  idealNudgingDistance: 7;
-  reverseDirectionPenalty: 8;
-}>;
-
-/** upstream `typedef enum RoutingParameter PenaltyType`. */
+/** router.h enum RoutingParameter (typedef PenaltyType) */
+export const segmentPenalty: 0;
+export const anglePenalty: 1;
+export const crossingPenalty: 2;
+export const clusterCrossingPenalty: 3;
+export const fixedSharedPathPenalty: 4;
+export const portDirectionPenalty: 5;
+export const shapeBufferDistance: 6;
+export const idealNudgingDistance: 7;
+export const reverseDirectionPenalty: 8;
+export const lastRoutingParameterMarker: 9;
+export type RoutingParameter = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
+export type PenaltyType = RoutingParameter;
+export const RoutingParameter: {
+  readonly segmentPenalty: 0;
+  readonly anglePenalty: 1;
+  readonly crossingPenalty: 2;
+  readonly clusterCrossingPenalty: 3;
+  readonly fixedSharedPathPenalty: 4;
+  readonly portDirectionPenalty: 5;
+  readonly shapeBufferDistance: 6;
+  readonly idealNudgingDistance: 7;
+  readonly reverseDirectionPenalty: 8;
+  readonly lastRoutingParameterMarker: 9;
+};
 export const PenaltyType: typeof RoutingParameter;
 
-/** upstream `zeroParamValue` / `chooseSensibleParamValue`. */
-export const RoutingParameterValue: Readonly<{
-  zero: 0;
-  chooseSensible: -1;
-}>;
+/** router.h enum RoutingOption */
+export const nudgeOrthogonalSegmentsConnectedToShapes: 0;
+export const improveHyperedgeRoutesMovingJunctions: 1;
+export const penaliseOrthogonalSharedPathsAtConnEnds: 2;
+export const nudgeOrthogonalTouchingColinearSegments: 3;
+export const performUnifyingNudgingPreprocessingStep: 4;
+export const improveHyperedgeRoutesMovingAddingAndDeletingJunctions: 5;
+export const nudgeSharedPathsWithCommonEndPoint: 6;
+export const lastRoutingOptionMarker: 7;
+export type RoutingOption = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
+export const RoutingOption: {
+  readonly nudgeOrthogonalSegmentsConnectedToShapes: 0;
+  readonly improveHyperedgeRoutesMovingJunctions: 1;
+  readonly penaliseOrthogonalSharedPathsAtConnEnds: 2;
+  readonly nudgeOrthogonalTouchingColinearSegments: 3;
+  readonly performUnifyingNudgingPreprocessingStep: 4;
+  readonly improveHyperedgeRoutesMovingAddingAndDeletingJunctions: 5;
+  readonly nudgeSharedPathsWithCommonEndPoint: 6;
+  readonly lastRoutingOptionMarker: 7;
+};
 
-export const RoutingOption: Readonly<{
-  nudgeOrthogonalSegmentsConnectedToShapes: 0;
-  improveHyperedgeRoutesMovingJunctions: 1;
-  penaliseOrthogonalSharedPathsAtConnEnds: 2;
-  nudgeOrthogonalTouchingColinearSegments: 3;
-  performUnifyingNudgingPreprocessingStep: 4;
-  improveHyperedgeRoutesMovingAddingAndDeletingJunctions: 5;
-  nudgeSharedPathsWithCommonEndPoint: 6;
-}>;
+/** router.h enum TransactionPhases */
+export const TransactionPhaseOrthogonalVisibilityGraphScanX: 1;
+export const TransactionPhaseOrthogonalVisibilityGraphScanY: 2;
+export const TransactionPhaseRouteSearch: 3;
+export const TransactionPhaseCrossingDetection: 4;
+export const TransactionPhaseRerouteSearch: 5;
+export const TransactionPhaseOrthogonalNudgingX: 6;
+export const TransactionPhaseOrthogonalNudgingY: 7;
+export const TransactionPhaseCompleted: 8;
+export type TransactionPhases = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+export const TransactionPhases: {
+  readonly TransactionPhaseOrthogonalVisibilityGraphScanX: 1;
+  readonly TransactionPhaseOrthogonalVisibilityGraphScanY: 2;
+  readonly TransactionPhaseRouteSearch: 3;
+  readonly TransactionPhaseCrossingDetection: 4;
+  readonly TransactionPhaseRerouteSearch: 5;
+  readonly TransactionPhaseOrthogonalNudgingX: 6;
+  readonly TransactionPhaseOrthogonalNudgingY: 7;
+  readonly TransactionPhaseCompleted: 8;
+};
 
-export const AttachPos: Readonly<{
-  Top: 0;
-  Centre: 0.5;
-  Bottom: 1;
-  Left: 0;
-  Right: 1;
-  MinOffset: 0;
-  MaxOffset: -1;
-}>;
+/** router.h */
+export const zeroParamValue: 0;
+export const chooseSensibleParamValue: -1;
 
-export const ConnectionPin: Readonly<{
-  Unset: 2147483647;
-  Centre: 2147483646;
-}>;
+/** connector.h enum ConnType */
+export const ConnType_None: 0;
+export const ConnType_PolyLine: 1;
+export const ConnType_Orthogonal: 2;
+export type ConnType = 0 | 1 | 2;
+export const ConnType: { readonly ConnType_None: 0; readonly ConnType_PolyLine: 1; readonly ConnType_Orthogonal: 2 };
 
-export const ShapeTransformation: Readonly<{
-  CW90: 0;
-  CW180: 1;
-  CW270: 2;
-  FlipX: 3;
-  FlipY: 4;
-}>;
+/** connector.h crossing flags */
+export const CROSSING_NONE: 0;
+export const CROSSING_TOUCHES: 1;
+export const CROSSING_SHARES_PATH: 2;
+export const CROSSING_SHARES_PATH_AT_END: 4;
+export const CROSSING_SHARES_FIXED_SEGMENT: 8;
 
-/** upstream XDIM / YDIM (`JunctionRef::preferOrthogonalDimension`). */
-export const OrthogonalDimension: Readonly<{
-  X: 0;
-  Y: 1;
-}>;
+/** connend.h enum ConnDirFlag (ConnDirFlags: a combination, 0..15) */
+export const ConnDirNone: 0;
+export const ConnDirUp: 1;
+export const ConnDirDown: 2;
+export const ConnDirLeft: 4;
+export const ConnDirRight: 8;
+export const ConnDirAll: 15;
+export type ConnDirFlags = number;
+export const ConnDirFlag: {
+  readonly ConnDirNone: 0;
+  readonly ConnDirUp: 1;
+  readonly ConnDirDown: 2;
+  readonly ConnDirLeft: 4;
+  readonly ConnDirRight: 8;
+  readonly ConnDirAll: 15;
+};
 
-/** upstream `Polygon(points).curvedPolyline(curveAmount, closed = false)`; null for invalid input. */
-export function curvedPolyline(points: readonly PointInput[], curveAmount: number, closed?: boolean): CurvedPolyline | null;
+/** connend.h enum ConnEndType */
+export const ConnEndPoint: 0;
+export const ConnEndShapePin: 1;
+export const ConnEndJunction: 2;
+export const ConnEndEmpty: 3;
+export type ConnEndType = 0 | 1 | 2 | 3;
+export const ConnEndType: { readonly ConnEndPoint: 0; readonly ConnEndShapePin: 1; readonly ConnEndJunction: 2; readonly ConnEndEmpty: 3 };
 
-/** upstream `TransactionPhases`, as passed to a transaction progress callback. */
-export const TransactionPhase: Readonly<{
-  OrthogonalVisibilityGraphScanX: 1;
-  OrthogonalVisibilityGraphScanY: 2;
-  RouteSearch: 3;
-  CrossingDetection: 4;
-  RerouteSearch: 5;
-  OrthogonalNudgingX: 6;
-  OrthogonalNudgingY: 7;
-  Completed: 8;
-}>;
+/** connectionpin.h */
+export const CONNECTIONPIN_UNSET: 2147483647;
+export const CONNECTIONPIN_CENTRE: 2147483646;
+export const ATTACH_POS_TOP: 0;
+export const ATTACH_POS_CENTRE: 0.5;
+export const ATTACH_POS_BOTTOM: 1;
+export const ATTACH_POS_LEFT: 0;
+export const ATTACH_POS_RIGHT: 1;
+export const ATTACH_POS_MIN_OFFSET: 0;
+export const ATTACH_POS_MAX_OFFSET: -1;
 
-/**
- * upstream `shouldContinueTransactionWithProgress(elapsedTime, phaseNumber,
- * totalPhases, proportion)`; return `false` to ask the router to stop.
- * `elapsedMs` is measured in JavaScript from the start of the API call.
- * Must not call into the same router (that throws).
- */
-export type TransactionProgressCallback = (
-  elapsedMs: number,
-  phase: number,
-  totalPhases: number,
-  proportion: number,
-) => boolean | void;
+/** shape.h enum ShapeTransformationType */
+export const TransformationType_CW90: 0;
+export const TransformationType_CW180: 1;
+export const TransformationType_CW270: 2;
+export const TransformationType_FlipX: 3;
+export const TransformationType_FlipY: 4;
+export type ShapeTransformationType = 0 | 1 | 2 | 3 | 4;
+export const ShapeTransformationType: {
+  readonly TransformationType_CW90: 0;
+  readonly TransformationType_CW180: 1;
+  readonly TransformationType_CW270: 2;
+  readonly TransformationType_FlipX: 3;
+  readonly TransformationType_FlipY: 4;
+};
 
-/** An internal failure of the wasm module; see "Failure containment" above. */
-export class AvoidInternalError extends Error {
-  readonly name: "AvoidInternalError";
-  /** The API function that failed, e.g. "AvoidRouter.processTransaction". */
-  readonly method: string | null;
-  readonly kind: "panic" | "out-of-memory" | "stack-overflow" | "trap" | "poisoned" | "reset";
-  /** The Rust panic message (kind "panic"). */
-  readonly panicMessage: string | null;
-  /** Crate-relative source location of the panic, "src/file.rs:line:column". */
-  readonly location: string | null;
-  /** The WebAssembly.RuntimeError of the trap, or for "poisoned" the first AvoidInternalError. */
-  cause?: unknown;
+// --- geomtypes.h ------------------------------------------------------------------
+
+/** upstream: class Point (typedef Vector).  `new Point()` is (0, 0). */
+export class Point {
+  constructor();
+  constructor(xv: number, yv: number);
+  x: number;
+  y: number;
+  /** unsigned int */
+  id: number;
+  /** unsigned short */
+  vn: number;
+  equals(rhs: Point, epsilon?: number): boolean;
+  /** operator== (compares x and y) */
+  equal(rhs: Point): boolean;
+  /** operator!= */
+  notEqual(rhs: Point): boolean;
+  /** operator< */
+  lessThan(rhs: Point): boolean;
+  /** operator[] (read; dimension XDIM or YDIM) */
+  get(dimension: number): number;
+  /** operator[] (write) */
+  set(dimension: number, value: number): void;
+  /** operator+ */
+  add(rhs: Point): Point;
+  /** operator- */
+  sub(rhs: Point): Point;
+  delete(): void;
+}
+export type Vector = Point;
+export const Vector: typeof Point;
+
+/** upstream: class Box */
+export class Box {
+  constructor();
+  min: Point;
+  max: Point;
+  length(dimension: number): number;
+  width(): number;
+  height(): number;
+  delete(): void;
 }
 
-/** The AvoidInternalError that poisoned the current wasm instance, or null. */
-export function internalError(): AvoidInternalError | null;
+/** upstream: class Edge */
+export class Edge {
+  constructor();
+  a: Point;
+  b: Point;
+  delete(): void;
+}
+
+/** upstream: router.h struct LineRep */
+export class LineRep {
+  constructor();
+  begin: Point;
+  end: Point;
+  delete(): void;
+}
+
+/** upstream: abstract class PolygonInterface. */
+export abstract class PolygonInterface {
+  protected constructor();
+  abstract clear(): void;
+  abstract empty(): boolean;
+  abstract size(): number;
+  abstract id(): number;
+  abstract at(index: number): Point;
+  boundingRectPolygon(): Polygon;
+  offsetBoundingBox(offset: number): Box;
+  offsetPolygon(offset: number): Polygon;
+  delete(): void;
+}
+
+/** upstream: class Polygon (typedef PolyLine). */
+export class Polygon extends PolygonInterface {
+  constructor();
+  /** `n` default points */
+  constructor(n: number);
+  /** copies id() and the points */
+  constructor(poly: PolygonInterface);
+  clear(): void;
+  empty(): boolean;
+  size(): number;
+  id(): number;
+  /** the point object in `ps` */
+  at(index: number): Point;
+  setPoint(index: number, point: Point): void;
+  simplify(): Polygon;
+  curvedPolyline(curve_amount: number, closed?: boolean): Polygon;
+  translate(xDist: number, yDist: number): void;
+  checkpointsOnSegment(segmentLowerIndex: number, indexModifier?: number): Point[];
+  _id: number;
+  ps: Point[];
+  /** std::vector<char>: one-character strings ("M", "L", "C", "Z" for curvedPolyline()) */
+  ts: string[];
+  /** std::vector<std::pair<size_t, Point>> */
+  checkpointsOnRoute: [number, Point][];
+}
+export type PolyLine = Polygon;
+export const PolyLine: typeof Polygon;
 
 /**
- * Replaces the wasm module instance by a fresh one (Node: synchronously,
- * by loading a fresh copy of the wasm-bindgen glue).  Routers of the old
- * instance become unusable (AvoidInternalError); new routers work.
+ * upstream: class ReferencingPolygon.  `psRef[i]` is `[polygon, vn]`:
+ * a copy of the referenced obstacle's polygon (taken when this object was
+ * made) and the index of the point in it, or `[null, vn]` for a point
+ * stored in `psPoints[i]`.
  */
-export function reset(): void;
-
-export class AvoidRouter {
-  /** `new Router(flags)`; flags default `RouterFlag.OrthogonalRouting`.  Throws unless flags is 1, 2 or 3. */
-  constructor(flags?: number);
-  /** Same as the constructor. */
-  static withFlags(flags: number): AvoidRouter;
-  /** The constructor's flags (convenience). */
-  routerFlags(): number;
-  /** Convenience: delete the router and create a new one with the same flags, routing parameters, options and transaction setting. */
+export class ReferencingPolygon extends PolygonInterface {
+  constructor();
+  constructor(poly: Polygon, router: Router);
   clear(): void;
+  empty(): boolean;
+  size(): number;
+  id(): number;
+  at(index: number): Point;
+  _id: number;
+  psRef: [Polygon | null, number][];
+  psPoints: Point[];
+}
 
-  // --- transactions ---
-  /** `Router::setTransactionUse()`. */
+/** upstream: class Rectangle */
+export class Rectangle extends Polygon {
+  constructor(topLeft: Point, bottomRight: Point);
+  constructor(centre: Point, width: number, height: number);
+}
+
+// --- router.h ----------------------------------------------------------------------
+
+/** upstream: class Router.  Subclass to override shouldContinueTransactionWithProgress(). */
+export class Router {
+  /** `flags`: PolyLineRouting, OrthogonalRouting or both (`|`). */
+  constructor(flags: number);
+
+  // public data members
+  readonly m_obstacles: Obstacle[];
+  readonly connRefs: ConnRef[];
+  readonly clusterRefs: ClusterRef[];
+  PartialTime: boolean;
+  SimpleRouting: boolean;
+  ClusteredRouting: boolean;
+  IgnoreRegions: boolean;
+  UseLeesAlgorithm: boolean;
+  InvisibilityGrph: boolean;
+  SelectiveReroute: boolean;
+  PartialFeedback: boolean;
+  RubberBandRouting: boolean;
+  st_checked_edges: number;
+
   setTransactionUse(transactions: boolean): void;
-  /** `Router::transactionUse()`. */
   transactionUse(): boolean;
-  /**
-   * `Router::processTransaction()`: true if anything was processed.  After
-   * a cancelled transaction it also runs when nothing new is queued, to
-   * finish the cancelled work (wrapper addition).
-   */
   processTransaction(): boolean;
-  /**
-   * Connectors whose upstream callback fired (i.e. were rerouted) in the last
-   * transaction (with transaction use off: in all transactions run by the
-   * last call), followed by the connectors the router itself created in it
-   * (hyperedge rerouting / improvement), which upstream creates without a
-   * callback.  Built on `ConnRef::setCallback()`.
-   */
-  lastTransactionUpdatedConnectorIds(): string[];
-  /**
-   * Calls `callback` for upstream `shouldContinueTransactionWithProgress()`
-   * (null removes it); see "Long transactions" above.  An exception thrown
-   * by the callback cancels the transaction like returning false and is
-   * rethrown by the call that ran the transaction, after it finished.
-   */
-  setTransactionProgressCallback(callback: TransactionProgressCallback | null): void;
-  /** Asks every later transaction to stop after `milliseconds` (null: no limit); see "Long transactions". */
-  setTransactionTimeLimit(milliseconds: number | null): void;
-  transactionTimeLimit(): number | null;
-  /** Whether the last transaction was asked to stop (upstream `m_abort_transaction`). */
-  lastTransactionCancelled(): boolean;
-
-  // --- failure containment ---
-  /** Whether this router's wasm instance failed (or was replaced by reset()); every other method then throws AvoidInternalError. */
-  isPoisoned(): boolean;
-
-  // --- parameters ---
-  /** `Router::setRoutingParameter()`; omitted value = `chooseSensibleParamValue`. */
-  setRoutingParameter(parameter: number, value?: number): boolean;
-  /** `Router::setRoutingPenalty()`; omitted value = `chooseSensibleParamValue`. */
-  setRoutingPenalty(penaltyType: number, penaltyValue?: number): boolean;
-  /** `Router::routingParameter()`. */
-  routingParameter(parameter: number): number | null;
-  /** `Router::setRoutingOption()`. */
-  setRoutingOption(option: number, value: boolean): boolean;
-  /** `Router::routingOption()`. */
-  routingOption(option: number): boolean | null;
-  /** `Router::validConnType(select = ConnType.None)`. */
-  validConnType(select?: number): number | null;
-
-  // --- ids ---
-  /** string id: unused by any object of this router; number: upstream `Router::objectIdIsUnused(id)`. */
-  objectIdIsUnused(id: string | number): boolean | null;
-  /** `Router::newObjectId()`. */
+  deleteShape(shape: ShapeRef): void;
+  moveShape(shape: ShapeRef, newPoly: PolygonInterface, first_move?: boolean): void;
+  moveShape(shape: ShapeRef, xDiff: number, yDiff: number): void;
+  deleteJunction(junction: JunctionRef): void;
+  deleteConnector(connector: ConnRef): void;
+  moveJunction(junction: JunctionRef, newPosition: Point): void;
+  moveJunction(junction: JunctionRef, xDiff: number, yDiff: number): void;
+  setRoutingParameter(parameter: RoutingParameter, value?: number): void;
+  routingParameter(parameter: RoutingParameter): number;
+  setRoutingOption(option: RoutingOption, value: boolean): void;
+  routingOption(option: RoutingOption): boolean;
+  setRoutingPenalty(penType: PenaltyType, penVal?: number): void;
+  /** The router's HyperedgeRerouter (the same object every time). */
+  hyperedgeRerouter(): HyperedgeRerouter;
+  /** Not yet available: throws (SVG output is not ported yet). */
+  outputInstanceToSVG(filename?: string): void;
   newObjectId(): number;
-  /** The upstream numeric id (`id()`) of an object. */
-  objectNumericId(id: string): number | null;
-  /** The (earliest created) object with this numeric id. */
-  objectIdFromNumericId(numericId: number): string | null;
-  /** Ids of all shapes, in creation order. */
-  shapeIds(): string[];
-  junctionIds(): string[];
-  connectorIds(): string[];
-  clusterIds(): string[];
-
-  // --- clusters ---
-  /** `new ClusterRef(router, poly, numericId)` (at least 3 points). */
-  addCluster(id: string, points: readonly PointInput[], numericId?: number): boolean;
-  /** Convenience: `addCluster` with a `Rectangle`. */
-  addClusterRectangle(id: string, left: number, top: number, right: number, bottom: number, numericId?: number): boolean;
-  /** `ClusterRef::setNewPoly()`. */
-  setClusterPolygon(id: string, points: readonly PointInput[]): boolean;
-  /** Convenience: `setClusterPolygon` with a `Rectangle`. */
-  setClusterRectangle(id: string, left: number, top: number, right: number, bottom: number): boolean;
-  /** `Router::deleteCluster()`. */
-  removeCluster(id: string): boolean;
-  /** Convenience: bounding box of `rectangularPolygon()`. */
-  clusterBoundingBox(id: string): Box | null;
-  /** `ClusterRef::polygon()`. */
-  clusterPolygon(id: string): Point[] | null;
-  /** `ClusterRef::rectangularPolygon()`. */
-  clusterRectangularPolygon(id: string): Point[] | null;
-
-  // --- shapes ---
-  /** `new ShapeRef(router, Rectangle(Point(left, top), Point(right, bottom)), numericId)`. */
-  addShape(id: string, left: number, top: number, right: number, bottom: number, numericId?: number): boolean;
-  /** `new ShapeRef(router, poly, numericId)` (at least 3 points). */
-  addPolygonShape(id: string, points: readonly PointInput[], numericId?: number): boolean;
-  /** `Router::moveShape(shape, Rectangle(...))` (the shape must have 4 points). */
-  moveShape(id: string, left: number, top: number, right: number, bottom: number): boolean;
-  /** `Router::moveShape(shape, newPoly, firstMove = false)` (same number of points, which upstream asserts). */
-  movePolygonShape(id: string, points: readonly PointInput[], firstMove?: boolean): boolean;
-  /** `Router::moveShape(shape, xDiff, yDiff)`. */
-  moveShapeBy(id: string, xDiff: number, yDiff: number): boolean;
-  /** Convenience: `polygon().offsetBoundingBox(0)`. */
-  shapeBoundingBox(id: string): Box | null;
-  /** `Obstacle::routingBox()` (includes shapeBufferDistance). */
-  shapeRoutingBox(id: string): Box | null;
-  /** `ShapeRef::polygon()`. */
-  shapePolygon(id: string): Point[] | null;
-  /** `Obstacle::routingPolygon()`. */
-  shapeRoutingPolygon(id: string): Point[] | null;
-  /** `ShapeRef::position()`. */
-  shapePosition(id: string): Point | null;
-  /** `Router::shapeContainingPoint()` (shapes in the scene, i.e. processed). */
-  shapeContainingPoint(point: PointInput): string | null;
-  /** `Obstacle::attachedConnectors()`. */
-  shapeAttachedConnectors(id: string): string[] | null;
-  /** `Router::attachedShapes(shapes, shapeId, type)` (type default RunningToAndFrom; junction ids accepted). */
-  shapeAttachedShapes(id: string, type?: number): string[] | null;
-  /** `Router::attachedConns(conns, shapeId, type)` (type default RunningToAndFrom; junction ids accepted). */
-  shapeAttachedConns(id: string, type?: number): string[] | null;
-  /** `ShapeRef::transformConnectionPinPositions()`. */
-  transformShapeConnectionPinPositions(id: string, transform: number): boolean;
-  /**
-   * `Router::deleteShape()` (queued).  false while the shape's own addition is
-   * still queued (upstream asserts against that; call processTransaction()
-   * first) or while a hyperedge registered for rerouting references it.
-   */
-  removeShape(id: string): boolean;
-  /** `Router::markAllObstaclesAsMoved()`. */
+  objectIdIsUnused(id: number): boolean;
+  /** Virtual: override in a subclass.  Default: true. */
+  shouldContinueTransactionWithProgress(elapsedTime: number, phaseNumber: number, totalPhases: number, proportion: number): boolean;
+  newAndDeletedObjectListsFromHyperedgeImprovement(): HyperedgeNewAndDeletedObjectLists;
+  processActions(): void;
+  deleteCluster(cluster: ClusterRef): void;
+  /** Appends to `shapes` (an IntList out-parameter). */
+  attachedShapes(shapes: number[], shapeId: number, type: number): void;
+  /** Appends to `conns` (an IntList out-parameter). */
+  attachedConns(conns: number[], shapeId: number, type: number): void;
+  markPolylineConnectorsNeedingReroutingForDeletedObstacle(obstacle: Obstacle): void;
+  /** Returns the text upstream prints to stdout. */
+  printInfo(): string;
+  regenerateStaticBuiltGraph(): void;
+  destroyOrthogonalVisGraph(): void;
+  setStaticGraphInvalidated(invalidated: boolean): void;
+  validConnType(select?: ConnType): ConnType;
+  isInCrossingPenaltyReroutingStage(): boolean;
   markAllObstaclesAsMoved(): void;
-
-  // --- junctions ---
-  /** `new JunctionRef(router, Point(x, y), numericId)`. */
-  addJunction(id: string, x: number, y: number, numericId?: number): boolean;
-  /** `Router::deleteJunction()` (same restrictions as removeShape). */
-  removeJunction(id: string): boolean;
-  /** `JunctionRef::removeJunctionAndMergeConnectors()`: the merged connector's id or null. */
-  removeJunctionAndMergeConnectors(id: string): string | null;
-  /** `Router::moveJunction(junction, Point)`. */
-  moveJunction(id: string, x: number, y: number): boolean;
-  /** `Router::moveJunction(junction, xDiff, yDiff)`. */
-  moveJunctionBy(id: string, xDiff: number, yDiff: number): boolean;
-  /** `JunctionRef::position()`. */
-  junctionPosition(id: string): Point | null;
-  /** `JunctionRef::recommendedPosition()`. */
-  junctionRecommendedPosition(id: string): Point | null;
-  /** `JunctionRef::setPositionFixed()`. */
-  setJunctionPositionFixed(id: string, fixed: boolean): boolean;
-  /** `JunctionRef::positionFixed()`. */
-  junctionPositionFixed(id: string): boolean | null;
-  /** `JunctionRef::preferOrthogonalDimension(dim)` (OrthogonalDimension.X / .Y). */
-  preferJunctionOrthogonalDimension(id: string, dimension: number): boolean;
-  /** `Obstacle::attachedConnectors()`. */
-  junctionAttachedConnectors(id: string): string[] | null;
-
-  // --- connection pins ---
-  /**
-   * `new ShapeConnectionPin(shape, classId, xOffset, yOffset, proportional = false,
-   * insideOffset = 0, visDirs = ConnDir.None)`, named `pinId` on the shape.
-   */
-  addShapeConnectionPin(
-    shapeId: string,
-    pinId: string,
-    classId: number,
-    xOffset: number,
-    yOffset: number,
-    proportional?: boolean,
-    insideOffset?: number,
-    visibilityDirections?: number,
-  ): boolean;
-  /** As addShapeConnectionPin, then `setConnectionCost()` / `setExclusive()` if given. */
-  addShapeConnectionPinWithOptions(shapeId: string, pinId: string, options: ShapeConnectionPinOptions): boolean;
-  /** `delete pin` (false while a registered hyperedge references the shape). */
-  removeShapeConnectionPin(shapeId: string, pinId: string): boolean;
-  /** Names of the shape's pins, in creation order. */
-  shapeConnectionPinIdList(shapeId: string): string[] | null;
-  /** `ShapeConnectionPin::setConnectionCost()` (cost >= 0). */
-  setShapeConnectionPinConnectionCost(shapeId: string, pinId: string, cost: number): boolean;
-  /** `ShapeConnectionPin::setExclusive()`. */
-  setShapeConnectionPinExclusive(shapeId: string, pinId: string, exclusive: boolean): boolean;
-  /** `ShapeConnectionPin::isExclusive()`. */
-  shapeConnectionPinExclusive(shapeId: string, pinId: string): boolean | null;
-  /** `ShapeConnectionPin::position()`. */
-  shapeConnectionPinPosition(shapeId: string, pinId: string): Point | null;
-  /** `ShapeConnectionPin::directions()`. */
-  shapeConnectionPinDirections(shapeId: string, pinId: string): number | null;
-  /** `ShapeConnectionPin::ids()`. */
-  shapeConnectionPinIds(shapeId: string, pinId: string): ConnectionPinIds | null;
-  /** `new ShapeConnectionPin(junction, classId, visDirs = ConnDir.None)` (classId > 0). */
-  addJunctionConnectionPin(junctionId: string, pinId: string, classId: number, visibilityDirections?: number): boolean;
-  /** `delete pin`. */
-  removeJunctionConnectionPin(junctionId: string, pinId: string): boolean;
-  junctionConnectionPinPosition(junctionId: string, pinId: string): Point | null;
-  junctionConnectionPinDirections(junctionId: string, pinId: string): number | null;
-  junctionConnectionPinIds(junctionId: string, pinId: string): ConnectionPinIds | null;
-  setJunctionConnectionPinConnectionCost(junctionId: string, pinId: string, cost: number): boolean;
-  setJunctionConnectionPinExclusive(junctionId: string, pinId: string, exclusive: boolean): boolean;
-  junctionConnectionPinExclusive(junctionId: string, pinId: string): boolean | null;
-
-  // --- connectors: creation ---
-  /** `new ConnRef(router, numericId)` (endpoints set later). */
-  addConnectorWithoutEndpoints(id: string, numericId?: number): boolean;
-  /**
-   * `new ConnRef(router, src, dst, numericId)`.  With transaction use off the
-   * construction is processed as one transaction after the connector is
-   * complete (upstream's constructor would route it before registering its
-   * reroute flag and assert).
-   */
-  addConnectorWithConnEnds(id: string, src: ConnEndInput, dst: ConnEndInput, numericId?: number): boolean;
-  /** Convenience: addConnectorWithConnEnds with two free points. */
-  addConnector(id: string, srcX: number, srcY: number, dstX: number, dstY: number, numericId?: number): boolean;
-  /** Convenience: `ConnEnd(Point, dirs)` at both ends. */
-  addConnectorWithEndpointDirections(
-    id: string,
-    src: PointInput,
-    srcDirections: number,
-    dst: PointInput,
-    dstDirections: number,
-    numericId?: number,
-  ): boolean;
-  /** Convenience: `ConnEnd(shape, classOf(pin))` at both ends. */
-  addConnectorBetweenPins(
-    id: string,
-    srcShapeId: string,
-    srcPinId: string,
-    dstShapeId: string,
-    dstPinId: string,
-    numericId?: number,
-  ): boolean;
-  /** Convenience: `ConnEnd(shape, classId)` at both ends. */
-  addConnectorBetweenPinClasses(
-    id: string,
-    srcShapeId: string,
-    srcPinClassId: number,
-    dstShapeId: string,
-    dstPinClassId: number,
-    numericId?: number,
-  ): boolean;
-  /** Convenience: `ConnEnd(junction)` -> `ConnEnd(Point)`. */
-  addConnectorFromJunction(id: string, srcJunctionId: string, dstX: number, dstY: number, numericId?: number): boolean;
-  /** Convenience: `ConnEnd(Point)` -> `ConnEnd(junction)`. */
-  addConnectorToJunction(id: string, srcX: number, srcY: number, dstJunctionId: string, numericId?: number): boolean;
-  /** Convenience: `ConnEnd(junction)` at both ends. */
-  addConnectorBetweenJunctions(id: string, srcJunctionId: string, dstJunctionId: string, numericId?: number): boolean;
-
-  // --- connectors: endpoints ---
-  /** `ConnRef::setEndpoints(src, dst)`. */
-  setConnectorConnEnds(id: string, src: ConnEndInput, dst: ConnEndInput): boolean;
-  /** `ConnRef::setSourceEndpoint(end)`. */
-  setConnectorSourceConnEnd(id: string, end: ConnEndInput): boolean;
-  /** `ConnRef::setDestEndpoint(end)`. */
-  setConnectorDestConnEnd(id: string, end: ConnEndInput): boolean;
-  /** Convenience: setConnectorConnEnds with free points. */
-  setConnectorEndpoints(id: string, src: PointInput, dst: PointInput): boolean;
-  setConnectorEndpointsWithDirections(
-    id: string,
-    src: PointInput,
-    srcDirections: number,
-    dst: PointInput,
-    dstDirections: number,
-  ): boolean;
-  setConnectorSourceEndpoint(id: string, point: PointInput): boolean;
-  setConnectorSourceEndpointWithDirections(id: string, point: PointInput, directions: number): boolean;
-  setConnectorDestEndpoint(id: string, point: PointInput): boolean;
-  setConnectorDestEndpointWithDirections(id: string, point: PointInput, directions: number): boolean;
-  setConnectorSourceJunctionEndpoint(id: string, junctionId: string): boolean;
-  setConnectorDestJunctionEndpoint(id: string, junctionId: string): boolean;
-  /** Convenience: `ConnEnd(shape, classOf(pin))`. */
-  setConnectorSourcePinEndpoint(id: string, shapeId: string, pinId: string): boolean;
-  setConnectorDestPinEndpoint(id: string, shapeId: string, pinId: string): boolean;
-  setConnectorSourcePinClassEndpoint(id: string, shapeId: string, pinClassId: number): boolean;
-  setConnectorDestPinClassEndpoint(id: string, shapeId: string, pinClassId: number): boolean;
-  /** `Router::deleteConnector()` (immediate). */
-  removeConnector(id: string): boolean;
-
-  // --- connectors: properties ---
-  /** `ConnRef::setRoutingType()` (normalised by `validConnType`). */
-  setConnectorRoutingType(id: string, routingType: number): boolean;
-  connectorRoutingType(id: string): number | null;
-  setConnectorHateCrossings(id: string, value: boolean): boolean;
-  connectorDoesHateCrossings(id: string): boolean | null;
-  /** `ConnRef::endpointConnEnds()` (reflects processed endpoint changes). */
-  connectorEndpointConnEnds(id: string): ConnectorEndpointConnEnds | null;
-  /** `ConnRef::possibleDstPinPoints()`. */
-  connectorPossibleDstPinPoints(id: string): Point[] | null;
-  /** `ConnRef::setRoutingCheckpoints()`. */
-  setConnectorRoutingCheckpoints(id: string, checkpoints: readonly CheckpointInput[]): boolean;
-  /** `ConnRef::routingCheckpoints()`. */
-  connectorRoutingCheckpoints(id: string): Checkpoint[] | null;
-  /** `ConnRef::setFixedRoute()`. */
-  setConnectorFixedRoute(id: string, route: readonly PointInput[]): boolean;
-  /** `ConnRef::setFixedExistingRoute()` (false without a route of >= 2 points, which upstream asserts). */
-  setConnectorFixedExistingRoute(id: string): boolean;
-  connectorHasFixedRoute(id: string): boolean | null;
-  clearConnectorFixedRoute(id: string): boolean;
-  /** `ConnRef::makePathInvalid()`. */
-  makeConnectorPathInvalid(id: string): boolean;
-  /** `ConnRef::needsRepaint()`. */
-  connectorNeedsRepaint(id: string): boolean | null;
-  /** `ConnRef::route()`: the raw route of the last transaction ([] before routing). */
-  routeConnector(id: string): Route | null;
-  /** `ConnRef::displayRoute()`: the simplified, nudged route to draw. */
-  displayConnectorRoute(id: string): Route | null;
-  /** `displayRoute().curvedPolyline(curveAmount, closed = false)`. */
-  connectorCurvedRoute(id: string, curveAmount: number, closed?: boolean): CurvedPolyline | null;
-  /**
-   * `ConnRef::splitAtSegment(segmentN)`; the new junction and connector get the
-   * given ids.  null for segmentN 0, segmentN >= displayRoute().length, a
-   * free-point destination (upstream dereferences a null ConnEnd) or taken ids.
-   */
-  splitConnectorAtSegment(id: string, segmentN: number, junctionId: string, connectorId: string): ConnectorSplitResult | null;
-  /** Convenience: `processTransaction()`, then the display route of every connector. */
-  routeAll(): Record<string, Route>;
-
-  // --- diagnostics ---
-  existsInvalidOrthogonalPaths(): boolean;
-  existsCrossings(optimisedForConnectorType?: boolean): number;
+  shapeContainingPoint(point: Point): ShapeRef | null;
+  performContinuationCheck(phaseNumber: number, stepNumber: number, totalSteps: number): void;
+  registerSettingsChange(): void;
+  improveOrthogonalTopology(): void;
   existsOrthogonalSegmentOverlap(atEnds?: boolean): boolean;
   existsOrthogonalFixedSegmentOverlap(atEnds?: boolean): boolean;
   existsOrthogonalTouchingPaths(): boolean;
-  /**
-   * `Router::outputDiagramText()` returned as a string (no file is written).
-   * fullPrecision: the `%.17g` + junction-block format of the test goldens.
-   */
-  outputDiagramText(fullPrecision?: boolean): string;
-  /** `Router::printInfo()` returned as a string. */
-  printInfo(): string;
+  existsCrossings(optimisedForConnectorType?: boolean): number;
+  existsInvalidOrthogonalPaths(): boolean;
+  /** Not yet available: throws (SVG output is not ported yet). */
+  outputDiagramSVG(instanceName?: string, lineReps?: LineRep[] | null): void;
+  /** Returns the text upstream writes to `<instanceName>.txt`. */
+  outputDiagramText(instanceName?: string): string;
+  /** Returns the text upstream writes (outputDiagramText; the SVG part exists only in SVG_OUTPUT debug builds). */
+  outputDiagram(instanceName?: string): string;
+  /** C++ `delete router`. */
+  delete(): void;
+}
 
-  // --- hyperedges ---
-  /** `hyperedgeRerouter()->registerHyperedgeForRerouting(JunctionRef*)`: the index. */
-  registerHyperedgeForReroutingJunction(junctionId: string): number | null;
-  /**
-   * `hyperedgeRerouter()->registerHyperedgeForRerouting(ConnEndList)`: the index.
-   * Shape-pin terminals need an existing pin of their class.
-   */
-  registerHyperedgeForRerouting(terminals: readonly ConnEndInput[]): number | null;
-  /** `hyperedgeRerouter()->count()` (registrations pending for the next transaction). */
-  hyperedgeReroutingCount(): number;
-  /** `hyperedgeRerouter()->newAndDeletedObjectLists(index)` of the last transaction. */
-  hyperedgeNewAndDeletedObjectLists(index: number): HyperedgeNewAndDeletedObjectLists | null;
-  /** `Router::newAndDeletedObjectListsFromHyperedgeImprovement()`. */
-  newAndDeletedObjectListsFromHyperedgeImprovement(): HyperedgeNewAndDeletedObjectLists;
+// --- obstacle.h, shape.h, junction.h -------------------------------------------------
 
-  /** Frees the wasm memory of the router (a no-op once the router is poisoned). */
-  free(): void;
+/** upstream: class Obstacle (abstract base of ShapeRef and JunctionRef). */
+export abstract class Obstacle {
+  protected constructor();
+  id(): number;
+  polygon(): Polygon;
+  router(): Router;
+  position(): Point;
+  setNewPoly(poly: PolygonInterface): void;
+  routingBox(): Box;
+  routingPolygon(): Polygon;
+  attachedConnectors(): ConnRef[];
+}
+
+/** upstream: class ShapeRef */
+export class ShapeRef extends Obstacle {
+  constructor(router: Router, poly: PolygonInterface, id?: number);
+  transformConnectionPinPositions(transform: ShapeTransformationType): void;
+}
+
+/** upstream: class JunctionRef */
+export class JunctionRef extends Obstacle {
+  constructor(router: Router, position: Point, id?: number);
+  removeJunctionAndMergeConnectors(): ConnRef | null;
+  setPositionFixed(fixed: boolean): void;
+  positionFixed(): boolean;
+  recommendedPosition(): Point;
+  makeRectangle(router: Router, position: Point): Rectangle;
+  preferOrthogonalDimension(dim: number): void;
+}
+
+// --- connend.h, connector.h --------------------------------------------------------
+
+/** upstream: class ConnEnd (a value type) */
+export class ConnEnd {
+  constructor();
+  constructor(point: Point);
+  constructor(point: Point, visDirs: ConnDirFlags);
+  constructor(shapeRef: ShapeRef, connectionPinClassID: number);
+  constructor(junctionRef: JunctionRef);
+  type(): ConnEndType;
+  position(): Point;
+  directions(): ConnDirFlags;
+  shape(): ShapeRef | null;
+  junction(): JunctionRef | null;
+  pinClassId(): number;
+  delete(): void;
+}
+
+/** upstream: class Checkpoint */
+export class Checkpoint {
+  constructor();
+  constructor(p: Point);
+  constructor(p: Point, ad: ConnDirFlags, dd: ConnDirFlags);
+  point: Point;
+  arrivalDirections: ConnDirFlags;
+  departureDirections: ConnDirFlags;
+  delete(): void;
+}
+
+/** upstream: class ConnRef */
+export class ConnRef {
+  constructor(router: Router, id?: number);
+  constructor(router: Router, src: ConnEnd, dst: ConnEnd, id?: number);
+  setEndpoints(srcPoint: ConnEnd, dstPoint: ConnEnd): void;
+  setSourceEndpoint(srcPoint: ConnEnd): void;
+  setDestEndpoint(dstPoint: ConnEnd): void;
+  id(): number;
+  router(): Router;
+  needsRepaint(): boolean;
+  route(): PolyLine;
+  displayRoute(): PolyLine;
+  /** `cb(ptr)` is invoked when the route changed (see "Callbacks" above); `null` removes it. */
+  setCallback<T>(cb: ((ptr: T) => void) | null, ptr: T): void;
+  routingType(): ConnType;
+  setRoutingType(type: ConnType): void;
+  /** std::pair<JunctionRef *, ConnRef *> */
+  splitAtSegment(segmentN: number): [JunctionRef | null, ConnRef | null];
+  setRoutingCheckpoints(checkpoints: Checkpoint[]): void;
+  routingCheckpoints(): Checkpoint[];
+  /** std::pair<ConnEnd, ConnEnd> */
+  endpointConnEnds(): [ConnEnd, ConnEnd];
+  setFixedRoute(route: PolyLine): void;
+  setFixedExistingRoute(): void;
+  hasFixedRoute(): boolean;
+  clearFixedRoute(): void;
+  set_route(route: PolyLine): void;
+  calcRouteDist(): void;
+  makeActive(): void;
+  makeInactive(): void;
+  removeFromGraph(): void;
+  isInitialised(): boolean;
+  makePathInvalid(): void;
+  setHateCrossings(value: boolean): void;
+  doesHateCrossings(): boolean;
+  /** `type`: 1 (VertID::src) or 2 (VertID::tar). */
+  setEndpoint(type: 1 | 2, connEnd: ConnEnd): void;
+  possibleDstPinPoints(): Point[];
+}
+
+// --- connectionpin.h -------------------------------------------------------------
+
+/** upstream: class ShapeConnectionPin */
+export class ShapeConnectionPin {
+  constructor(shape: ShapeRef, classId: number, xOffset: number, yOffset: number, proportional: boolean, insideOffset: number, visDirs: ConnDirFlags);
+  constructor(shape: ShapeRef, classId: number, xOffset: number, yOffset: number, insideOffset: number, visDirs: ConnDirFlags);
+  constructor(junction: JunctionRef, classId: number, visDirs?: ConnDirFlags);
+  /** C++ `delete pin`. */
+  delete(): void;
+  setConnectionCost(cost: number): void;
+  position(newPoly?: PolygonInterface): Point;
+  directions(): ConnDirFlags;
+  setExclusive(exclusive: boolean): void;
+  isExclusive(): boolean;
+  /** ConnectionPinIds: [containing object id, class id] */
+  ids(): [number, number];
+  /** operator== */
+  equal(rhs: ShapeConnectionPin): boolean;
+  /** operator< */
+  lessThan(rhs: ShapeConnectionPin): boolean;
+}
+
+// --- viscluster.h ---------------------------------------------------------------------
+
+/** upstream: class ClusterRef */
+export class ClusterRef {
+  constructor(router: Router, poly: PolygonInterface, id?: number);
+  setNewPoly(poly: PolygonInterface): void;
+  id(): number;
+  polygon(): ReferencingPolygon;
+  rectangularPolygon(): Polygon;
+  router(): Router;
+  makeActive(): void;
+  makeInactive(): void;
+}
+
+// --- hyperedge.h -------------------------------------------------------------------------
+
+/** upstream: struct HyperedgeNewAndDeletedObjectLists */
+export class HyperedgeNewAndDeletedObjectLists {
+  constructor();
+  newJunctionList: JunctionRef[];
+  newConnectorList: ConnRef[];
+  deletedJunctionList: JunctionRef[];
+  deletedConnectorList: ConnRef[];
+  changedConnectorList: ConnRef[];
+  delete(): void;
 }
 
 /**
- * The raw wasm-bindgen class behind `AvoidRouter`: numbers instead of
- * objects, JSON strings for structured results, `undefined` instead of null,
- * ConnEnds as (kind, objectId, pinId, x, y, num) with kind 0 = point
- * (num = directions), 1 = shape pin class (num = class id), 2 = junction,
- * 3 = shape pin by name.  Same validation as AvoidRouter.  No failure
- * containment: a trap surfaces as a plain `WebAssembly.RuntimeError`.  This
- * is the class of the current instance (`reset()` replaces it).
+ * upstream: class HyperedgeRerouter.  Use `router.hyperedgeRerouter()`; one
+ * made with `new HyperedgeRerouter()` belongs to no router (upstream sets
+ * the router privately) and only records registrations.
  */
-export class WasmAvoidRouter {
-  constructor(flags?: number);
-  static withFlags(flags: number): WasmAvoidRouter;
-  routerFlags(): number;
-  clear(): void;
-  setTransactionUse(transactions: boolean): void;
-  transactionUse(): boolean;
-  processTransaction(): boolean;
-  lastTransactionUpdatedConnectorIds(): string;
-  /** `elapsedMs` is upstream's own clock, always 0 in wasm. */
-  setProgressCallback(callback?: (elapsedMs: number, phase: number, totalPhases: number, proportion: number) => boolean): void;
-  lastTransactionCancelled(): boolean;
-  setRoutingParameter(parameter: number, value?: number): boolean;
-  setRoutingPenalty(penalty_type: number, penalty_value?: number): boolean;
-  routingParameter(parameter: number): number | undefined;
-  setRoutingOption(option: number, value: boolean): boolean;
-  routingOption(option: number): boolean | undefined;
-  validConnType(select?: number): number | undefined;
-  objectIdIsUnused(id: string): boolean;
-  numericObjectIdIsUnused(id: number): boolean | undefined;
-  newObjectId(): number;
-  objectNumericId(id: string): number | undefined;
-  objectIdFromNumericId(numeric_id: number): string;
-  shapeIds(): string;
-  junctionIds(): string;
-  connectorIds(): string;
-  clusterIds(): string;
-  addCluster(id: string, coordinates: Float64Array | number[], numeric_id?: number): boolean;
-  addClusterRectangle(id: string, left: number, top: number, right: number, bottom: number, numeric_id?: number): boolean;
-  setClusterPolygon(id: string, coordinates: Float64Array | number[]): boolean;
-  setClusterRectangle(id: string, left: number, top: number, right: number, bottom: number): boolean;
-  removeCluster(id: string): boolean;
-  clusterBoundingBox(id: string): string;
-  clusterPolygon(id: string): string;
-  clusterRectangularPolygon(id: string): string;
-  addShape(id: string, left: number, top: number, right: number, bottom: number, numeric_id?: number): boolean;
-  addPolygonShape(id: string, coordinates: Float64Array | number[], numeric_id?: number): boolean;
-  moveShape(id: string, left: number, top: number, right: number, bottom: number): boolean;
-  movePolygonShape(id: string, coordinates: Float64Array | number[], first_move?: boolean): boolean;
-  moveShapeBy(id: string, x_diff: number, y_diff: number): boolean;
-  shapeBoundingBox(id: string): string;
-  shapeRoutingBox(id: string): string;
-  shapePolygon(id: string): string;
-  shapeRoutingPolygon(id: string): string;
-  shapePosition(id: string): string;
-  shapeContainingPoint(x: number, y: number): string;
-  shapeAttachedConnectors(id: string): string;
-  shapeAttachedShapes(id: string, relation?: number): string;
-  shapeAttachedConns(id: string, relation?: number): string;
-  transformShapeConnectionPinPositions(id: string, transform: number): boolean;
-  removeShape(id: string): boolean;
-  markAllObstaclesAsMoved(): void;
-  addJunction(id: string, x: number, y: number, numeric_id?: number): boolean;
-  removeJunction(id: string): boolean;
-  removeJunctionAndMergeConnectors(id: string): string;
-  moveJunction(id: string, x: number, y: number): boolean;
-  moveJunctionBy(id: string, x_diff: number, y_diff: number): boolean;
-  junctionPosition(id: string): string;
-  junctionRecommendedPosition(id: string): string;
-  setJunctionPositionFixed(id: string, fixed: boolean): boolean;
-  junctionPositionFixed(id: string): boolean | undefined;
-  preferJunctionOrthogonalDimension(id: string, dimension: number): boolean;
-  junctionAttachedConnectors(id: string): string;
-  addShapeConnectionPin(
-    shape_id: string,
-    pin_id: string,
-    class_id: number,
-    x_offset: number,
-    y_offset: number,
-    proportional?: boolean,
-    inside_offset?: number,
-    visibility_directions?: number,
-  ): boolean;
-  addShapeConnectionPinWithOptions(
-    shape_id: string,
-    pin_id: string,
-    class_id: number,
-    x_offset: number,
-    y_offset: number,
-    proportional?: boolean,
-    inside_offset?: number,
-    visibility_directions?: number,
-    connection_cost?: number,
-    exclusive?: boolean,
-  ): boolean;
-  removeShapeConnectionPin(shape_id: string, pin_id: string): boolean;
-  shapeConnectionPinIdList(shape_id: string): string;
-  setShapeConnectionPinConnectionCost(shape_id: string, pin_id: string, cost: number): boolean;
-  setShapeConnectionPinExclusive(shape_id: string, pin_id: string, exclusive: boolean): boolean;
-  shapeConnectionPinExclusive(shape_id: string, pin_id: string): boolean | undefined;
-  shapeConnectionPinPosition(shape_id: string, pin_id: string): string;
-  shapeConnectionPinDirections(shape_id: string, pin_id: string): number | undefined;
-  shapeConnectionPinIds(shape_id: string, pin_id: string): string;
-  addJunctionConnectionPin(junction_id: string, pin_id: string, class_id: number, visibility_directions?: number): boolean;
-  removeJunctionConnectionPin(junction_id: string, pin_id: string): boolean;
-  junctionConnectionPinPosition(junction_id: string, pin_id: string): string;
-  junctionConnectionPinDirections(junction_id: string, pin_id: string): number | undefined;
-  junctionConnectionPinIds(junction_id: string, pin_id: string): string;
-  setJunctionConnectionPinConnectionCost(junction_id: string, pin_id: string, cost: number): boolean;
-  setJunctionConnectionPinExclusive(junction_id: string, pin_id: string, exclusive: boolean): boolean;
-  junctionConnectionPinExclusive(junction_id: string, pin_id: string): boolean | undefined;
-  addConnectorWithoutEndpoints(id: string, numeric_id?: number): boolean;
-  addConnectorWithConnEnds(
-    id: string,
-    src_kind: number,
-    src_object: string,
-    src_pin: string,
-    src_x: number,
-    src_y: number,
-    src_num: number,
-    dst_kind: number,
-    dst_object: string,
-    dst_pin: string,
-    dst_x: number,
-    dst_y: number,
-    dst_num: number,
-    numeric_id?: number,
-  ): boolean;
-  addConnector(id: string, src_x: number, src_y: number, dst_x: number, dst_y: number, numeric_id?: number): boolean;
-  setConnectorConnEnds(
-    id: string,
-    src_kind: number,
-    src_object: string,
-    src_pin: string,
-    src_x: number,
-    src_y: number,
-    src_num: number,
-    dst_kind: number,
-    dst_object: string,
-    dst_pin: string,
-    dst_x: number,
-    dst_y: number,
-    dst_num: number,
-  ): boolean;
-  setConnectorSourceConnEnd(id: string, kind: number, object_id: string, pin_id: string, x: number, y: number, num: number): boolean;
-  setConnectorDestConnEnd(id: string, kind: number, object_id: string, pin_id: string, x: number, y: number, num: number): boolean;
-  removeConnector(id: string): boolean;
-  setConnectorRoutingType(id: string, routing_type: number): boolean;
-  connectorRoutingType(id: string): number | undefined;
-  setConnectorHateCrossings(id: string, value: boolean): boolean;
-  connectorDoesHateCrossings(id: string): boolean | undefined;
-  connectorEndpointConnEnds(id: string): string;
-  connectorPossibleDstPinPoints(id: string): string;
-  setConnectorRoutingCheckpoints(id: string, checkpoints: Float64Array | number[]): boolean;
-  connectorRoutingCheckpoints(id: string): string;
-  setConnectorFixedRoute(id: string, route: Float64Array | number[]): boolean;
-  setConnectorFixedExistingRoute(id: string): boolean;
-  connectorHasFixedRoute(id: string): boolean | undefined;
-  clearConnectorFixedRoute(id: string): boolean;
-  makeConnectorPathInvalid(id: string): boolean;
-  connectorNeedsRepaint(id: string): boolean | undefined;
-  routeConnector(id: string): string;
-  displayConnectorRoute(id: string): string;
-  connectorCurvedRoute(id: string, curve_amount: number, closed?: boolean): string;
-  splitConnectorAtSegment(id: string, segment_n: number, junction_id: string, connector_id: string): string;
-  routeAll(): string;
-  existsInvalidOrthogonalPaths(): boolean;
-  existsCrossings(optimised_for_connector_type?: boolean): number;
-  existsOrthogonalSegmentOverlap(at_ends?: boolean): boolean;
-  existsOrthogonalFixedSegmentOverlap(at_ends?: boolean): boolean;
-  existsOrthogonalTouchingPaths(): boolean;
-  outputDiagramText(full_precision?: boolean): string;
-  printInfo(): string;
-  registerHyperedgeForReroutingJunction(junction_id: string): number | undefined;
-  registerHyperedgeForRerouting(
-    kinds: Float64Array | number[],
-    object_ids: string[],
-    pin_ids: string[],
-    xs: Float64Array | number[],
-    ys: Float64Array | number[],
-    nums: Float64Array | number[],
-  ): number | undefined;
-  hyperedgeReroutingCount(): number;
-  hyperedgeNewAndDeletedObjectLists(index: number): string;
-  newAndDeletedObjectListsFromHyperedgeImprovement(): string;
-  free(): void;
+export class HyperedgeRerouter {
+  constructor();
+  registerHyperedgeForRerouting(terminals: ConnEnd[]): number;
+  registerHyperedgeForRerouting(junction: JunctionRef): number;
+  newAndDeletedObjectLists(index: number): HyperedgeNewAndDeletedObjectLists;
+  count(): number;
 }
+
+// --- geometry.h --------------------------------------------------------------------------
+
+export function euclideanDist(a: Point, b: Point): number;
+export function manhattanDist(a: Point, b: Point): number;
+export function totalLength(poly: PolygonInterface): number;
+export function angle(a: Point, b: Point, c: Point): number;
+export function segmentIntersect(a: Point, b: Point, c: Point, d: Point): boolean;
+/** `seenIntersectionAtEndpoint`: a one-element array (bool& in/out). */
+export function segmentShapeIntersect(e1: Point, e2: Point, s1: Point, s2: Point, seenIntersectionAtEndpoint: [boolean]): boolean;
+export function inPoly(poly: PolygonInterface, q: Point, countBorder?: boolean): boolean;
+export function inPolyGen(poly: PolygonInterface, q: Point): boolean;
+export function inValidRegion(IgnoreRegions: boolean, a0: Point, a1: Point, a2: Point, b: Point): boolean;
+export function cornerSide(c1: Point, c2: Point, c3: Point, p: Point): number;
+export function pointOnLine(a: Point, b: Point, c: Point, tolerance?: number): boolean;
+export function colinear(a: Point, b: Point, c: Point, tolerance?: number): boolean;
+export function inBetween(a: Point, b: Point, c: Point): boolean;
+export function vecDir(a: Point, b: Point, c: Point, maybeZero?: number): number;
+export function projection(a: Point, b: Point, c: Point): Point;
+/** `x`, `y`: one-element arrays (double* out-parameters).  Returns DONT_INTERSECT, DO_INTERSECT or PARALLEL. */
+export function segmentIntersectPoint(a1: Point, a2: Point, b1: Point, b2: Point, x: [number], y: [number]): number;
+/** `x`, `y`: one-element arrays (double* out-parameters).  Returns DONT_INTERSECT, DO_INTERSECT or PARALLEL. */
+export function rayIntersectPoint(a1: Point, a2: Point, b1: Point, b2: Point, x: [number], y: [number]): number;
+export function rotationalAngle(p: Point): number;
+
+// --- WebAssembly infrastructure (no upstream counterpart) ------------------------------
+
+/** An internal failure of the wasm module (see "WebAssembly infrastructure" above). */
+export class AvoidInternalError extends Error {
+  /** The API method that failed, e.g. "Router.processTransaction". */
+  readonly method: string | null;
+  readonly kind: "panic" | "out-of-memory" | "stack-overflow" | "trap" | "poisoned" | "reset";
+  readonly panicMessage: string | null;
+  readonly location: string | null;
+}
+
+/** The error that poisoned the current wasm instance, or null. */
+export function internalError(): AvoidInternalError | null;
+
+/** Replaces the wasm instance by a fresh one (Node entry: synchronous). */
+export function reset(): void;

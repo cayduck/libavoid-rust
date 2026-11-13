@@ -1,6 +1,10 @@
 // Type declarations for the browser / ES-module entry (index.mjs).  The API
 // is the one declared in index.d.ts; this entry adds the asynchronous wasm
-// initialisation that must complete before the first `new AvoidRouter()`.
+// initialisation that must complete before the first `new Router()`:
+//
+//   import init, * as Avoid from "libavoid-rust";
+//   await init();
+//   const router = new Avoid.Router(Avoid.OrthogonalRouting);
 
 export * from "./index.js";
 

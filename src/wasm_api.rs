@@ -49,7 +49,7 @@ use crate::avoid::connectionpin::{ShapeConnectionPin, CONNECTIONPIN_UNSET};
 use crate::avoid::connector::{Checkpoint, ConnRef, ConnType};
 use crate::avoid::connend::{ConnEnd, ConnEndType, CONN_DIR_ALL};
 use crate::avoid::geometry;
-use crate::avoid::geomtypes::{Box as GeomBox, Point, Polygon, PolygonInterface, Rectangle, ReferencingPolygon};
+use crate::avoid::geomtypes::{Box as GeomBox, Point, Polygon, PolygonInterface, ReferencingPolygon};
 use crate::avoid::hyperedge::HyperedgeNewAndDeletedObjectLists;
 use crate::avoid::junction::JunctionRef;
 use crate::avoid::obstacle::Obstacle;
@@ -1100,14 +1100,6 @@ impl RawRouter {
         Ok(enc_poly(c.display_route(&mut self.router)))
     }
 
-    /// Display route as `x0, y0, x1, y1, ...` only (hot path for the
-    /// adapter when the caller wants just the coordinates).
-    #[wasm_bindgen(js_name = connDisplayRouteXY)]
-    pub fn conn_display_route_xy(&mut self, key: u32) -> Res<Vec<f64>> {
-        let c = self.conn(key)?;
-        Ok(c.display_route(&mut self.router).ps.iter().flat_map(|p| [p.x, p.y]).collect())
-    }
-
     /// Installs (`on`) or removes the core callback that records this
     /// connector for `takeCallbacks()`.
     #[wasm_bindgen(js_name = connSetCallback)]
@@ -1554,13 +1546,6 @@ pub fn poly_offset_bounding_box(poly: Vec<f64>, offset: f64) -> Res<Vec<f64>> {
 #[wasm_bindgen(js_name = polyOffsetPolygon)]
 pub fn poly_offset_polygon(poly: Vec<f64>, offset: f64) -> Res<Vec<f64>> {
     Ok(enc_poly(&dec_poly(&poly)?.offset_polygon(offset)))
-}
-
-/// `Rectangle(topLeft, bottomRight)` (`centre` = false) or
-/// `Rectangle(centre, width, height)`.
-#[wasm_bindgen(js_name = rectangle)]
-pub fn rectangle(centre: bool, a: f64, b: f64, c: f64, d: f64) -> Vec<f64> {
-    enc_poly(&if centre { Rectangle::from_centre(&pt(a, b), c, d) } else { Rectangle::new(&pt(a, b), &pt(c, d)) })
 }
 
 /// Points of the geometry functions: `x, y` pairs in `ps`.
