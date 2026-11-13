@@ -330,6 +330,49 @@ impl HyperedgeRerouter {
         all_registered_hyperedge_conns
     }
 
+    /// Port addition (MISUSE, see `perform_rerouting`): a skipped hyperedge
+    /// deletes nothing, so its deleted-object lists are cleared, as
+    /// upstream's own invalid-hyperedge path in `calcHyperedgeConnectors()`
+    /// does (otherwise `newAndDeletedObjectLists()` would report its
+    /// connectors and junctions as deleted although they stay in the
+    /// router).
+    fn forget_skipped(router: &mut Router, i: usize) {
+        let this = &mut router.m_hyperedge_rerouter;
+        this.m_deleted_junctions_vector[i].clear();
+        this.m_deleted_connectors_vector[i].clear();
+    }
+
+    /// Port addition (MISUSE, see `perform_rerouting`): puts back the
+    /// `pathNext` links of the vertices that still exist.
+    fn restore_path_next(router: &mut Router, saved: Vec<(VertIdx, Option<VertIdx>)>) {
+        for (v, pn) in saved {
+            if router.vert_infs.contains(v) {
+                router.vert_infs[v].path_next = pn;
+            }
+        }
+    }
+
+    /// Port addition (MISUSE, see `perform_rerouting`): frees a junction
+    /// that the MTST construction of a skipped hyperedge created and
+    /// activated (`MinimumTerminalSpanningTree::addNode()`), as the
+    /// router frees a removed junction in `processActions()`.  Nothing is
+    /// attached to it yet.
+    fn remove_unreported_junction(router: &mut Router, j: JunctionRef) {
+        let o = j.0;
+        if !router.obstacles.contains(o) {
+            return;
+        }
+        router.remove_object_from_queued_actions(crate::avoid::actioninfo::ActionObj::Obstacle(o));
+        if router.obstacles[o].m_active {
+            Obstacle::remove_from_graph(router, o);
+            Obstacle::make_inactive(router, o);
+        }
+        let was = router.m_currently_calling_destructors;
+        router.m_currently_calling_destructors = true;
+        Obstacle::delete(router, o);
+        router.m_currently_calling_destructors = was;
+    }
+
     /// Operates on `router.m_hyperedge_rerouter`.
     // upstream: hyperedge.cpp HyperedgeRerouter::performRerouting()
     pub fn perform_rerouting(router: &mut Router) {
@@ -359,6 +402,7 @@ impl HyperedgeRerouter {
             // constructInterleaved()).  Such a hyperedge is skipped.
             if terminals.iter().any(|t| !router.vert_infs.contains(t.idx)) {
                 crate::avoid::router::e2e_guard_fired("rerouter-freed-terminal-vertices");
+                HyperedgeRerouter::forget_skipped(router, i);
                 continue;
             }
             let mut mtst = MinimumTerminalSpanningTree::new(terminals, true);
@@ -368,6 +412,10 @@ impl HyperedgeRerouter {
 
             // The preferred MTST construction method.
             // Slightly slower, better quality results.
+            // (Port addition: every vertex's `pathNext` before the MTST
+            // construction, restored if the hyperedge is skipped below.)
+            let path_next_before: Vec<(VertIdx, Option<VertIdx>)> =
+                router.vert_infs.iter_unordered().map(|(v, x)| (v, x.path_next)).collect();
             mtst.construct_interleaved(router);
 
             // MISUSE / upstream bug (port addition): with fewer than three
@@ -376,9 +424,22 @@ impl HyperedgeRerouter {
             // is ever created and the root is null; upstream dereferences
             // it.  The hyperedge is skipped: no new objects; old ones (if
             // registered by junction) keep their routes.
+            //
+            // A skipped hyperedge leaves the router as if it had not been
+            // registered, apart from its connectors not being rerouted in
+            // this transaction (as with upstream's own invalid-hyperedge
+            // path in calcHyperedgeConnectors()): its deleted-object lists
+            // are cleared (it deletes nothing), the junctions the MTST
+            // created are freed, and the `pathNext` links the MTST wrote
+            // are restored (later A* searches start from a pre-existing
+            // `pathNext`, see "Stale pathNext" in router.rs; left in place,
+            // they sent fuzz scene s25-1253 on a different, faster-growing
+            // trajectory than the same scene without the registration).
             let Some(tree_root) = mtst.root_junction() else {
                 crate::avoid::router::e2e_guard_fired("rerouter-no-junction");
                 mtst.destruct();
+                HyperedgeRerouter::forget_skipped(router, i);
+                HyperedgeRerouter::restore_path_next(router, path_next_before);
                 continue;
             };
             // MISUSE / upstream bug (port addition): the tree built by the
@@ -390,6 +451,17 @@ impl HyperedgeRerouter {
             // is dropped with `mtst`: destruct() would recurse forever too).
             if mtst.tree.contains_cycle_from(tree_root) {
                 crate::avoid::router::e2e_guard_fired("rerouter-cyclic-mtst-tree");
+                // The MTST construction has already created (and activated)
+                // a junction for every branching node.  They are removed
+                // again, so that the skip leaves no objects that no list
+                // reports (fuzz scenes s25-1253, s25-1506 kept up to 13
+                // such unattached junctions for good).
+                let created: Vec<JunctionRef> = mtst.tree.nodes.iter().filter_map(|n| n.junction).collect();
+                for j in created {
+                    HyperedgeRerouter::remove_unreported_junction(router, j);
+                }
+                HyperedgeRerouter::forget_skipped(router, i);
+                HyperedgeRerouter::restore_path_next(router, path_next_before);
                 continue;
             }
 

@@ -842,3 +842,32 @@ process
 #out
 #exclude crash [stable 10] memory (upstream never returns: moveJunctionAlongCommonEdge split case with parallel common edges calls spliceEdgesFrom(targetNode) on itself; fuzz scene s26-508 cut after it, plus 10 settings+process rounds. The port stops moving that junction in the pass; before, it declined only the split and kept splitting the hyperedge, +18 connectors and +18 junctions per round)
 #end
+#scene reg-hyperedge-cyclic-skip-clean
+router 3
+rect 0 215 120 225 165
+poly 1899 6 420 300 415 315 410 315 405 300 410 280 415 280
+rect 0 135 290 195 355
+poly 2911 5 170 380 140 400 95 390 95 365 140 355
+poly 4619 6 390 130 370 150 325 150 305 130 325 105 370 105
+rect 6102 395 270 445 320
+rect 0 305 215 330 240
+pin 6 4 0 0.25 1 0 15
+junction 0 20 180 0
+conn 14180 J L S 6 4
+conn 18507 P 95 265 3 J L
+conn 0 J L P 305 230 15
+regj 37
+process
+settings
+process
+settings
+process
+settings
+process
+settings
+process
+settings
+process
+#out
+#exclude crash [stable 4] [junctions 1] stack-overflow (reg-hyperedge-cyclic-mtst-tree with transactions: upstream overflows the stack in addConns() on the cyclic MTST tree; the port skips the hyperedge and leaves the router as if it had not been registered, except that its connectors are not routed in that transaction (as on upstream's own invalid-hyperedge path); the first settings+process round routes them, and the other 4 change nothing. Before, the junctions the MTST had created (2 here, up to 13 in fuzz scenes s25-1253 and s25-1506) stayed in the router, attached to nothing and reported in no list)
+#end
