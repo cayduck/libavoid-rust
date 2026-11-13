@@ -387,7 +387,7 @@ process
 process
 process
 #out
-#exclude crash [linear 20] iterator-erased then timeout (fuzz scene s1-123, cut after the transaction with the UB: a connector with both ends on one junction erases the current root in HyperedgeImprover::execute; later, with major changes on, its two-point route becomes a self-loop tree edge on which upstream's removeZeroLengthEdges never returns. The port skips that hyperedge; before, writeEdgesToConns re-entered the junction through the self-loop and display routes tripled on every transaction)
+#exclude crash [linear 19] iterator-erased then timeout (fuzz scene s1-123, cut after the transaction with the UB: a connector with both ends on one junction erases the current root in HyperedgeImprover::execute; later, with major changes on, its two-point route becomes a self-loop tree edge on which upstream's removeZeroLengthEdges never returns. The port skips that hyperedge; before, writeEdgesToConns re-entered the junction through the self-loop and display routes tripled on every transaction; the skipped hyperedge is left untouched by every improver pass, so the remaining growth is one junction and one connector per transaction on another hyperedge, the improver's own behaviour. The first of the 20 empty transactions also gives connector 30198, created by the split of the last non-empty transaction in the tree that is skipped from then on, its first, two-point route, hence 19)
 #end
 #scene reg-unifying-all-pairs
 router 2

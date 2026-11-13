@@ -273,6 +273,7 @@ impl HyperedgeRerouter {
             if let Some(root_junction) = router.m_hyperedge_rerouter.m_root_junction_vector[i] {
                 // MISUSE: a junction freed since registration is invalid.
                 if !router.obstacles.contains(root_junction.0) {
+                    crate::avoid::router::e2e_guard_fired("rerouter-freed-root-junction");
                     let this = &mut router.m_hyperedge_rerouter;
                     this.m_terminals_vector[i].clear();
                     continue;
@@ -357,6 +358,7 @@ impl HyperedgeRerouter {
             // heap-use-after-free in MinimumTerminalSpanningTree::
             // constructInterleaved()).  Such a hyperedge is skipped.
             if terminals.iter().any(|t| !router.vert_infs.contains(t.idx)) {
+                crate::avoid::router::e2e_guard_fired("rerouter-freed-terminal-vertices");
                 continue;
             }
             let mut mtst = MinimumTerminalSpanningTree::new(terminals, true);
@@ -375,6 +377,7 @@ impl HyperedgeRerouter {
             // it.  The hyperedge is skipped: no new objects; old ones (if
             // registered by junction) keep their routes.
             let Some(tree_root) = mtst.root_junction() else {
+                crate::avoid::router::e2e_guard_fired("rerouter-no-junction");
                 mtst.destruct();
                 continue;
             };
@@ -386,6 +389,7 @@ impl HyperedgeRerouter {
             // hyperedge is skipped like one without a junction (the tree
             // is dropped with `mtst`: destruct() would recurse forever too).
             if mtst.tree.contains_cycle_from(tree_root) {
+                crate::avoid::router::e2e_guard_fired("rerouter-cyclic-mtst-tree");
                 continue;
             }
 

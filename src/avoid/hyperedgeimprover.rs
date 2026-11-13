@@ -641,6 +641,7 @@ impl HyperedgeImprover {
                     && (self.m_tree.node(this).junction.is_none() || self.m_can_make_major_changes)
                 {
                     self.m_tree.upstream_self_merge_seen = true;
+                    crate::avoid::router::e2e_guard_fired("improver-self-merge");
                 }
                 if !self.m_tree.edge(edge).has_fixed_route
                     && self.m_tree.edge_zero_length(edge)
@@ -951,7 +952,17 @@ impl HyperedgeImprover {
                 let junction = self.m_tree.node(node).junction.unwrap();
                 if !cyclic_hyperedge_tree_roots.contains(&junction) && self.m_tree.contains_unfixed_self_loop_from(node)
                 {
+                    // Skipped everywhere: the junction passes and the write
+                    // back of recommended positions iterate all tree
+                    // junctions, not just the roots, so the tree's
+                    // junctions leave the map too (else the skipped tree is
+                    // still split and moved, and gains junctions and
+                    // connectors on every transaction: fuzz scene s21-739).
+                    crate::avoid::router::e2e_guard_fired("improver-skip-self-loop-tree");
                     self.m_hyperedge_tree_roots.remove(&curr);
+                    for j in self.m_tree.junctions_reachable_from(node) {
+                        self.m_hyperedge_tree_junctions.remove(&junction_key(router, j));
+                    }
                 }
             }
         }
@@ -1188,10 +1199,16 @@ impl HyperedgeImprover {
                 // returns while commonEdges[0] is still attached.  Upstream
                 // never finishes in that case, so the port treats the
                 // split case as not applicable.
-                && !(1..common_edges.len()).any(|i| {
-                    self.m_tree.edge_follow_from(common_edges[i], this)
-                        == self.m_tree.edge_follow_from(common_edges[0], this)
-                })
+                && !{
+                    let parallel = (1..common_edges.len()).any(|i| {
+                        self.m_tree.edge_follow_from(common_edges[i], this)
+                            == self.m_tree.edge_follow_from(common_edges[0], this)
+                    });
+                    if parallel {
+                        crate::avoid::router::e2e_guard_fired("improver-split-parallel-edges");
+                    }
+                    parallel
+                }
             {
                 // Case where this is one junction we need to split into two,
                 // because we have a common path leading to it that we want to

@@ -901,10 +901,21 @@ fn run_scene_mode(dsl: &[String], full: bool, raw: bool) -> Vec<String> {
     // E2E_TRACE=1 (triage of slow scenes): one stderr line per command with
     // its run time and the router's object counts.
     let trace = std::env::var("E2E_TRACE").is_ok();
+    let mut guards_before = libavoid_rust::avoid::router::e2e_guard_counts();
     for (i, line) in dsl.iter().enumerate() {
         let t0 = std::time::Instant::now();
         sc.run_command(line);
         if trace {
+            let g = libavoid_rust::avoid::router::e2e_guard_counts();
+            if g != guards_before {
+                let d: Vec<String> = g
+                    .iter()
+                    .filter(|(k, v)| guards_before.get(*k) != Some(*v))
+                    .map(|(k, v)| format!("{}+{}", k, v - guards_before.get(k).copied().unwrap_or(0)))
+                    .collect();
+                eprintln!("guard {} {}", i, d.join(","));
+                guards_before = g;
+            }
             let (conns, obstacles) =
                 sc.router.as_ref().map(|r| (r.conn_refs.len(), r.obstacles.len())).unwrap_or((0, 0));
             let cmd = line.split_whitespace().next().unwrap_or("");
