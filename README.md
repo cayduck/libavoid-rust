@@ -1,5 +1,10 @@
 # libavoid-rust
 
+[![npm](https://img.shields.io/npm/v/libavoid-rust)](https://www.npmjs.com/package/libavoid-rust)
+[![license](https://img.shields.io/npm/l/libavoid-rust)](LICENSE)
+[![demo](https://img.shields.io/badge/demo-live-brightgreen)](https://cayduck.github.io/libavoid-rust/)
+[![demo site build](https://github.com/cayduck/libavoid-rust/actions/workflows/pages.yml/badge.svg)](https://github.com/cayduck/libavoid-rust/actions/workflows/pages.yml)
+
 `libavoid-rust` is a Rust port of the C++ connector-routing library
 [libavoid](https://www.adaptagrams.org/documentation/libavoid.html) (part of
 Adaptagrams), packaged for JavaScript through WebAssembly.
