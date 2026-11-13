@@ -27,6 +27,14 @@ hyperedge-debug = []
 major-hyperedge-improvement-debug = []
 # ESTIMATED_COST_DEBUG: the A* search prints its cost targets to stderr.
 estimated-cost-debug = []
+# PATHDEBUG / ASTAR_DEBUG: path search tracing through db_printf (prints
+# only together with libavoid-debug, as upstream).
+pathdebug = []
+astar-debug = []
+# NUDGE_DEBUG / NUDGE_DEBUG_SVG: orthogonal nudging reports its regions,
+# solver variables and results (stderr; positions and SVG to stdout).
+nudge-debug = []
+nudge-debug-svg = []
 # SVG_OUTPUT: Router::output_diagram() also writes outputInstanceToSVG().
 svg-output = []
 # AVOID_PROFILE: Router::timers and the TIMER_* instrumentation.

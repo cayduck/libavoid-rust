@@ -528,7 +528,7 @@ impl ConnEnd {
             // There should be at least one pin, otherwise we will have
             // problems finding connector routes.
             let conn_id = self.m_conn_ref.map(|c| router.conns[c].m_id as i32).unwrap_or(0);
-            eprint!(
+            crate::err_printf!(
                 "Warning: In ConnEnd::assignPinVisibilityTo():\n         ConnEnd for connector {} can't connect to shape {}\n         since it has no pins with class id of {}.\n",
                 conn_id,
                 router.obstacles[anchor].m_id as i32,

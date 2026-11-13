@@ -71,6 +71,9 @@ tests. The pieces are:
 | `tests/e2e_fuzz.rs` | End-to-end fuzz scenes that mix every feature over long transaction sequences. Of the 1,000 committed scenes, the 865 on which upstream is well defined must match the C++ exactly; the other 135 (upstream crashes, undefined behaviour or runs out of memory) and a set of regression scenes must run without panicking. Debug builds check a tenth of the scenes. |
 | `tests/wasm_api_fixtures.rs`, `tests/wasm_api.rs`, `test/*.cjs` | The fixtures again through the string-id wrapper, wrapper API contracts, and the built WASM package from Node. |
 | `tests/robustness.rs`, `tests/core_findings.rs` | Misuse of the public API must not panic or hang. |
+| `tests/svg_oracle.rs` | `outputInstanceToSVG()` (with its reproduction code: every `outputCode()`) and `outputDiagramSVG()` at every diagram dump of all fixtures and audit scenes: 1,838 files, byte for byte with the C++. |
+| `tests/e2e_svg_oracle.rs` | The same two SVGs after every transaction of the 865 committed fuzz scenes on which upstream is well defined, byte for byte (hashes recorded by `tools/oracle/e2e_svg_oracle.sh`). Debug builds check a tenth. |
+| `tests/*_debug_oracle.rs`, `tests/debughandler_oracle.rs`, `tests/timer_oracle.rs` | The feature-gated debug output (see "Debug output") against the C++ built with the matching define, over all fixtures and audit scenes. Run with the feature named in each file. |
 | `tools/audit/inventory.py --check` | Every upstream item is accounted for, and every `// upstream:` comment names something that exists. |
 | `tools/wasm/run_wasm_tests.sh` | The integration tests on `wasm32-wasip1`, where `usize` is 32 bits. |
 
@@ -81,6 +84,8 @@ tools/fixtures/run_all.sh            # status table for every fixture
 tools/fixtures/verify_roundtrip.sh   # prove the op scripts against the C++
 ORACLE_ALLOC=bump tools/oracle/build.sh   # rebuild upstream, regenerate tests/golden-bump
 python3 tools/audit/inventory.py     # regenerate docs/PORTING_INVENTORY.md
+tools/oracle/svg_oracle.sh           # re-record the SVG goldens (SVG_MODE=... for the other debug output)
+tools/oracle/e2e_svg_oracle.sh       # re-record the fuzz scenes' SVG goldens
 tools/oracle/e2e_fuzz.sh --seed 42 --scenes 2000   # fuzz fresh scenes against the C++
 ```
 
@@ -165,15 +170,62 @@ The oracle scripts need `g++` and the vendored upstream source, which is not
 checked in (`vendor/adaptagrams` is a checkout of the Adaptagrams repository
 at the commit above).
 
+## Debug output
+
+Upstream's debug and SVG output is ported with the rest. What upstream
+always compiles is always available: `Router::outputInstanceToSVG()`,
+`outputDiagramSVG()`, `outputDiagram()`, `outputDiagramText()`,
+`printInfo()`, every `outputCode()`, `HyperedgeRerouter::outputInstanceToSVG()`,
+`Router::setDebugHandler()`, the vpsc printers. What upstream compiles only
+under a debug define is behind a Cargo feature, all off by default, so a
+default build contains none of it (and is exactly as fast as before):
+
+| Upstream define | Feature | Effect |
+| --- | --- | --- |
+| `LIBAVOID_DEBUG` | `libavoid-debug` | `db_printf` prints to stdout (graph, visibility, router, connector traces) |
+| `PATHDEBUG`, `ASTAR_DEBUG` | `pathdebug`, `astar-debug` | path search traces through `db_printf` (so with `libavoid-debug`) |
+| `DEBUGHANDLER` | `debug-handler` | the router calls its `DebugHandler`, including `MinimumTerminalSpanningTree::drawForest()` |
+| `AVOID_PROFILE` | `avoid-profile` | `Router::timers` and the `TIMER_*` instrumentation; `printInfo()` prints them |
+| `HYPEREDGE_DEBUG` | `hyperedge-debug` | hyperedge improvement writes `DEBUG/hyperedges-NNNNN.svg` |
+| `MAJOR_HYPEREDGE_IMPROVEMENT_DEBUG` | `major-hyperedge-improvement-debug` | hyperedge topology changes on stderr |
+| `ESTIMATED_COST_DEBUG` | `estimated-cost-debug` | A* cost targets on stderr |
+| `NUDGE_DEBUG`, `NUDGE_DEBUG_SVG` | `nudge-debug`, `nudge-debug-svg` | nudging regions, variables and results on stderr/stdout |
+| `HIGH_PRECISION_DEBUG` | `high-precision-debug` | `PREC` is `.16` in the reproduction code |
+| `SVG_OUTPUT` | `svg-output` | `outputDiagram()` also writes `outputInstanceToSVG()` |
+
+Every one of these outputs is compared byte for byte with the C++ built
+with the same define (`tools/oracle/svg_oracle.sh` records them for all
+fixtures and audit scenes; the tests are listed under "Verification").
+Two things are address dependent upstream and normalised on both sides:
+`NUDGE_DEBUG` prints a `ConnRef` pointer (the port prints the connector's
+creation serial; both are masked), and the vpsc printer shows the
+uninitialised `lm` of inactive constraints (masked). The hyperedge debug
+SVGs, the `DebugHandler` calls and the vpsc sets print no addresses, but
+their order follows pointer order, so they are recorded with the bump
+allocator like every other golden.
+
 ## Where the port differs from upstream
 
 The port reproduces upstream wherever upstream's behaviour is defined. The
 differences are confined to the following.
 
-- **Not ported.** SVG and debug output (`outputInstanceToSVG`,
-  `outputDiagramSVG`, `outputCode`, the debug handler), timers, dead `#if 0`
-  code and functions that upstream declares but never defines. The inventory
-  lists each one with its reason.
+- **Not ported.** Dead `#if 0` code and functions that upstream declares
+  but never defines; the inventory lists each one with its reason. The
+  debug output is ported (see "Debug output" above); of upstream's debug
+  defines, only `SELECTIVE_DEBUG` and `LIBVPSC_LOGGING` have no feature,
+  because their code does not compile at this upstream commit (the vpsc
+  printers `LIBVPSC_LOGGING` would use are ported as string writers).
+  `DEBUG_JUST_UNIFY` and `PAPER`, which change what is computed rather than
+  print, are not mirrored either.
+- **Debug output targets.** Upstream's `FILE *` writers take a
+  `&mut dyn std::fmt::Write`; the upstream-named methods that create files
+  (`Router::output_instance_to_svg`, `output_diagram_svg`, `output_diagram`,
+  `output_diagram_text_file`) return the I/O error where upstream returns
+  silently, and fail on targets without a file system
+  (`wasm32-unknown-unknown`), where the `*_string` forms are the way in.
+  The `DebugHandler` is owned by the router and receives the router in
+  every call. The timers measure wall-clock time (Rust has no CPU clock);
+  their tallies and counters are exact.
 - **Undefined behaviour upstream.** Where upstream reads freed memory,
   dereferences null or recurses without bound, the port does something
   defined instead and never panics. The cases are listed under "Public-API

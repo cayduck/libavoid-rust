@@ -1120,7 +1120,7 @@ impl HyperedgeImprover {
         }
         // Remove roots of cyclic hyperedges, we can't improve these.
         for &junction in cyclic_hyperedge_tree_roots.iter() {
-            eprint!(
+            crate::err_printf!(
                 "Warning: Skipping cyclic hyperedge rooted at junction {}\n",
                 junction.id(router)
             );

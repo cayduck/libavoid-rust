@@ -164,13 +164,13 @@ impl ShapeConnectionPin {
         if p.m_using_proportional_offsets {
             // Parameter checking
             if (p.m_x_offset < 0.0) || (p.m_x_offset > 1.0) {
-                eprint!(
+                crate::err_printf!(
                     "xPortionOffset value ({}) in ShapeConnectionPin constructor not between 0 and 1.\n",
                     format_g(p.m_x_offset, 6)
                 );
             }
             if (p.m_y_offset < 0.0) || (p.m_y_offset > 1.0) {
-                eprint!(
+                crate::err_printf!(
                     "yPortionOffset value ({}) in ShapeConnectionPin constructor not between 0 and 1.\n",
                     format_g(p.m_y_offset, 6)
                 );
@@ -179,14 +179,14 @@ impl ShapeConnectionPin {
             let shape_box = router.obstacles[shape].m_polygon.offset_bounding_box(0.0);
             // Parameter checking
             if p.m_x_offset > shape_box.width() {
-                eprint!(
+                crate::err_printf!(
                     "xOffset value ({}) in ShapeConnectionPin constructor greater than shape width ({}).\n",
                     format_g(p.m_x_offset, 6),
                     format_g(shape_box.width(), 6)
                 );
             }
             if p.m_y_offset > shape_box.height() {
-                eprint!(
+                crate::err_printf!(
                     "yOffset value ({}) in ShapeConnectionPin constructor greater than shape height ({}).\n",
                     format_g(p.m_y_offset, 6),
                     format_g(shape_box.height(), 6)

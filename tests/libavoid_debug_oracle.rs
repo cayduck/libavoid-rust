@@ -12,7 +12,9 @@
 //! nonorthogonal edge.", removed before the comparison).  It must be
 //! byte-identical to the C++.
 //!
-//! `cargo test --release --features libavoid-debug --test libavoid_debug_oracle`
+//! `cargo test --release --features libavoid-debug --test libavoid_debug_oracle`, and with
+//! `--features libavoid-debug,pathdebug,astar-debug` against the C++ built
+//! with `PATHDEBUG` and `ASTAR_DEBUG` too (`SVG_MODE=path-debug`).
 
 #![cfg(feature = "libavoid-debug")]
 #![allow(clippy::uninlined_format_args)]
@@ -25,6 +27,14 @@ use std::collections::BTreeMap;
 use std::process::Command;
 
 const CHILD_ENV: &str = "LIBAVOID_DEBUG_ORACLE_CHILD";
+/// LIBAVOID_DEBUG alone, or with PATHDEBUG and ASTAR_DEBUG
+/// (`SVG_MODE=path-debug`).
+#[cfg(not(any(feature = "pathdebug", feature = "astar-debug")))]
+const MANIFEST: &str = "libavoid-debug-manifest.txt";
+#[cfg(all(feature = "pathdebug", feature = "astar-debug"))]
+const MANIFEST: &str = "path-debug-manifest.txt";
+#[cfg(all(any(feature = "pathdebug", feature = "astar-debug"), not(all(feature = "pathdebug", feature = "astar-debug"))))]
+compile_error!("the db_printf oracle has goldens for libavoid-debug alone or with both pathdebug and astar-debug");
 const BEGIN: &str = "\n@@DBPRINTF-BEGIN@@\n";
 const END: &str = "\n@@DBPRINTF-END@@\n";
 
@@ -44,7 +54,7 @@ fn child() {
 mod sha;
 
 fn read_manifest() -> BTreeMap<String, BTreeMap<String, (String, usize)>> {
-    let path = format!("{}/tests/golden-svg/libavoid-debug-manifest.txt", env!("CARGO_MANIFEST_DIR"));
+    let path = format!("{}/tests/golden-svg/{}", env!("CARGO_MANIFEST_DIR"), MANIFEST);
     let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {}: {}", path, e));
     let mut out: BTreeMap<String, BTreeMap<String, (String, usize)>> = BTreeMap::new();
     let mut cur: Option<String> = None;

@@ -32,6 +32,7 @@ pub const PREC: usize = 16;
 /// site translates its C format string) and prints only with the
 /// `libavoid-debug` feature; without it the arguments are type-checked but
 /// the call compiles to nothing.
+// upstream: debug.h #define db_printf (the MSVC USE_ATLTRACE alias of ATL::AtlTrace: no separate counterpart)
 // upstream: debug.h db_printf(const char *, ...)
 #[macro_export]
 #[doc(hidden)]
@@ -46,6 +47,7 @@ pub use crate::db_printf;
 
 /// `err_printf` reports critical errors that mean something pretty bad has
 /// happened; upstream always writes them to stderr.
+// upstream: debug.h #define err_printf (the MSVC USE_ATLTRACE alias of ATL::AtlTrace: no separate counterpart)
 // upstream: debug.h err_printf(const char *, ...)
 #[macro_export]
 #[doc(hidden)]

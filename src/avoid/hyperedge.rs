@@ -326,7 +326,7 @@ impl HyperedgeRerouter {
                 );
                 let valid = valid && !router.m_hyperedge_rerouter.m_cycle_detected;
                 if !valid {
-                    eprint!(
+                    crate::err_printf!(
                         "Warning: Hyperedge {} registered with HyperedgeRerouter is invalid and will be ignored.\n",
                         i as i32
                     );

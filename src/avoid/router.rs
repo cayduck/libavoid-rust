@@ -1,8 +1,11 @@
 //! Faithful port of upstream `libavoid/router.{h,cpp}`.
 //!
-//! (Debug/SVG output — `outputInstanceToSVG`, `outputDiagramSVG`, timers,
-//! the `DebugHandler` — is not ported.  `outputDiagramText` returns a
-//! `String`.)
+//! The debug output (`outputInstanceToSVG`, `outputDiagramSVG`,
+//! `outputDiagram`, `outputDiagramText`, `printInfo`) is at the end of the
+//! file: each file-writing method also has a writer/string form, which is
+//! what targets without a file system use.  The `DebugHandler` is in
+//! `debughandler.rs`, the timers in `timer.rs`; see `debug.rs` for the
+//! Cargo features that stand in for upstream's debug defines.
 //!
 //! # Data model (binding for the whole `crate::avoid` tree)
 //!

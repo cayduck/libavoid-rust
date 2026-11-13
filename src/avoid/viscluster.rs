@@ -66,8 +66,8 @@ impl ClusterRef {
     // upstream: viscluster.cpp ClusterRef::~ClusterRef()
     pub fn delete(router: &mut Router, c: ClusterIdx) {
         if !router.m_currently_calling_destructors {
-            eprint!("ERROR: ClusterRef::~ClusterRef() shouldn't be called directly.\n");
-            eprint!("       It is owned by the router.  Call Router::deleteCluster() instead.\n");
+            crate::err_printf!("ERROR: ClusterRef::~ClusterRef() shouldn't be called directly.\n");
+            crate::err_printf!("       It is owned by the router.  Call Router::deleteCluster() instead.\n");
             panic!("ClusterRef deleted directly instead of through the Router");
         }
         router.clusters.free(c);

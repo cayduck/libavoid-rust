@@ -9,7 +9,7 @@ Usage:
 What it does
 ------------
 1. Enumerates every item of every upstream libavoid `.h`/`.cpp` (except
-   tests/, debughandler.h, timer.{h,cpp}, dllexport.h): classes/structs,
+   tests/ and dllexport.h): classes/structs,
    methods (ctors, dtors, operators, inline and pure virtual ones), free
    functions (incl. `static` helpers), enums (with enumerators), constants,
    namespace-scope variables, typedefs and `#define`s.  It uses its own
@@ -60,7 +60,7 @@ RUST_DIR = os.path.join(ROOT, "src", "avoid")
 CLASSIFICATION = os.path.join(ROOT, "tools", "audit", "classification.txt")
 OUTPUT = os.path.join(ROOT, "docs", "PORTING_INVENTORY.md")
 FIXTURES_OPS = os.path.join(ROOT, "tests", "fixtures_ops.rs")
-EXCLUDED = {"debughandler.h", "timer.h", "timer.cpp", "dllexport.h"}
+EXCLUDED = {"dllexport.h"}
 
 # ---------------------------------------------------------------------------
 # Tokenizer + preprocessor
@@ -1942,7 +1942,7 @@ def write_md(B):
     w("<!-- GENERATED FILE: do not edit by hand.  Regenerate with `tools/audit/inventory.py`. -->")
     w("")
     w("Function-level inventory of upstream libavoid (`vendor/adaptagrams/cola/libavoid`, excluding")
-    w("`tests/`, `debughandler.h`, `timer.{h,cpp}` and `dllexport.h`) against the Rust port in `src/avoid/`.")
+    w("`tests/` and `dllexport.h`) against the Rust port in `src/avoid/`.")
     w("")
     w("* **Generated** by `python3 tools/audit/inventory.py`, which parses the upstream sources (own")
     w("  tokenizer, preprocessor and scope-tracking declaration parser), maps every item to Rust via the")

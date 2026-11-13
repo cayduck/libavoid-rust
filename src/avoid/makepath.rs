@@ -1075,6 +1075,8 @@ impl AStarPathPrivate {
                 let props: VertIDProps = if r_indx > 0 { 0 } else { VertID::PROP_CONN_POINT };
                 let v_id = VertID::new(pnt.id, pnt.vn, props);
 
+                #[cfg(feature = "pathdebug")]
+                crate::avoid::debug::db_printf!("/// {} {}\n", pnt.id as i32, pnt.vn);
                 let curr = router.vertices.get_vertex_by_id(&router.vert_infs, &v_id);
                 debug_assert!(curr.is_some());
                 let curr = curr.unwrap();
@@ -1229,18 +1231,47 @@ impl AStarPathPrivate {
 
             let bn_node = self.m_available_nodes[bn.0 as usize];
             let prev_inf: Option<VertIdx> = bn_node.prev_node.map(|p| inf_of(&self.m_available_nodes, p));
+            #[cfg(feature = "astar-debug")]
+            {
+                use crate::avoid::debug::{db_printf, g};
+                db_printf!("Considering... ");
+                let p = router.vert_infs[best_node_inf].point;
+                db_printf!(" {} {}  ", g(p.x), g(p.y));
+                router.vert_infs[best_node_inf].id.db_print();
+                db_printf!(" - g: {:3.1} h: {:3.1} back: ", bn_node.g, bn_node.h);
+                if let Some(prev_inf) = prev_inf {
+                    let p = router.vert_infs[prev_inf].point;
+                    db_printf!(" {} {}", g(p.x), g(p.y));
+                    //prevInf->id.db_print();
+                }
+                db_printf!("\n");
+            }
 
             if best_node_inf == tar {
                 crate::avoid::timer::timer_var_add!(router, 1, pending.len() as u32);
                 // This node is our goal.
+                #[cfg(feature = "astar-debug")]
+                crate::avoid::debug::db_printf!(
+                    "LINE {:10}  Steps: {:4}  Cost: {}\n",
+                    router.conns[line_ref].m_id as i32,
+                    explored_count as i32,
+                    crate::avoid::debug::g(bn_node.f)
+                );
 
                 // Correct all the pathNext pointers.
                 let mut curr = bn;
                 while let Some(prev) = self.m_available_nodes[curr.0 as usize].prev_node {
                     let c_inf = inf_of(&self.m_available_nodes, curr);
+                    #[cfg(feature = "astar-debug")]
+                    {
+                        let p = router.vert_infs[c_inf].point;
+                        crate::avoid::debug::db_printf!("[{:.12}, {:.12}]\n", p.x, p.y);
+                    }
                     router.vert_infs[c_inf].path_next = Some(inf_of(&self.m_available_nodes, prev));
                     curr = prev;
                 }
+                #[cfg(feature = "astar-debug")]
+                crate::avoid::debug::db_printf!("\n");
 
                 // Exit from the search
                 break;
@@ -1408,6 +1439,15 @@ impl AStarPathPrivate {
 
                 // The A* formula
                 node.f = node.g + node.h;
+
+                #[cfg(feature = "astar-debug")]
+                {
+                    use crate::avoid::debug::{db_printf, g};
+                    let p = router.vert_infs[node_inf].point;
+                    db_printf!("-- Adding: {} {}  ", g(p.x), g(p.y));
+                    router.vert_infs[node_inf].id.db_print();
+                    db_printf!(" - g: {:3.1} h: {:3.1} \n", node.g, node.h);
+                }
 
                 b_node_found = false;
 

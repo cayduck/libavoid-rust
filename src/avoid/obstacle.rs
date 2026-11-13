@@ -137,12 +137,12 @@ impl Obstacle {
         if !router.m_currently_calling_destructors {
             match router.obstacles[o].kind {
                 ObstacleKind::Shape => {
-                    eprint!("ERROR: ShapeRef::~ShapeRef() shouldn't be called directly.\n");
-                    eprint!("       It is owned by the router.  Call Router::deleteShape() instead.\n");
+                    crate::err_printf!("ERROR: ShapeRef::~ShapeRef() shouldn't be called directly.\n");
+                    crate::err_printf!("       It is owned by the router.  Call Router::deleteShape() instead.\n");
                 }
                 ObstacleKind::Junction(_) => {
-                    eprint!("ERROR: JunctionRef::~JunctionRef() shouldn't be called directly.\n");
-                    eprint!("       It is owned by the router.  Call Router::deleteJunction() instead.\n");
+                    crate::err_printf!("ERROR: JunctionRef::~JunctionRef() shouldn't be called directly.\n");
+                    crate::err_printf!("       It is owned by the router.  Call Router::deleteJunction() instead.\n");
                 }
             }
             panic!("Obstacle deleted directly instead of through the Router");

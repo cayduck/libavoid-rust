@@ -239,8 +239,8 @@ impl ConnRef {
     // upstream: connector.cpp ConnRef::~ConnRef()
     pub fn delete(router: &mut Router, c: ConnIdx) {
         if !router.m_currently_calling_destructors {
-            eprint!("ERROR: ConnRef::~ConnRef() shouldn't be called directly.\n");
-            eprint!("       It is owned by the router.  Call Router::deleteConnector() instead.\n");
+            crate::err_printf!("ERROR: ConnRef::~ConnRef() shouldn't be called directly.\n");
+            crate::err_printf!("       It is owned by the router.  Call Router::deleteConnector() instead.\n");
             panic!("ConnRef deleted directly instead of through the Router");
         }
 
@@ -469,7 +469,7 @@ impl ConnRef {
     ) -> bool {
         let vertex = match vertex {
             None => {
-                eprint!(
+                crate::err_printf!(
                     "Warning: In ConnRef::getConnEndForEndpointVertex():\n         ConnEnd for connector {} is uninitialised.  It may have been\n         set but Router::processTrancaction has not yet been called.\n",
                     self.m_id as i32
                 );
@@ -1054,6 +1054,16 @@ impl ConnRef {
         conn.free_routes();
         conn.m_route.ps = clipped_path;
 
+        #[cfg(feature = "pathdebug")]
+        {
+            use crate::avoid::debug::g;
+            db_printf!("Output route:\n");
+            for p in conn.m_route.ps.iter() {
+                db_printf!("[{},{}] {}, {}   ", p.id as i32, p.vn, g(p.x), g(p.y));
+            }
+            db_printf!("\n\n");
+        }
+
         #[cfg(feature = "debug-handler")]
         router.call_debug_handler(|h, r| h.update_connector_route(r, c, -1, -1));
 
@@ -1149,7 +1159,7 @@ impl ConnRef {
                 debug_assert!(path.len() >= 2);
             } else {
                 let p = router.vert_infs[checkpoints[i]].point;
-                eprint!(
+                crate::err_printf!(
                     "Warning: skipping checkpoint for connector {} at ({}, {}).\n",
                     m_id as i32,
                     crate::avoid::router::format_g(p.x, 6),
@@ -1179,6 +1189,21 @@ impl ConnRef {
         if router.rubber_band_routing {
             debug_assert!(router.ignore_regions);
 
+            #[cfg(feature = "pathdebug")]
+            {
+                use crate::avoid::debug::g;
+                db_printf!("\n");
+                router.vert_infs[src_vert].id.db_print();
+                let p = router.vert_infs[src_vert].point;
+                db_printf!(": {}, {}\n", g(p.x), g(p.y));
+                router.vert_infs[tar].id.db_print();
+                let p = router.vert_infs[tar].point;
+                db_printf!(": {}, {}\n", g(p.x), g(p.y));
+                for p in curr_route.ps.iter() {
+                    db_printf!("{}, {}  ", g(p.x), g(p.y));
+                }
+                db_printf!("\n");
+            }
             if curr_route.size() > 2 {
                 if router.vert_infs[src_vert].point == curr_route.ps[0] {
                     existing_path_start = curr_route.size() - 2;
@@ -1205,6 +1230,8 @@ impl ConnRef {
                 if existing_path_start == 0 {
                     break;
                 }
+                #[cfg(feature = "pathdebug")]
+                db_printf!("BACK\n");
                 existing_path_start -= 1;
                 let pnt = curr_route.at(existing_path_start);
                 let props: VertIDProps = if existing_path_start > 0 { 0 } else { VertID::PROP_CONN_POINT };
@@ -1219,6 +1246,9 @@ impl ConnRef {
             } else if router.rubber_band_routing {
                 // found.
                 let mut unwind = false;
+
+                #[cfg(feature = "pathdebug")]
+                db_printf!("\n\n\nSTART:\n\n");
 
                 let mut prior: Option<VertIdx> = None;
                 // Stale-pathNext policy (router.rs module docs): links to
@@ -1237,6 +1267,8 @@ impl ConnRef {
                     curr = pn;
                 }
                 if unwind {
+                    #[cfg(feature = "pathdebug")]
+                    db_printf!("BACK II\n");
                     if existing_path_start == 0 {
                         break;
                     }
@@ -1345,8 +1377,25 @@ pub fn validate_bend_point(
         return bend_okay;
     }
 
+    #[cfg(feature = "pathdebug")]
+    {
+        use crate::avoid::debug::g;
+        db_printf!("a=({}, {})\n", g(a.x), g(a.y));
+        db_printf!("b=({}, {})\n", g(b.x), g(b.y));
+        db_printf!("c=({}, {})\n", g(c.x), g(c.y));
+        // (Upstream binds d and e, b's shape neighbours, up front; the port
+        // reads them where they are used, see below.  Printing them needs
+        // them here, so a vertex without neighbours prints (0, 0) where
+        // upstream would dereference null.)
+        let d = b_v.sh_prev.map(|d| verts[d].point).unwrap_or_default();
+        let e = b_v.sh_next.map(|e| verts[e].point).unwrap_or_default();
+        db_printf!("d=({}, {})\n", g(d.x), g(d.y));
+        db_printf!("e=({}, {})\n", g(e.x), g(e.y));
+    }
     // Check angle:
     let abc = vec_dir(a, b, c, 0.0);
+    #[cfg(feature = "pathdebug")]
+    db_printf!("(abc == {}) ", abc);
 
     if abc == 0 {
         // The three consecutive point on the path are in a line.
@@ -1372,6 +1421,8 @@ pub fn validate_bend_point(
         let abd = vec_dir(a, b, d, 0.0);
         let bce = vec_dir(b, c, e, 0.0);
         let bcd = vec_dir(b, c, d, 0.0);
+        #[cfg(feature = "pathdebug")]
+        db_printf!("&& (abe == {}) && (abd == {}) &&\n(bce == {}) && (bcd == {})", abe, abd, bce, bcd);
 
         bend_okay = false;
         if abe > 0 {
@@ -1384,6 +1435,8 @@ pub fn validate_bend_point(
             }
         }
     }
+    #[cfg(feature = "pathdebug")]
+    db_printf!("\n");
     bend_okay
 }
 

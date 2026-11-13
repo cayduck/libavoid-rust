@@ -9,6 +9,9 @@
 #   SVG_MODE=debug-handler tools/oracle/svg_oracle.sh [script-name ...]
 #   SVG_MODE=profile tools/oracle/svg_oracle.sh [script-name ...]
 #   SVG_MODE=libavoid-debug tools/oracle/svg_oracle.sh [script-name ...]
+#   SVG_MODE=path-debug tools/oracle/svg_oracle.sh [script-name ...]
+#   SVG_MODE=nudge-debug tools/oracle/svg_oracle.sh [script-name ...]
+#   SVG_MODE=estimated-cost-debug tools/oracle/svg_oracle.sh [script-name ...]
 #
 # Default mode: Router::outputInstanceToSVG() and Router::outputDiagramSVG()
 # (tests/svg_oracle.rs).  The library is a copy of the tools/oracle/build.sh
@@ -46,7 +49,20 @@
 # compiled with -DLIBAVOID_DEBUG, so db_printf() prints.  The copy of
 # debug.h is patched to send db_printf() to dbprintf.log instead of stdout,
 # which keeps it apart from what the fixtures print themselves; the text is
-# unchanged.  Recorded for every script.
+# unchanged.  Recorded for every script.  path-debug mode: the same with
+# -DPATHDEBUG -DASTAR_DEBUG as well (path search tracing through db_printf).
+#
+# estimated-cost-debug mode (tests/estimated_cost_debug_oracle.rs): the
+# library compiled with -DESTIMATED_COST_DEBUG, which prints the A* cost
+# targets to stderr.  Recorded: the whole stderr of every script.
+#
+# nudge-debug mode (tests/nudge_debug_oracle.rs): the library compiled with
+# -DNUDGE_DEBUG -DNUDGE_DEBUG_SVG.  Recorded: stdout and stderr of every
+# script that prints nothing itself (its golden stdout is empty), so that
+# stdout is the library's output only.  NUDGE_DEBUG prints a ConnRef
+# pointer ("Pos: %lX, ..."); it is replaced by "Pos: <ptr>," before
+# hashing (the port prints a creation serial there; the test masks it the
+# same way).
 #
 # All modes: -O2 -DNDEBUG -ffp-contract=off -fno-access-control, linked
 # with the bump allocator (tools/oracle/bump_alloc.cpp: pointer order ==
@@ -60,6 +76,9 @@
 #   tests/golden-svg/debug-handler-manifest.txt     (debug-handler mode)
 #   tests/golden-svg/profile-manifest.txt           (profile mode)
 #   tests/golden-svg/libavoid-debug-manifest.txt    (libavoid-debug mode)
+#   tests/golden-svg/path-debug-manifest.txt        (path-debug mode)
+#   tests/golden-svg/nudge-debug-manifest.txt       (nudge-debug mode)
+#   tests/golden-svg/estimated-cost-debug-manifest.txt (estimated-cost-debug)
 #   tests/golden-svg/full/*.svg     a few complete files (SVG_FULL list
 #                                   below), for readable diffs
 # Scripts on which the C++ fails (no goldens for them) are skipped; the
@@ -97,6 +116,24 @@ case "$MODE" in
     BUILD="$ROOT/target/svg-oracle-profile"
     EXTRA_FLAGS=(-DAVOID_PROFILE)
     MANIFEST="$OUT/profile-manifest.txt"
+    SVG_FULL=""
+    ;;
+  estimated-cost-debug)
+    BUILD="$ROOT/target/svg-oracle-estimated-cost-debug"
+    EXTRA_FLAGS=(-DESTIMATED_COST_DEBUG)
+    MANIFEST="$OUT/estimated-cost-debug-manifest.txt"
+    SVG_FULL=""
+    ;;
+  nudge-debug)
+    BUILD="$ROOT/target/svg-oracle-nudge-debug"
+    EXTRA_FLAGS=(-DNUDGE_DEBUG -DNUDGE_DEBUG_SVG)
+    MANIFEST="$OUT/nudge-debug-manifest.txt"
+    SVG_FULL=""
+    ;;
+  path-debug)
+    BUILD="$ROOT/target/svg-oracle-path-debug"
+    EXTRA_FLAGS=(-DLIBAVOID_DEBUG -DPATHDEBUG -DASTAR_DEBUG)
+    MANIFEST="$OUT/path-debug-manifest.txt"
     SVG_FULL=""
     ;;
   libavoid-debug)
@@ -167,7 +204,7 @@ PY
 python3 - "$ROOT/target/oracle/libavoid/debug.h" "$BUILD/libavoid/debug.h" "$MODE" <<'PY'
 import sys
 s = open(sys.argv[1]).read()
-if sys.argv[3] == "libavoid-debug":
+if sys.argv[3] in ("libavoid-debug", "path-debug"):
     old = """        va_start(ap, fmt);
         vfprintf(stdout, fmt, ap);
 """
@@ -249,10 +286,11 @@ for n in "${names[@]}"; do
 done
 wait
 
-python3 - "$MODE" "$BUILD/run" "$MANIFEST" "$OUT/full" "$SVG_FULL" "${names[@]}" <<'PY'
-import hashlib, os, shutil, sys
+python3 - "$MODE" "$BUILD/run" "$MANIFEST" "$OUT/full" "$SVG_FULL" "$ROOT" "${names[@]}" <<'PY'
+import hashlib, os, re, shutil, sys
 mode, run, manifest, fulldir, full = sys.argv[1:5] + [sys.argv[5].split()]
-names = sys.argv[6:]
+root = sys.argv[6]
+names = sys.argv[7:]
 # Keep the entries of scripts not regenerated in this run.
 entries = {}
 if os.path.exists(manifest):
@@ -276,8 +314,19 @@ for n in names:
     ok += 1
     d = os.path.join(run, n, "output" if mode in ("svg", "profile") else "DEBUG")
     lines = []
-    if mode in ("debug-handler", "libavoid-debug"):
-        name = "debughandler.log" if mode == "debug-handler" else "dbprintf.log"
+    if mode == "nudge-debug":
+        golden_stdout = (os.path.join(root, "tests/audit_scenes/golden", n + ".stdout") if n.startswith("audit_")
+                         else os.path.join(root, "tests/golden-bump", n + ".stdout"))
+        if os.path.exists(golden_stdout) and os.path.getsize(golden_stdout) > 0:
+            continue
+        out = open(os.path.join(run, n, "stdout"), "rb").read()
+        out = re.sub(rb"Pos: [0-9A-F]+,", b"Pos: <ptr>,", out)
+        err = open(os.path.join(run, n, "stderr"), "rb").read()
+        entries[n] = [entry("stderr", err), entry("stdout", out)]
+        continue
+    if mode in ("debug-handler", "libavoid-debug", "path-debug", "estimated-cost-debug"):
+        name = {"debug-handler": "debughandler.log", "libavoid-debug": "dbprintf.log",
+                "path-debug": "dbprintf.log", "estimated-cost-debug": "stderr"}[mode]
         log = os.path.join(run, n, name)
         data = open(log, "rb").read() if os.path.exists(log) else b""
         entries[n] = [entry(name, data)]
@@ -303,9 +352,18 @@ with open(manifest, "w") as m:
         m.write("# Generated by SVG_MODE=profile tools/oracle/svg_oracle.sh: upstream's\n")
         m.write("# AVOID_PROFILE timer tallies and variables (NAME-timers.txt) at every\n")
         m.write("# output and final dump of each script: file sha256 bytes.\n")
-    elif mode == "libavoid-debug":
-        m.write("# Generated by SVG_MODE=libavoid-debug tools/oracle/svg_oracle.sh: upstream's\n")
-        m.write("# db_printf() output (LIBAVOID_DEBUG) of each script: file sha256 bytes.\n")
+    elif mode == "nudge-debug":
+        m.write("# Generated by SVG_MODE=nudge-debug tools/oracle/svg_oracle.sh: stdout\n")
+        m.write("# (\"Pos: <ptr>,\" masked) and stderr under NUDGE_DEBUG and NUDGE_DEBUG_SVG of\n")
+        m.write("# every script that prints nothing itself: file sha256 bytes.\n")
+    elif mode == "estimated-cost-debug":
+        m.write("# Generated by SVG_MODE=estimated-cost-debug tools/oracle/svg_oracle.sh: the\n")
+        m.write("# stderr (ESTIMATED_COST_DEBUG cost target reports) of each script:\n")
+        m.write("# file sha256 bytes.\n")
+    elif mode in ("libavoid-debug", "path-debug"):
+        m.write("# Generated by SVG_MODE=%s tools/oracle/svg_oracle.sh: upstream's\n" % mode)
+        m.write("# db_printf() output (LIBAVOID_DEBUG%s) of each script: file sha256 bytes.\n"
+                % (" PATHDEBUG ASTAR_DEBUG" if mode == "path-debug" else ""))
     elif mode == "debug-handler":
         m.write("# Generated by SVG_MODE=debug-handler tools/oracle/svg_oracle.sh: the\n")
         m.write("# calls of upstream's DebugHandler (DEBUGHANDLER) as recorded by\n")
