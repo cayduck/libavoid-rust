@@ -1,6 +1,6 @@
 {
   "name": "libavoid-rust",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Rust/WASM port of the libavoid connector-routing library (adaptagrams) with a JavaScript API",
   "repository": {
     "type": "git",
@@ -60,7 +60,8 @@
     "demo": "node scripts/serve-demo.cjs",
     "test": "cargo test && npm run build && npm run test:node",
     "test:rust": "cargo test",
-    "test:node": "node test/api-sync.cjs && node --expose-gc test/esm-entry.mjs && node test/node-smoke.cjs && node --expose-gc test/failure-containment.cjs",
+    "test:node": "node test/api-sync.cjs && node test/api-conformance.cjs && node --expose-gc test/esm-entry.mjs && node test/node-smoke.cjs && node test/fixtures-replay.cjs && node --expose-gc test/failure-containment.cjs",
+    "test:fixtures:all": "LIBAVOID_SLOW_FIXTURES=1 node test/fixtures-replay.cjs",
     "test:demo": "npm run build:demo && node test/demo-browser.cjs",
     "test:types": "npx -y -p typescript@5.9 tsc -p test/types/tsconfig.json",
     "prepack": "npm run build"
