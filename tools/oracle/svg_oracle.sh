@@ -1,28 +1,40 @@
 #!/usr/bin/env bash
-# Records upstream's debug output -- Router::outputInstanceToSVG() and
-# Router::outputDiagramSVG() -- for every op script the port already compares
-# with the C++ (the upstream fixtures in tests/fixtures/ and the audit scenes
-# in tests/audit_scenes/), and writes the manifest the Rust test
-# tests/svg_oracle.rs compares against.
+# Records upstream's debug output for every op script the port already
+# compares with the C++ (the upstream fixtures in tests/fixtures/ and the
+# audit scenes in tests/audit_scenes/), and writes the manifests the Rust
+# tests compare against.
 #
 #   tools/oracle/svg_oracle.sh [script-name ...]
+#   SVG_MODE=hyperedge-debug tools/oracle/svg_oracle.sh [script-name ...]
 #
-# The library is a copy of the tools/oracle/build.sh sources (the %.17g /
-# junction / ORACLE_FINAL patches) with one more patch: when ORACLE_SVG is
-# set, Router::outputDiagramText(name) first calls
+# Default mode: Router::outputInstanceToSVG() and Router::outputDiagramSVG()
+# (tests/svg_oracle.rs).  The library is a copy of the tools/oracle/build.sh
+# sources (the %.17g / junction / ORACLE_FINAL patches) with one more patch:
+# when ORACLE_SVG is set, Router::outputDiagramText(name) first calls
 #     outputInstanceToSVG(name);           -> name.svg
 #     outputDiagramSVG(name + "-diagram"); -> name-diagram.svg
 # outputDiagramText() is what every `output` op (outputDiagram()) and the
 # final dump in ~Router (ORACLE_FINAL) call, so the SVGs are taken at
 # exactly the points where the text goldens are, and the Rust test takes
-# them at the same points.  Flags: -O2 -DNDEBUG -ffp-contract=off
-# -fno-access-control, linked with the bump allocator
-# (tools/oracle/bump_alloc.cpp: pointer order == allocation order, the
-# port's model; the SVG output itself prints no addresses).
+# them at the same points.
+#
+# hyperedge-debug mode (tests/hyperedge_debug_oracle.rs): the same library
+# compiled with -DHYPEREDGE_DEBUG -DMAJOR_HYPEREDGE_IMPROVEMENT_DEBUG.
+# HyperedgeImprover::outputHyperedgesToSVG() then writes
+# DEBUG/hyperedges-NNNNN.svg (later passes overwrite earlier files of the
+# same number, in the port too) and the topology reports go to stderr.
+# Recorded for the scripts that write at least one such file: every
+# DEBUG/*.svg and the whole stderr.
+#
+# Both modes: -O2 -DNDEBUG -ffp-contract=off -fno-access-control, linked
+# with the bump allocator (tools/oracle/bump_alloc.cpp: pointer order ==
+# allocation order, the port's model; none of this output prints
+# addresses).
 #
 # Output:
-#   tests/golden-svg/manifest.txt   "<golden-name>.svg <sha256> <bytes>" for
-#                                   every SVG (sorted), one section per script
+#   tests/golden-svg/manifest.txt   "<file> <sha256> <bytes>" for every SVG
+#                                   (sorted), one section per script
+#   tests/golden-svg/hyperedge-debug-manifest.txt   (hyperedge-debug mode)
 #   tests/golden-svg/full/*.svg     a few complete files (SVG_FULL list
 #                                   below), for readable diffs
 # Scripts on which the C++ fails (no goldens for them) are skipped; the
@@ -30,13 +42,28 @@
 # script, default 900).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-BUILD="$ROOT/target/svg-oracle"
+MODE="${SVG_MODE:-svg}"
 OUT="$ROOT/tests/golden-svg"
 JOBS="${SVG_JOBS:-6}"
 TIMEOUT="${SVG_TIMEOUT:-900}"
-# Complete SVGs committed for readable diffs (small, but covering clusters,
-# pins, junctions, checkpoints, fixed routes and polyline routing).
-SVG_FULL="2junctions-1 checkpoints01-1 connectionpin01-1 junction01 audit_000-1"
+case "$MODE" in
+  svg)
+    BUILD="$ROOT/target/svg-oracle"
+    EXTRA_FLAGS=()
+    MANIFEST="$OUT/manifest.txt"
+    # Complete SVGs committed for readable diffs (small, but covering
+    # clusters, pins, junctions, checkpoints, fixed routes and polyline
+    # routing).
+    SVG_FULL="2junctions-1 checkpoints01-1 connectionpin01-1 junction01 audit_000-1"
+    ;;
+  hyperedge-debug)
+    BUILD="$ROOT/target/svg-oracle-hyperedge-debug"
+    EXTRA_FLAGS=(-DHYPEREDGE_DEBUG -DMAJOR_HYPEREDGE_IMPROVEMENT_DEBUG)
+    MANIFEST="$OUT/hyperedge-debug-manifest.txt"
+    SVG_FULL=""
+    ;;
+  *) echo "unknown SVG_MODE $MODE"; exit 2 ;;
+esac
 
 ORACLE_LIB_ONLY=1 "$ROOT/tools/oracle/build.sh" > /dev/null
 mkdir -p "$BUILD/libavoid" "$BUILD/run" "$OUT/full"
@@ -63,7 +90,7 @@ except FileNotFoundError:
 open(sys.argv[2], "w").write(s)
 PY
 
-FLAGS=(-O2 -std=c++11 -w -DNDEBUG -ffp-contract=off -fno-access-control -I"$BUILD")
+FLAGS=(-O2 -std=c++11 -w -DNDEBUG -ffp-contract=off -fno-access-control "${EXTRA_FLAGS[@]}" -I"$BUILD")
 objs=()
 running=0
 for f in "$BUILD"/libavoid/*.cpp; do
@@ -101,17 +128,18 @@ fi
 
 run_one() {
   local n="$1" d="$BUILD/run/$1"
-  mkdir -p "$d/output"
-  find "$d/output" -maxdepth 1 -type f \( -name '*.svg' -o -name '*.txt' \) -delete
+  mkdir -p "$d/output" "$d/DEBUG"
+  find "$d/output" "$d/DEBUG" -maxdepth 1 -type f \( -name '*.svg' -o -name '*.txt' \) -delete
   python3 "$ROOT/tools/fixtures/convert.py" --emit-cpp "$(ops_of "$n")" "$d/$n.cpp" 2> "$d/emit.log" \
     || { echo "EMIT-FAIL $n"; return; }
   g++ "${FLAGS[@]}" "$d/$n.cpp" "$BUILD/bump_alloc.o" "$BUILD/lib.a" -o "$d/$n" 2> "$d/compile.log" \
     || { echo "COMPILE-FAIL $n"; return; }
-  local code=0
-  (cd "$d" && ulimit -v 4194304 && ORACLE_SVG=1 ORACLE_FINAL="output/$n" \
+  local code=0 svg=""
+  if [ "$MODE" = svg ]; then svg=1; fi
+  (cd "$d" && ulimit -v 4194304 && ORACLE_SVG="$svg" ORACLE_FINAL="output/$n" \
       timeout -s KILL "$TIMEOUT" "./$n" > "$d/stdout" 2> "$d/stderr") || code=$?
   if [ "$code" -ne 0 ]; then echo "FAIL $n (exit $code)"; return; fi
-  echo "OK $n $(ls "$d/output" | grep -c '\.svg$')"
+  echo "OK $n"
 }
 for n in "${names[@]}"; do
   run_one "$n" > "$BUILD/run/$n.result" &
@@ -119,11 +147,10 @@ for n in "${names[@]}"; do
 done
 wait
 
-python3 - "$BUILD/run" "$OUT" "$SVG_FULL" "${names[@]}" <<'PY'
+python3 - "$MODE" "$BUILD/run" "$MANIFEST" "$OUT/full" "$SVG_FULL" "${names[@]}" <<'PY'
 import hashlib, os, shutil, sys
-run, out, full = sys.argv[1], sys.argv[2], sys.argv[3].split()
-names = sys.argv[4:]
-manifest = os.path.join(out, "manifest.txt")
+mode, run, manifest, fulldir, full = sys.argv[1:5] + [sys.argv[5].split()]
+names = sys.argv[6:]
 # Keep the entries of scripts not regenerated in this run.
 entries = {}
 if os.path.exists(manifest):
@@ -134,6 +161,8 @@ if os.path.exists(manifest):
             cur = line.split()[1]; entries[cur] = []
         elif line and not line.startswith("#"):
             entries[cur].append(line)
+def entry(name, data):
+    return "%s %s %d" % (name, hashlib.sha256(data).hexdigest(), len(data))
 ok = fail = 0
 for n in names:
     res = open(os.path.join(run, n + ".result")).read().split()
@@ -143,24 +172,34 @@ for n in names:
         print(" ".join(res))
         continue
     ok += 1
-    d = os.path.join(run, n, "output")
+    d = os.path.join(run, n, "output" if mode == "svg" else "DEBUG")
     lines = []
     for f in sorted(os.listdir(d)):
         if not f.endswith(".svg"):
             continue
         data = open(os.path.join(d, f), "rb").read()
-        lines.append("%s %s %d" % (f, hashlib.sha256(data).hexdigest(), len(data)))
+        lines.append(entry(f, data))
         if f[:-4] in full:
-            shutil.copy(os.path.join(d, f), os.path.join(out, "full", f))
+            shutil.copy(os.path.join(d, f), os.path.join(fulldir, f))
+    if mode == "hyperedge-debug":
+        if not lines:
+            continue
+        lines.append(entry("stderr", open(os.path.join(run, n, "stderr"), "rb").read()))
     entries[n] = lines
 with open(manifest, "w") as m:
-    m.write("# Generated by tools/oracle/svg_oracle.sh: upstream outputInstanceToSVG()\n")
-    m.write("# (NAME.svg) and outputDiagramSVG() (NAME-diagram.svg) at every output\n")
-    m.write("# and final dump of each script: file sha256 bytes.\n")
+    if mode == "svg":
+        m.write("# Generated by tools/oracle/svg_oracle.sh: upstream outputInstanceToSVG()\n")
+        m.write("# (NAME.svg) and outputDiagramSVG() (NAME-diagram.svg) at every output\n")
+        m.write("# and final dump of each script: file sha256 bytes.\n")
+    else:
+        m.write("# Generated by SVG_MODE=hyperedge-debug tools/oracle/svg_oracle.sh:\n")
+        m.write("# upstream HYPEREDGE_DEBUG files DEBUG/hyperedges-NNNNN.svg and the\n")
+        m.write("# stderr of the run (MAJOR_HYPEREDGE_IMPROVEMENT_DEBUG reports) of every\n")
+        m.write("# script that writes such files: file sha256 bytes.\n")
     for n in sorted(entries):
         m.write("script %s\n" % n)
         for l in entries[n]:
             m.write(l + "\n")
-print("svg oracle: %d scripts ok, %d failed; %d svgs in manifest" %
-      (ok, fail, sum(len(v) for v in entries.values())))
+print("svg oracle (%s): %d scripts ok, %d failed; %d scripts and %d files in manifest" %
+      (mode, ok, fail, len(entries), sum(len(v) for v in entries.values())))
 PY
