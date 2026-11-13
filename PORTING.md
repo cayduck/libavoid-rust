@@ -101,6 +101,13 @@ test driver after a transaction had freed it. All 20,000 scenes, including
 the excluded ones, run on the final port without a panic or an abort; 304
 excluded scenes take it more than 20 seconds.
 
+That campaign ran one commit before a later clean-up of the hyperedge
+rerouter's skip paths, which only run where upstream is undefined. After
+that change, 3,000 scenes from three further seeds were run: 2,620 are
+comparable and all match (one of them only when run to completion, 22
+seconds), and none of the 380 excluded scenes makes the port panic or abort
+(52 take more than 20 seconds).
+
 On the port before the last two hyperedge guard changes, 336 scenes took
 more than 20 seconds. 328 of them never take one of the port's hyperedge
 guard branches: there the port runs upstream's own algorithm, mostly
