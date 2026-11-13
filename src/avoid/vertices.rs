@@ -218,7 +218,18 @@ pub type ContainsMap = BTreeMap<VertID, ShapeSet>;
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct EdgePos {
     pub edge: EdgeIdx,
-    pub end: u8,
+    pub end: EdgeEnd,
+}
+
+/// Which end of an edge an [`EdgePos`] names.  (An enum rather than a
+/// number so that `Option<EdgePos>` needs no extra tag: every edge holds
+/// four of them.)
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum EdgeEnd {
+    /// `m_pos1`: membership in `m_vert1`'s list.
+    First = 0,
+    /// `m_pos2`: membership in `m_vert2`'s list.
+    Second = 1,
 }
 
 /// Prev/next links of one list membership of an `EdgeInf`.
@@ -434,62 +445,79 @@ impl Iterator for EdgeInfListIter<'_> {
     }
 }
 
-/// libstdc++ `std::list<T>::merge(list& x, Comp comp)` on vectors:
-/// merges `x` into `this`.
-fn libstdcxx_list_merge<T, F>(this: &mut Vec<T>, x: &mut Vec<T>, comp: &mut F)
+/// End-of-list marker of the index-linked lists below.
+const LIST_NIL: u32 = u32::MAX;
+
+/// libstdc++ `std::list<T>::merge(list& x, Comp comp)`: merges the list
+/// headed by `x` into the one headed by `this`.  The lists are singly
+/// linked through `next` (indices into `items`), so, as upstream's splice,
+/// a merge allocates nothing; the comparisons and their order are exactly
+/// those of libstdc++.
+#[inline]
+fn libstdcxx_list_merge<T, F>(items: &[T], next: &mut [u32], this: &mut u32, x: &mut u32, comp: &mut F)
 where
     F: FnMut(&T, &T) -> bool,
 {
-    if x.is_empty() {
+    let mut first2 = std::mem::replace(x, LIST_NIL);
+    if first2 == LIST_NIL {
         return;
     }
-    let a = std::mem::take(this);
-    let b = std::mem::take(x);
-    let mut out = Vec::with_capacity(a.len() + b.len());
-    let mut ia = a.into_iter().peekable();
-    let mut ib = b.into_iter().peekable();
+    let mut first1 = *this;
+    // The node before first1 (LIST_NIL while first1 is the head).
+    let mut prev = LIST_NIL;
     // while (first1 != last1 && first2 != last2)
     //     if (comp(*first2, *first1)) transfer first2 before first1
     //     else ++first1;
-    loop {
-        match (ia.peek(), ib.peek()) {
-            (Some(f1), Some(f2)) => {
-                if comp(f2, f1) {
-                    out.push(ib.next().unwrap());
-                } else {
-                    out.push(ia.next().unwrap());
-                }
+    while first1 != LIST_NIL && first2 != LIST_NIL {
+        if comp(&items[first2 as usize], &items[first1 as usize]) {
+            let after = next[first2 as usize];
+            if prev == LIST_NIL {
+                *this = first2;
+            } else {
+                next[prev as usize] = first2;
             }
-            _ => break,
+            next[first2 as usize] = first1;
+            prev = first2;
+            first2 = after;
+        } else {
+            prev = first1;
+            first1 = next[first1 as usize];
         }
     }
-    out.extend(ia);
-    out.extend(ib);
-    *this = out;
+    // if (first2 != last2) transfer the rest of x to the end.
+    if first2 != LIST_NIL {
+        if prev == LIST_NIL {
+            *this = first2;
+        } else {
+            next[prev as usize] = first2;
+        }
+    }
 }
 
 /// libstdc++ `std::list<T>::sort(Comp comp)` (bottom-up merge sort using
-/// up to 64 buckets), reproduced step by step on a vector so the result is
-/// identical for any comparator.
+/// up to 64 buckets), reproduced step by step so the result is identical
+/// for any comparator.
 pub fn libstdcxx_list_sort<T, F>(items: Vec<T>, comp: &mut F) -> Vec<T>
 where
     F: FnMut(&T, &T) -> bool,
 {
     // Do nothing if the list has length 0 or 1.
-    if items.len() < 2 {
+    let n = items.len();
+    if n < 2 {
         return items;
     }
-    let mut input = std::collections::VecDeque::from(items);
-    let mut carry: Vec<T> = Vec::new();
-    let mut tmp: Vec<Vec<T>> = (0..64).map(|_| Vec::new()).collect();
+    assert!(n < LIST_NIL as usize);
+    let mut next: Vec<u32> = vec![LIST_NIL; n];
+    let mut tmp: [u32; 64] = [LIST_NIL; 64];
     let mut fill: usize = 0;
-    loop {
+    for i in 0..n as u32 {
         // __carry.splice(__carry.begin(), *this, begin());
-        carry.insert(0, input.pop_front().unwrap());
+        // (carry is empty here: it was swapped with an empty bucket.)
+        let mut carry: u32 = i;
         let mut counter = 0;
-        while counter != fill && !tmp[counter].is_empty() {
+        while counter != fill && tmp[counter] != LIST_NIL {
             // __counter->merge(__carry, __comp);
-            libstdcxx_list_merge(&mut tmp[counter], &mut carry, comp);
+            libstdcxx_list_merge(&items, &mut next, &mut tmp[counter], &mut carry, comp);
             // __carry.swap(*__counter);
             std::mem::swap(&mut carry, &mut tmp[counter]);
             counter += 1;
@@ -499,16 +527,32 @@ where
         if counter == fill {
             fill += 1;
         }
-        if input.is_empty() {
-            break;
-        }
     }
     for counter in 1..fill {
         // __counter->merge(*(__counter - 1), __comp);
         let (lo, hi) = tmp.split_at_mut(counter);
-        libstdcxx_list_merge(&mut hi[0], &mut lo[counter - 1], comp);
+        libstdcxx_list_merge(&items, &mut next, &mut hi[0], &mut lo[counter - 1], comp);
     }
-    std::mem::take(&mut tmp[fill - 1])
+    // Already in order (common for the sweep's edge list, which is sorted
+    // again after every event): nothing to move.
+    let mut cur = tmp[fill - 1];
+    let mut k: u32 = 0;
+    while cur == k {
+        cur = next[cur as usize];
+        k += 1;
+    }
+    if k as usize == n {
+        return items;
+    }
+    let mut slots: Vec<Option<T>> = items.into_iter().map(Some).collect();
+    let mut out = Vec::with_capacity(n);
+    let mut cur = tmp[fill - 1];
+    while cur != LIST_NIL {
+        out.push(slots[cur as usize].take().expect("list node visited once"));
+        cur = next[cur as usize];
+    }
+    debug_assert_eq!(out.len(), n);
+    out
 }
 
 // ---------------------------------------------------------------------------
@@ -1422,5 +1466,86 @@ mod tests {
         let mut sorted_r1 = r1.clone();
         sorted_r1.sort();
         assert_eq!(sorted_r1, w);
+    }
+
+    /// The straightforward transcription of libstdc++'s `list::sort()` on
+    /// vectors (one vector per `std::list`), kept as the reference for the
+    /// index-linked implementation.
+    fn reference_list_sort<T, F: FnMut(&T, &T) -> bool>(items: Vec<T>, comp: &mut F) -> Vec<T> {
+        fn merge<T, F: FnMut(&T, &T) -> bool>(this: &mut Vec<T>, x: &mut Vec<T>, comp: &mut F) {
+            let a = std::mem::take(this);
+            let b = std::mem::take(x);
+            let mut out = Vec::with_capacity(a.len() + b.len());
+            let mut ia = a.into_iter().peekable();
+            let mut ib = b.into_iter().peekable();
+            while let (Some(f1), Some(f2)) = (ia.peek(), ib.peek()) {
+                if comp(f2, f1) {
+                    out.push(ib.next().unwrap());
+                } else {
+                    out.push(ia.next().unwrap());
+                }
+            }
+            out.extend(ia);
+            out.extend(ib);
+            *this = out;
+        }
+        if items.len() < 2 {
+            return items;
+        }
+        let mut input = std::collections::VecDeque::from(items);
+        let mut carry: Vec<T> = Vec::new();
+        let mut tmp: Vec<Vec<T>> = (0..64).map(|_| Vec::new()).collect();
+        let mut fill = 0;
+        while let Some(front) = input.pop_front() {
+            carry.insert(0, front);
+            let mut counter = 0;
+            while counter != fill && !tmp[counter].is_empty() {
+                merge(&mut tmp[counter], &mut carry, comp);
+                std::mem::swap(&mut carry, &mut tmp[counter]);
+                counter += 1;
+            }
+            std::mem::swap(&mut carry, &mut tmp[counter]);
+            if counter == fill {
+                fill += 1;
+            }
+        }
+        for counter in 1..fill {
+            let (lo, hi) = tmp.split_at_mut(counter);
+            merge(&mut hi[0], &mut lo[counter - 1], comp);
+        }
+        std::mem::take(&mut tmp[fill - 1])
+    }
+
+    #[test]
+    fn libstdcxx_sort_same_comparisons_as_reference() {
+        // Same result and the same sequence of comparator calls as the
+        // reference, also for comparators that are not orderings.
+        let mut seed: u32 = 12345;
+        let mut rnd = move || {
+            seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+            seed >> 8
+        };
+        for round in 0..400 {
+            let n = (rnd() % 70) as usize;
+            let v: Vec<(u32, usize)> = (0..n).map(|i| (rnd() % 9, i)).collect();
+            let kind = round % 3;
+            let less = move |a: &(u32, usize), b: &(u32, usize)| match kind {
+                0 => a.0 < b.0,
+                1 => (a.0 * 7 + b.0 * 3 + a.1 as u32) % 5 < 2,
+                _ => a.0 <= b.0,
+            };
+            let mut calls_new = Vec::new();
+            let got = libstdcxx_list_sort(v.clone(), &mut |a: &(u32, usize), b: &(u32, usize)| {
+                calls_new.push((a.1, b.1));
+                less(a, b)
+            });
+            let mut calls_ref = Vec::new();
+            let expect = reference_list_sort(v, &mut |a: &(u32, usize), b: &(u32, usize)| {
+                calls_ref.push((a.1, b.1));
+                less(a, b)
+            });
+            assert_eq!(got, expect, "round {round}");
+            assert_eq!(calls_new, calls_ref, "round {round}");
+        }
     }
 }

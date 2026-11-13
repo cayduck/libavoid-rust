@@ -581,6 +581,9 @@ pub struct Router {
     // --- arenas (no upstream counterpart; see module docs) ---
     pub vert_infs: VertArena,
     pub edge_infs: EdgeArena,
+    /// Index of the active edges by vertex pair, for `EdgeInf::existingEdge()`
+    /// (no upstream counterpart; see `EdgePairIndex`).
+    pub edge_pair_index: crate::avoid::graph::EdgePairIndex,
     /// Cells allocated by `VertInf::makeTreeRootPointer()`.
     pub tree_root_cells: Arena<TreeRootPtr, Option<VertIdx>>,
     pub obstacles: ObstacleArena,
@@ -1027,6 +1030,7 @@ impl Router {
         Router {
             vert_infs: Arena::new(),
             edge_infs: Arena::new(),
+            edge_pair_index: Default::default(),
             tree_root_cells: Arena::new(),
             obstacles: Arena::new(),
             conns: Arena::new(),

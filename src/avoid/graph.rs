@@ -30,13 +30,120 @@ use crate::avoid::geometry::{euclidean_dist, in_valid_region, segment_shape_inte
 use crate::avoid::geomtypes::Point;
 use crate::avoid::router::Router;
 use crate::avoid::vertices::{
-    EdgeArena, EdgeListLink, EdgePos, ShapeSet, VertArena, VertID, DUMMY_ORTHOG_ID,
+    EdgeArena, EdgeEnd, EdgeInfList, EdgeListLink, EdgePos, ShapeSet, VertArena, VertID, DUMMY_ORTHOG_ID,
 };
 
 // upstream: graph.h typedef std::list<int> ShapeList
 pub type ShapeList = Vec<i32>;
 // upstream: graph.h typedef std::list<bool *> FlagList
 pub type FlagList = Vec<RerouteFlagIdx>;
+
+/// Index of the *active* edges (those in their vertices' edge lists, i.e.
+/// `m_added`) by unordered vertex pair.  No upstream counterpart: upstream's
+/// `EdgeInf::existingEdge()` walks a vertex's edge lists, which makes
+/// building the (in)visibility graph cubic in the number of vertices; the
+/// index answers the same question in constant time.
+///
+/// It is maintained by `makeActive()` / `makeInactive()`, the only places
+/// that change list membership.  When exactly one active edge joins a pair
+/// (the normal case: `existingEdge()` is what callers use to avoid making a
+/// second one), that edge is what the list walk finds, whatever the list
+/// order.  For a pair with several active edges the walk's answer depends
+/// on the lists, so the index only records that fact and
+/// `existing_edge()` falls back to the walk.
+#[derive(Default)]
+pub struct EdgePairIndex {
+    /// The pair's active edge, or `EdgeIdx::dangling()` (which names no
+    /// edge; an `Option` would make every entry larger) when the pair has
+    /// several, or one that is not recorded.
+    map: std::collections::HashMap<u64, EdgeIdx, std::hash::BuildHasherDefault<PairHasher>>,
+    /// Number of active edges of the pairs that have, or had, several.
+    several: std::collections::HashMap<u64, u32>,
+}
+
+/// What the index knows about a pair.
+enum PairLookup {
+    /// No active edge.
+    None,
+    /// Exactly this active edge.
+    One(EdgeIdx),
+    /// Several active edges (or one that is not recorded): walk the lists.
+    Walk,
+}
+
+/// Multiplicative hasher for the `u64` pair keys (never iterated, so the
+/// map's order cannot influence anything).
+#[derive(Default)]
+pub struct PairHasher(u64);
+
+impl std::hash::Hasher for PairHasher {
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.0 = (self.0.rotate_left(5) ^ b as u64).wrapping_mul(0x517c_c1b7_2722_0a95);
+        }
+    }
+    #[inline]
+    fn write_u64(&mut self, v: u64) {
+        let h = v.wrapping_mul(0x9e37_79b9_7f4a_7c15);
+        self.0 = h ^ (h >> 32);
+    }
+}
+
+impl EdgePairIndex {
+    /// Active edges only join live vertices and a lookup is made with live
+    /// handles, so the slot numbers identify the pair.
+    #[inline]
+    fn key(i: VertIdx, j: VertIdx) -> u64 {
+        let (a, b) = (i.slot(), j.slot());
+        let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+        ((lo as u64) << 32) | hi as u64
+    }
+
+    fn insert(&mut self, i: VertIdx, j: VertIdx, e: EdgeIdx) {
+        let key = Self::key(i, j);
+        match self.map.entry(key) {
+            std::collections::hash_map::Entry::Vacant(v) => {
+                v.insert(e);
+            }
+            std::collections::hash_map::Entry::Occupied(mut o) => {
+                o.insert(EdgeIdx::dangling());
+                *self.several.entry(key).or_insert(1) += 1;
+            }
+        }
+    }
+
+    fn remove(&mut self, i: VertIdx, j: VertIdx) {
+        let key = Self::key(i, j);
+        match self.several.get_mut(&key) {
+            Some(count) => {
+                // The remaining edge(s) stay unrecorded.
+                *count -= 1;
+                if *count == 0 {
+                    self.several.remove(&key);
+                    self.map.remove(&key);
+                }
+            }
+            None => {
+                let removed = self.map.remove(&key);
+                debug_assert!(removed.is_some(), "edge pair index: removing an unknown pair");
+            }
+        }
+    }
+
+    #[inline]
+    fn lookup(&self, i: VertIdx, j: VertIdx) -> PairLookup {
+        match self.map.get(&Self::key(i, j)) {
+            None => PairLookup::None,
+            Some(e) if *e != EdgeIdx::dangling() => PairLookup::One(*e),
+            Some(_) => PairLookup::Walk,
+        }
+    }
+}
 
 /// Upstream `class EdgeInf`.
 // upstream: graph.h class EdgeInf
@@ -212,8 +319,8 @@ impl EdgeInf {
             debug_assert!(!edge.m_added);
             (edge.m_orthogonal, edge.m_visible, edge.m_vert1, edge.m_vert2)
         };
-        let pos1 = EdgePos { edge: e, end: 0 };
-        let pos2 = EdgePos { edge: e, end: 1 };
+        let pos1 = EdgePos { edge: e, end: EdgeEnd::First };
+        let pos2 = EdgePos { edge: e, end: EdgeEnd::Second };
 
         let Router {
             vert_infs,
@@ -246,6 +353,7 @@ impl EdgeInf {
             vert_infs[v2].invis_list_size += 1;
         }
         edge_infs[e].m_added = true;
+        router.edge_pair_index.insert(v1, v2, e);
     }
 
     // upstream: graph.cpp EdgeInf::makeInactive()
@@ -255,8 +363,8 @@ impl EdgeInf {
             debug_assert!(edge.m_added);
             (edge.m_orthogonal, edge.m_visible, edge.m_vert1, edge.m_vert2)
         };
-        let pos1 = EdgePos { edge: e, end: 0 };
-        let pos2 = EdgePos { edge: e, end: 1 };
+        let pos1 = EdgePos { edge: e, end: EdgeEnd::First };
+        let pos2 = EdgePos { edge: e, end: EdgeEnd::Second };
 
         let Router {
             vert_infs,
@@ -292,6 +400,7 @@ impl EdgeInf {
         edge.m_blocker = 0;
         edge.m_conns.clear();
         edge.m_added = false;
+        router.edge_pair_index.remove(v1, v2);
     }
 
     // upstream: graph.cpp EdgeInf::setDist()
@@ -631,14 +740,47 @@ impl EdgeInf {
 
     // upstream: graph.cpp EdgeInf::existingEdge()
     pub fn existing_edge(router: &Router, i: VertIdx, j: VertIdx) -> Option<EdgeIdx> {
+        // (not upstream: the pair index gives the walk's answer directly
+        // unless several active edges join the pair; see `EdgePairIndex`)
+        match router.edge_pair_index.lookup(i, j) {
+            PairLookup::None => {
+                debug_assert_eq!(EdgeInf::existing_edge_walk(router, i, j), None);
+                None
+            }
+            PairLookup::One(e) => {
+                debug_assert_eq!(EdgeInf::existing_edge_walk(router, i, j), Some(e));
+                Some(e)
+            }
+            PairLookup::Walk => EdgeInf::existing_edge_walk(router, i, j),
+        }
+    }
+
+    /// Upstream's `existingEdge()`: the walk over the edge lists.
+    // upstream: graph.cpp EdgeInf::existingEdge()
+    fn existing_edge_walk(router: &Router, i: VertIdx, j: VertIdx) -> Option<EdgeIdx> {
         let verts = &router.vert_infs;
         let edges = &router.edge_infs;
         let vi = &verts[i];
         let vj = &verts[j];
 
+        // One arena access per list node: the node's edge gives both the
+        // test and the link to the next node.
+        #[inline]
+        fn find(edges: &EdgeArena, list: &EdgeInfList, i: VertIdx, j: VertIdx) -> Option<EdgeIdx> {
+            let mut cur = list.first();
+            while let Some(p) = cur {
+                let edge = &edges[p.edge];
+                if edge.is_between(i, j) {
+                    return Some(p.edge);
+                }
+                cur = edge.m_pos[p.end as usize].next;
+            }
+            None
+        }
+
         // Look through poly-line visibility edges.
         let selected = if vi.vis_list_size <= vj.vis_list_size { vi } else { vj };
-        if let Some(e) = selected.vis_list.iter(edges).find(|&e| edges[e].is_between(i, j)) {
+        if let Some(e) = find(edges, &selected.vis_list, i, j) {
             return Some(e);
         }
 
@@ -648,17 +790,13 @@ impl EdgeInf {
         } else {
             vj
         };
-        if let Some(e) = selected
-            .orthog_vis_list
-            .iter(edges)
-            .find(|&e| edges[e].is_between(i, j))
-        {
+        if let Some(e) = find(edges, &selected.orthog_vis_list, i, j) {
             return Some(e);
         }
 
         // Look through poly-line invisibility edges.
         let selected = if vi.invis_list_size <= vj.invis_list_size { vi } else { vj };
-        if let Some(e) = selected.invis_list.iter(edges).find(|&e| edges[e].is_between(i, j)) {
+        if let Some(e) = find(edges, &selected.invis_list, i, j) {
             return Some(e);
         }
 

@@ -1832,6 +1832,13 @@ fn mid_vertex_number(p0: &Point, p1: &Point, c: &Point) -> u16 {
 /// element, i.e. the index is unchanged.
 // upstream: connector.cpp splitBranchingSegments()
 pub fn split_branching_segments(poly: &mut Polygon, poly_is_conn: bool, conn: &mut Polygon, tolerance: f64) {
+    // (not upstream) Nothing below changes anything unless a point of one
+    // route lies on a segment of the other; most pairs of routes are far
+    // apart, which `routes_cannot_touch()` detects from their bounding
+    // boxes.
+    if routes_cannot_touch(poly, poly_is_conn, conn) {
+        return;
+    }
     let mut i: usize = 0;
     while i != conn.ps.len() {
         if i == 0 {
@@ -1894,6 +1901,52 @@ pub fn split_branching_segments(poly: &mut Polygon, poly_is_conn: bool, conn: &m
             j += 1;
         }
         i += 1;
+    }
+}
+
+/// Whether no point of one route can lie on a segment of the other, i.e.
+/// whether `pointOnLine()` is false for every pair `splitBranchingSegments()`
+/// would test (false if either list is empty: nothing is tested then, but
+/// the plain loops deal with that).
+///
+/// `pointOnLine(a, b, c)` has three cases, chosen by the segment `ab`:
+/// * `a.x == b.x`: needs `c.x == a.x` and `c.y` strictly between;
+/// * `a.y == b.y`: needs `c.y == a.y` and `c.x` strictly between;
+/// * otherwise: needs `c.x` strictly between (or, for an almost vertical
+///   segment, `c.y` strictly between), and collinearity.
+///
+/// So with only horizontal and vertical segments, a point outside the
+/// segment's range in either dimension is not on it, and bounding boxes
+/// that are strictly apart in x or in y rule every pair out.  A segment of
+/// the third kind is only known to need the point inside its range in one
+/// of the dimensions, so then the boxes must be apart in both.
+fn routes_cannot_touch(poly: &Polygon, poly_is_conn: bool, conn: &Polygon) -> bool {
+    /// (min x, max x, min y, max y, all segments horizontal or vertical)
+    fn survey(p: &Polygon, closed: bool) -> Option<(f64, f64, f64, f64, bool)> {
+        let first = p.ps.first()?;
+        let mut r = (first.x, first.x, first.y, first.y, true);
+        let mut prev = if closed { p.ps.last()? } else { first };
+        for q in &p.ps {
+            r.0 = r.0.min(q.x);
+            r.1 = r.1.max(q.x);
+            r.2 = r.2.min(q.y);
+            r.3 = r.3.max(q.y);
+            r.4 &= prev.x == q.x || prev.y == q.y;
+            prev = q;
+        }
+        Some(r)
+    }
+    match (survey(poly, !poly_is_conn), survey(conn, false)) {
+        (Some(a), Some(b)) => {
+            let apart_x = a.1 < b.0 || b.1 < a.0;
+            let apart_y = a.3 < b.2 || b.3 < a.2;
+            if a.4 && b.4 {
+                apart_x || apart_y
+            } else {
+                apart_x && apart_y
+            }
+        }
+        _ => false,
     }
 }
 

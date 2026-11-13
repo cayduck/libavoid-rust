@@ -171,10 +171,20 @@ impl<I> Ord for PtrKey<I> {
     }
 }
 
+/// Slots per chunk of an arena (a power of two).
+const CHUNK_BITS: u32 = 12;
+const CHUNK: usize = 1 << CHUNK_BITS;
+
 /// Slot arena with free-list reuse and generation-checked handles.
 #[derive(Clone, Debug)]
 pub struct Arena<I: ArenaIndex, T> {
-    slots: Vec<(u32, Option<T>)>,
+    /// The slots, in chunks of `CHUNK` (all full but the last).  A single
+    /// vector would be copied on every growth and, while that copy is made,
+    /// hold the old and the new buffer at once; with a million visibility
+    /// edges that doubled the peak memory.
+    chunks: Vec<Vec<(u32, Option<T>)>>,
+    /// Number of slots.
+    slot_count: usize,
     free: Vec<u32>,
     live: usize,
     _marker: PhantomData<I>,
@@ -195,7 +205,8 @@ fn dead_handle(index: usize, generation: u32) -> ! {
 impl<I: ArenaIndex, T> Arena<I, T> {
     pub fn new() -> Self {
         Arena {
-            slots: Vec::new(),
+            chunks: Vec::new(),
+            slot_count: 0,
             free: Vec::new(),
             live: 0,
             _marker: PhantomData,
@@ -207,19 +218,24 @@ impl<I: ArenaIndex, T> Arena<I, T> {
         self.live += 1;
         let reuse = !NO_SLOT_REUSE.load(std::sync::atomic::Ordering::Relaxed);
         if let Some(slot) = if reuse { self.free.pop() } else { None } {
-            let s = &mut self.slots[slot as usize];
+            let s = &mut self.chunks[slot as usize >> CHUNK_BITS][slot as usize & (CHUNK - 1)];
             debug_assert!(s.1.is_none());
             s.1 = Some(value);
             I::from_parts(slot as usize, s.0)
         } else {
-            self.slots.push((0, Some(value)));
-            I::from_parts(self.slots.len() - 1, 0)
+            if self.slot_count & (CHUNK - 1) == 0 {
+                self.chunks.push(Vec::new());
+            }
+            self.chunks.last_mut().unwrap().push((0, Some(value)));
+            self.slot_count += 1;
+            I::from_parts(self.slot_count - 1, 0)
         }
     }
 
     #[inline]
     fn slot(&self, handle: I) -> Option<&T> {
-        match self.slots.get(handle.index()) {
+        let index = handle.index();
+        match self.chunks.get(index >> CHUNK_BITS).and_then(|c| c.get(index & (CHUNK - 1))) {
             Some((g, Some(v))) if *g == handle.generation() => Some(v),
             _ => None,
         }
@@ -227,7 +243,8 @@ impl<I: ArenaIndex, T> Arena<I, T> {
 
     #[inline]
     fn slot_mut(&mut self, handle: I) -> Option<&mut T> {
-        match self.slots.get_mut(handle.index()) {
+        let index = handle.index();
+        match self.chunks.get_mut(index >> CHUNK_BITS).and_then(|c| c.get_mut(index & (CHUNK - 1))) {
             Some((g, Some(v))) if *g == handle.generation() => Some(v),
             _ => None,
         }
@@ -240,7 +257,7 @@ impl<I: ArenaIndex, T> Arena<I, T> {
         if self.slot(handle).is_none() {
             dead_handle(index, handle.generation());
         }
-        let s = &mut self.slots[index];
+        let s = &mut self.chunks[index >> CHUNK_BITS][index & (CHUNK - 1)];
         let value = s.1.take().unwrap();
         s.0 = s.0.wrapping_add(1);
         // A slot whose generation wrapped is retired rather than reused, so
@@ -283,8 +300,9 @@ impl<I: ArenaIndex, T> Arena<I, T> {
     /// (see module docs); only use this where the order cannot matter
     /// (e.g. assertions, statistics).
     pub fn iter_unordered(&self) -> impl Iterator<Item = (I, &T)> {
-        self.slots
+        self.chunks
             .iter()
+            .flatten()
             .enumerate()
             .filter_map(|(i, (g, s))| s.as_ref().map(|t| (I::from_parts(i, *g), t)))
     }
