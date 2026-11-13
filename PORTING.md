@@ -105,17 +105,34 @@ detects them: erasing the `std::set` element being iterated, a double free
 (detected by the bump allocator), and a connector used by the test driver
 after a transaction had freed it.
 
-On the port before the last two hyperedge guard changes, 336 scenes took
-more than 20 seconds. 328 of them never take one of the port's hyperedge
-guard branches: there the port runs upstream's own algorithm, mostly
-hyperedge improvement that adds junctions on every transaction (in a
-random sample of 15, the C++ finished 2, both identical, ran out of memory
-on 11, timed out after 5 minutes on 1, and 1 is now excluded as undefined
-behaviour). Of the 7 that took a guard, the three that kept growing
-because of what the guard left behind are fixed (see "Upstream
-non-termination" in `src/avoid/router.rs`).
+The 300 slow scenes were traced on the final port (each run for up to 40
+seconds, with the guard firings logged). None panics. In 296 no hyperedge
+guard of the port fires at all: there the port runs upstream's own
+algorithm, mostly hyperedge improvement that adds junctions on every
+transaction (on an earlier port, in a random sample of 15 such scenes the
+C++ finished 2, both identical, ran out of memory on 11, timed out after 5
+minutes on 1, and 1 is now excluded as undefined behaviour). In the other
+four a guard fires:
 
-Three more of them take a hyperedge-rerouter guard: s23-1062 (no junction),
+- **s7-942** is slow from command 83 on; the guard (rerouter, no junction)
+  first fires at command 118 and the object counts do not change there.
+- **s26-508** takes the improver's split-parallel-edges guard on a cyclic
+  hyperedge. The growth starts at command 81, in a stretch where the guard
+  does not fire, and a variant of the scene in which it never fires grows
+  the same way; the C++ matches the port bit for bit on that variant (and
+  on a longer one, which the ASan build finishes and the bump-allocator
+  build runs out of memory on). The guard returns before changing
+  anything. After command 108 the guard fires in every transaction and
+  upstream itself does not return, so there is no reference for that
+  stretch; the growth rate there is the one verified before it.
+- **s23-1062** and **s25-1506** take a hyperedge-rerouter guard and are
+  covered below, together with s25-1253, which was slow before the skip
+  clean-up and no longer is.
+
+Earlier, three scenes that kept growing because of what a guard left behind
+were fixed (see "Upstream non-termination" in `src/avoid/router.rs`).
+
+The rerouter guard scenes are s23-1062 (no junction),
 s25-1253 (no junction, then a cyclic MTST tree) and s25-1506 (cyclic MTST
 tree). A provenance trace (`E2E_PROV`, see `tests/e2e_fuzz.rs`) and variants
 of the scenes without the skipped registration settled each case:
