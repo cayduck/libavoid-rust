@@ -35,7 +35,7 @@ use crate::avoid::connector::{
     split_branching_segments_from, validate_bend_point, ConnType, ConnectorCrossings, RouteBounds, CROSSING_SHARES_FIXED_SEGMENT, CROSSING_SHARES_PATH,
     CROSSING_SHARES_PATH_AT_END,
 };
-use crate::avoid::geometry::{euclidean_dist, manhattan_dist, vec_dir};
+use crate::avoid::geometry::{euclidean_dist, manhattan_dist, point_on_line, vec_dir};
 use crate::avoid::geomtypes::{cpp_min, Point, Polygon, PolygonInterface, XDIM, YDIM};
 use crate::avoid::router::{Router, RoutingOption, RoutingParameter};
 use crate::avoid::vertices::{VertID, VertIDProps, VertInf, XH_EDGE, XL_EDGE, YH_EDGE, YL_EDGE};
@@ -795,7 +795,6 @@ fn cost(
                     continue;
                 }
             }
-            let (c_boundary, dynamic_conn_route) = (&mut others.scratch.0, &mut others.scratch.1);
             debug_assert!(cb.poly.ps[0] != cb.poly.ps[cb.poly.size() - 1]);
             // Upstream also asserts that every non-orthogonal cluster
             // boundary point is a router vertex ("should correspond to shape
@@ -807,17 +806,22 @@ fn cost(
             // (splitBranchingSegments() as countForSegment() would run it,
             // from the state cached for this route prefix; see
             // `PrefixSplits`)
-            others.cluster_prefixes.split(ci, &conn_route, &cb.poly, is_conn, f64::EPSILON, c_boundary, dynamic_conn_route);
             let final_segment = Some(inf3) == router.conns[line_ref].dst();
             let mut cross = ConnectorCrossings::new(is_conn, None, None);
             cross.check_for_branching_segments = true;
             cross.already_split = true;
-            cross.count_for_segment(
-                &*router,
-                c_boundary,
-                dynamic_conn_route,
-                dynamic_conn_route.size() - 1,
-                final_segment,
+            let r: &Router = router;
+            others.cluster_prefixes.with_split(
+                ci,
+                &conn_route,
+                &cb.poly,
+                is_conn,
+                f64::EPSILON,
+                &mut others.scratch,
+                |c_boundary, dynamic_conn_route| {
+                    let c_index = dynamic_conn_route.size() - 1;
+                    cross.count_for_segment(r, c_boundary, dynamic_conn_route, c_index, final_segment);
+                },
             );
 
             result += cross.crossing_count as f64 * cluster_crossing_penalty;
@@ -933,29 +937,24 @@ fn cost(
             // (copies into reused buffers, split as countForSegment() would
             // split them, from the state cached for this route prefix; see
             // `PrefixSplits`)
-            let (dynamic_route2, dynamic_conn_route) = (&mut others.scratch.0, &mut others.scratch.1);
             let is_conn = true;
-            others.conn_prefixes.split(
-                oi,
-                &conn_route,
-                &router.conns[conn_ref].m_display_route,
-                is_conn,
-                0.0,
-                dynamic_route2,
-                dynamic_conn_route,
-            );
-
             let dst_point = router.vert_infs[router.conns[line_ref].dst().unwrap()].point;
             let final_segment = router.vert_infs[inf3].point == dst_point;
             let mut cross = ConnectorCrossings::new(is_conn, Some(conn_ref), Some(line_ref));
             cross.check_for_branching_segments = true;
             cross.already_split = true;
-            cross.count_for_segment(
-                &*router,
-                dynamic_route2,
-                dynamic_conn_route,
-                dynamic_conn_route.size() - 1,
-                final_segment,
+            let r: &Router = router;
+            others.conn_prefixes.with_split(
+                oi,
+                &conn_route,
+                &r.conns[conn_ref].m_display_route,
+                is_conn,
+                0.0,
+                &mut others.scratch,
+                |dynamic_route2, dynamic_conn_route| {
+                    let c_index = dynamic_conn_route.size() - 1;
+                    cross.count_for_segment(r, dynamic_route2, dynamic_conn_route, c_index, final_segment);
+                },
             );
 
             if (cross.crossing_flags & CROSSING_SHARES_PATH) != 0
@@ -1116,20 +1115,22 @@ impl PrefixSplits {
         }
     }
 
-    /// `out_poly`, `out_conn`: `poly` (polygon number `i`) and `conn_route`
-    /// after splitBranchingSegments(poly, poly_is_conn, conn_route,
-    /// tolerance).
+    /// Calls `f` with `poly` (polygon number `i`) and `conn_route` after
+    /// splitBranchingSegments(poly, poly_is_conn, conn_route, tolerance);
+    /// `f` must not change them.  When the last segment inserts nothing
+    /// (`last_segment_splits()`), they are the cached state plus the last
+    /// point, lent without copying; otherwise copies in `scratch` are split.
     #[allow(clippy::too_many_arguments)]
-    fn split(
+    fn with_split<R>(
         &mut self,
         i: usize,
         conn_route: &Polygon,
         poly: &Polygon,
         poly_is_conn: bool,
         tolerance: f64,
-        out_poly: &mut Polygon,
-        out_conn: &mut Polygon,
-    ) {
+        scratch: &mut (Polygon, Polygon),
+        f: impl FnOnce(&mut Polygon, &mut Polygon) -> R,
+    ) -> R {
         if self.entries.len() <= i {
             self.entries.resize_with(i + 1, || (0, Polygon::new(), Polygon::new()));
         }
@@ -1141,24 +1142,64 @@ impl PrefixSplits {
             e.2.ps.pop();
             split_branching_segments_from(&mut e.1, poly_is_conn, &mut e.2, tolerance, 0);
         }
+        let last = *conn_route.ps.last().expect("empty route");
+        let c0 = *e.2.ps.last().expect("empty route prefix");
+        #[cfg(debug_assertions)]
+        let expected = {
+            let (mut p, mut c) = (poly.clone(), conn_route.clone());
+            crate::avoid::connector::split_branching_segments(&mut p, poly_is_conn, &mut c, tolerance);
+            (p, c)
+        };
+        #[cfg(debug_assertions)]
+        let same = |a: &Polygon, b: &Polygon| {
+            a.ps.len() == b.ps.len()
+                && a.ps.iter().zip(&b.ps).all(|(x, y)| {
+                    x.x.to_bits() == y.x.to_bits() && x.y.to_bits() == y.y.to_bits() && x.vn == y.vn && x.id == y.id
+                })
+        };
+        if !last_segment_splits(&e.1, poly_is_conn, c0, last, e.2.ps.len() == 1, tolerance) {
+            e.2.ps.push(last);
+            #[cfg(debug_assertions)]
+            debug_assert!(same(&expected.0, &e.1) && same(&expected.1, &e.2));
+            let r = f(&mut e.1, &mut e.2);
+            #[cfg(debug_assertions)]
+            debug_assert!(same(&expected.0, &e.1) && same(&expected.1, &e.2), "f changed the cached state");
+            e.2.ps.pop();
+            return r;
+        }
+        let (out_poly, out_conn) = (&mut scratch.0, &mut scratch.1);
         out_poly.assign_from(&e.1);
         out_conn.assign_from(&e.2);
-        out_conn.ps.push(*conn_route.ps.last().expect("empty route"));
+        out_conn.ps.push(last);
         let start = e.2.ps.len();
         split_branching_segments_from(out_poly, poly_is_conn, out_conn, tolerance, start);
         #[cfg(debug_assertions)]
+        debug_assert!(same(&expected.0, out_poly) && same(&expected.1, out_conn));
+        f(out_poly, out_conn)
+    }
+}
+
+/// Whether splitBranchingSegments(), handling the segment `c0`-`c1` of the
+/// route (its first one if `first`) against `poly`, would insert a point:
+/// the tests its inner loop makes before it changes anything (not
+/// upstream).
+fn last_segment_splits(poly: &Polygon, poly_is_conn: bool, c0: Point, c1: Point, first: bool, tolerance: f64) -> bool {
+    let n = poly.ps.len();
+    for j in 0..n {
+        if poly_is_conn && j == 0 {
+            continue;
+        }
+        let p0 = poly.ps[if j == 0 { n - 1 } else { j - 1 }];
+        let p1 = poly.ps[j];
+        if (first && point_on_line(&p0, &p1, &c0, tolerance))
+            || point_on_line(&p0, &p1, &c1, tolerance)
+            || (poly_is_conn && j == 1 && point_on_line(&c0, &c1, &p0, tolerance))
+            || point_on_line(&c0, &c1, &p1, tolerance)
         {
-            let (mut p, mut c) = (poly.clone(), conn_route.clone());
-            crate::avoid::connector::split_branching_segments(&mut p, poly_is_conn, &mut c, tolerance);
-            let same = |a: &Polygon, b: &Polygon| {
-                a.ps.len() == b.ps.len()
-                    && a.ps.iter().zip(&b.ps).all(|(x, y)| {
-                        x.x.to_bits() == y.x.to_bits() && x.y.to_bits() == y.y.to_bits() && x.vn == y.vn && x.id == y.id
-                    })
-            };
-            debug_assert!(same(&p, out_poly) && same(&c, out_conn));
+            return true;
         }
     }
+    false
 }
 
 /// Uniform grid over the axis-aligned segments of the other routes, by
