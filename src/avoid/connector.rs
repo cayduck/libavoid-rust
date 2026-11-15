@@ -2072,6 +2072,10 @@ pub(crate) struct RouteBounds {
     /// No coordinate is NaN.  With NaN the geometry predicates' comparisons
     /// all fail and nothing can be ruled out from the bounds.
     nan_free: bool,
+    /// For a single segment that is not axis-aligned: the dimension in
+    /// which `inBetween()` requires a point to lie strictly inside it (0:
+    /// x, 1: y).  2 otherwise.
+    between_dim: u8,
 }
 
 impl RouteBounds {
@@ -2090,6 +2094,7 @@ impl RouteBounds {
             max_y: first.y,
             axis_aligned: true,
             nan_free: true,
+            between_dim: 2,
         };
         let mut prev = if closed { ps.last()? } else { first };
         for q in ps {
@@ -2100,6 +2105,10 @@ impl RouteBounds {
             r.axis_aligned &= prev.x == q.x || prev.y == q.y;
             r.nan_free &= !q.x.is_nan() && !q.y.is_nan();
             prev = q;
+        }
+        if ps.len() == 2 && !r.axis_aligned {
+            // inBetween(): x unless the segment is (nearly) vertical.
+            r.between_dim = if (ps[0].x - ps[1].x).abs() > f64::EPSILON { 0 } else { 1 };
         }
         Some(r)
     }
@@ -2135,6 +2144,7 @@ impl RouteBounds {
             max_y: self.max_y.max(b.max_y),
             axis_aligned: self.axis_aligned && b.axis_aligned,
             nan_free: self.nan_free && b.nan_free,
+            between_dim: 2,
         }
     }
 
@@ -2146,6 +2156,32 @@ impl RouteBounds {
             return false;
         }
         self.max_x < b.min_x || b.max_x < self.min_x || self.max_y < b.min_y || b.max_y < self.min_y
+    }
+
+    /// For two single segments (`of_points()` of two points each): whether
+    /// no end of one can lie on the other (`pointOnLine()`), no end of one
+    /// equals an end of the other, and they cannot intersect
+    /// (`segmentIntersectPoint()` rejects boxes apart in x or y first).
+    /// Equality and intersection need the boxes to meet in both dimensions;
+    /// a point on an axis-aligned segment too, and a point on another
+    /// segment only in that segment's `inBetween()` dimension.  This is
+    /// `cannot_touch()` refined for segments that are not axis-aligned.
+    #[inline]
+    pub(crate) fn segment_cannot_touch(&self, b: &RouteBounds) -> bool {
+        if !(self.nan_free && b.nan_free) {
+            return false;
+        }
+        let apart_x = self.max_x < b.min_x || b.max_x < self.min_x;
+        let apart_y = self.max_y < b.min_y || b.max_y < self.min_y;
+        match (apart_x, apart_y) {
+            (true, true) => true,
+            (false, false) => false,
+            _ => {
+                let apart_dim = if apart_x { 0 } else { 1 };
+                let ok = |s: &RouteBounds| s.between_dim == 2 || s.between_dim == apart_dim;
+                ok(self) && ok(b)
+            }
+        }
     }
 
     /// See `routes_cannot_touch()`.
@@ -2830,5 +2866,61 @@ impl<'a> ConnectorCrossings<'a> {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod route_bounds_tests {
+    use super::*;
+    use crate::avoid::geometry::{point_on_line, segment_intersect_point, DO_INTERSECT};
+
+    /// `segment_cannot_touch()` (and `cannot_touch()`) never rule out a pair
+    /// of segments for which one of the predicates splitBranchingSegments()
+    /// and countForSegment() use holds.
+    #[test]
+    fn segment_cannot_touch_is_sound() {
+        let mut seed: u64 = 0x9e37_79b9_7f4a_7c15;
+        let mut next = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        let mut coord = |n: &mut dyn FnMut() -> u64| -> f64 {
+            // Small grid (many shared and collinear points), sometimes
+            // nudged by tiny amounts.
+            let base = (n() % 7) as f64 * 10.0;
+            match n() % 4 {
+                0 => base + 1e-15,
+                1 => base - 1e-9,
+                _ => base,
+            }
+        };
+        let mut checked = 0;
+        for _ in 0..200_000 {
+            let mut pt = || Point::new(coord(&mut next), coord(&mut next));
+            let (a1, a2, b1, b2) = (pt(), pt(), pt(), pt());
+            let (Some(sa), Some(sb)) = (RouteBounds::of_points(&[a1, a2], false), RouteBounds::of_points(&[b1, b2], false))
+            else {
+                unreachable!()
+            };
+            for skip in [sa.segment_cannot_touch(&sb), sa.cannot_touch(&sb)] {
+                if !skip {
+                    continue;
+                }
+                checked += 1;
+                for tol in [0.0, f64::EPSILON] {
+                    for (p, q, c) in [(a1, a2, b1), (a1, a2, b2), (b1, b2, a1), (b1, b2, a2)] {
+                        assert!(!point_on_line(&p, &q, &c, tol), "{p:?} {q:?} {c:?}");
+                    }
+                }
+                for (p, q) in [(a1, b1), (a1, b2), (a2, b1), (a2, b2)] {
+                    assert!(p != q);
+                }
+                let (mut x, mut y) = (0.0, 0.0);
+                assert!(segment_intersect_point(&a1, &a2, &b1, &b2, &mut x, &mut y) != DO_INTERSECT);
+            }
+        }
+        assert!(checked > 10_000);
     }
 }

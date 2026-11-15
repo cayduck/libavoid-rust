@@ -610,6 +610,14 @@ impl Polygon {
     }
 
     // upstream: geomtypes.cpp Polygon::simplify()
+    /// `*self = other.clone()`, reusing `self`'s buffers (not upstream).
+    pub fn assign_from(&mut self, other: &Polygon) {
+        self._id = other._id;
+        self.ps.clone_from(&other.ps);
+        self.ts.clone_from(&other.ts);
+        self.checkpoints_on_route.clone_from(&other.checkpoints_on_route);
+    }
+
     pub fn simplify(&self) -> Polygon {
         // Copy the PolyLine.
         let mut simplified = self.clone();

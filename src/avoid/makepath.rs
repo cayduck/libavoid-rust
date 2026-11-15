@@ -661,6 +661,7 @@ fn cost(
     router: &mut Router,
     nodes: &ANodes,
     others: &mut OtherRoutes,
+    cluster_boundaries: &[ClusterBoundary],
     line_ref: ConnIdx,
     dist: f64,
     inf2: VertIdx,
@@ -712,16 +713,21 @@ fn cost(
             construct_polygon_path(router, nodes, &mut conn_route, inf2, inf3, inf1_node);
         }
         // There are clusters so do cluster routing.
-        let clusters = router.cluster_refs.clone();
-        for cl in clusters {
-            let mut c_boundary = if is_orthogonal {
-                router.clusters[cl].rectangular_polygon().clone()
-            } else {
-                Polygon::from_interface(&router.clusters[cl].polygon().view(&*router))
-            };
-            if c_boundary.size() <= 2 {
+        // (not upstream) The boundaries are prepared once per search; as for
+        // the connectors below, a boundary none of whose segments can touch
+        // the last segment of `conn_route` adds nothing.
+        let last_bounds = RouteBounds::of_points(&conn_route.ps[conn_route.size() - 2..], false);
+        for cb in cluster_boundaries {
+            if cb.poly.size() <= 2 {
                 continue;
             }
+            if let Some(b) = &last_bounds {
+                if cb.segments.iter().all(|sb| sb.segment_cannot_touch(b)) {
+                    continue;
+                }
+            }
+            let (c_boundary, dynamic_conn_route) = (&mut others.scratch.0, &mut others.scratch.1);
+            c_boundary.assign_from(&cb.poly);
             debug_assert!(c_boundary.ps[0] != c_boundary.ps[c_boundary.size() - 1]);
             // Upstream also asserts that every non-orthogonal cluster
             // boundary point is a router vertex ("should correspond to shape
@@ -730,14 +736,14 @@ fn cost(
             // build works (tests/robustness.rs clusters).
 
             let is_conn = false;
-            let mut dynamic_conn_route = conn_route.clone();
+            dynamic_conn_route.assign_from(&conn_route);
             let final_segment = Some(inf3) == router.conns[line_ref].dst();
             let mut cross = ConnectorCrossings::new(is_conn, None, None);
             cross.check_for_branching_segments = true;
             cross.count_for_segment(
                 &*router,
-                &mut c_boundary,
-                &mut dynamic_conn_route,
+                c_boundary,
+                dynamic_conn_route,
                 conn_route.size() - 1,
                 final_segment,
             );
@@ -821,7 +827,7 @@ fn cost(
                 if c.binary_search(&(i as u32)).is_err() {
                     let route2 = &router.conns[other.conn].m_display_route;
                     debug_assert!(route2.ps.windows(2).all(|seg| {
-                        RouteBounds::of_points(seg, false).is_some_and(|sb| sb.cannot_touch(b))
+                        RouteBounds::of_points(seg, false).is_some_and(|sb| sb.segment_cannot_touch(b))
                     }));
                 }
             }
@@ -840,26 +846,27 @@ fn cost(
                 // The same, segment by segment (a single point has none).
                 (Some(_), Some(b))
                     if route2.ps.windows(2).all(|seg| {
-                        RouteBounds::of_points(seg, false).is_some_and(|sb| sb.cannot_touch(b))
+                        RouteBounds::of_points(seg, false).is_some_and(|sb| sb.segment_cannot_touch(b))
                     }) =>
                 {
                     continue
                 }
                 _ => {}
             }
-            let route2 = router.conns[conn_ref].m_display_route.clone();
+            // (copies into reused buffers)
+            let (dynamic_route2, dynamic_conn_route) = (&mut others.scratch.0, &mut others.scratch.1);
+            dynamic_route2.assign_from(&router.conns[conn_ref].m_display_route);
+            dynamic_conn_route.assign_from(&conn_route);
 
             let is_conn = true;
-            let mut dynamic_route2 = route2;
-            let mut dynamic_conn_route = conn_route.clone();
             let dst_point = router.vert_infs[router.conns[line_ref].dst().unwrap()].point;
             let final_segment = router.vert_infs[inf3].point == dst_point;
             let mut cross = ConnectorCrossings::new(is_conn, Some(conn_ref), Some(line_ref));
             cross.check_for_branching_segments = true;
             cross.count_for_segment(
                 &*router,
-                &mut dynamic_route2,
-                &mut dynamic_conn_route,
+                dynamic_route2,
+                dynamic_conn_route,
                 conn_route.size() - 1,
                 final_segment,
             );
@@ -888,6 +895,37 @@ struct OtherRoute {
     bounds: Option<RouteBounds>,
 }
 
+/// A cluster boundary as `cost()` uses it, with the bounds of its segments
+/// (closing one included).  Not upstream.
+#[derive(Debug)]
+struct ClusterBoundary {
+    poly: Polygon,
+    segments: Vec<RouteBounds>,
+}
+
+/// The cluster boundaries of `router.cluster_refs`, in order, for a search
+/// routing `line_ref` (when cost() will use them).
+fn cluster_boundaries(router: &Router, line_ref: ConnIdx, out: &mut Vec<ClusterBoundary>) {
+    out.clear();
+    let cluster_crossing_penalty = router.routing_parameter(RoutingParameter::ClusterCrossingPenalty);
+    if !(router.clustered_routing && !router.cluster_refs.is_empty() && (cluster_crossing_penalty > 0.0)) {
+        return;
+    }
+    let is_orthogonal = router.conns[line_ref].routing_type() == ConnType::ConnTypeOrthogonal;
+    for &cl in &router.cluster_refs {
+        let poly = if is_orthogonal {
+            router.clusters[cl].rectangular_polygon().clone()
+        } else {
+            Polygon::from_interface(&router.clusters[cl].polygon().view(router))
+        };
+        let n = poly.size();
+        let segments = (0..n)
+            .filter_map(|j| RouteBounds::of_points(&[poly.ps[(j + n - 1) % n], poly.ps[j]], false))
+            .collect();
+        out.push(ClusterBoundary { poly, segments });
+    }
+}
+
 /// The other connectors of a search, with an index of their segments.
 #[derive(Debug, Default)]
 struct OtherRoutes {
@@ -895,6 +933,8 @@ struct OtherRoutes {
     grid: SegmentGrid,
     /// `cost()` has computed their display routes in this search.
     display_routes_set: bool,
+    /// Buffers for the copies `cost()` hands to countForSegment().
+    scratch: (Polygon, Polygon),
 }
 
 /// Uniform grid over the axis-aligned segments of the other routes, by
@@ -1419,6 +1459,8 @@ struct AStarPathPrivate {
     m_others: OtherRoutes,
     /// Not upstream: the PENDING heap, kept for its buffers.
     m_pending: PendingHeap,
+    /// Not upstream: the cluster boundaries for `cost()`.
+    m_cluster_boundaries: Vec<ClusterBoundary>,
     m_segments_buf: Vec<(RouteBounds, u32)>,
 }
 
@@ -1541,6 +1583,7 @@ impl AStarPathPrivate {
     ) {
         let is_orthogonal = router.conns[line_ref].routing_type() == ConnType::ConnTypeOrthogonal;
         other_routes(router, line_ref, &mut self.m_others, &mut self.m_segments_buf);
+        cluster_boundaries(router, line_ref, &mut self.m_cluster_boundaries);
 
         let start = match start {
             None => src,
@@ -1703,6 +1746,7 @@ impl AStarPathPrivate {
                             router,
                             &self.m_available_nodes,
                             &mut self.m_others,
+                            &self.m_cluster_boundaries,
                             line_ref,
                             edge_dist,
                             bn_inf,
@@ -2023,6 +2067,7 @@ impl AStarPathPrivate {
                                 router,
                                 &self.m_available_nodes,
                                 &mut self.m_others,
+                                &self.m_cluster_boundaries,
                                 line_ref,
                                 edge_dist,
                                 best_node_inf,
