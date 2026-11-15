@@ -245,6 +245,42 @@ Run everything with `npm test` (Rust tests, WASM build, Node tests).
 are produced, where the port deliberately differs from upstream, and which
 inputs are known to be slow.
 
+## Compared with libavoid-js
+
+[libavoid-js](https://github.com/Aksem/libavoid-js) has brought libavoid to
+JavaScript since 2021 by compiling the C++ with Emscripten, and it is the
+routing engine of JointJS's `@joint/router-avoid`, of Sprotty and of ELK
+integrations. It builds on [a fork of
+Adaptagrams](https://github.com/Aksem/adaptagrams) with its own features and
+fixes; this package translates upstream. In short (measured 2026-11-15
+against libavoid-js 0.4.5, 0.5.0-beta.5 and its unreleased 0.5.0 work):
+
+- **Routes.** This package matched upstream C++ exactly on 600 of 600
+  random scenes. libavoid-js matched a native build of its fork on all 595
+  scenes it finished, and the fork differs from upstream in 177 of the 600,
+  almost all of them orthogonal. The fork routes
+  shapes nested inside other shapes, which upstream does not: for diagrams
+  with nesting, libavoid-js is the better choice.
+- **Features.** This package exposes all of upstream's public API,
+  including clusters, hyperedge rerouting, fixed routes and transaction
+  progress, which libavoid-js does not; libavoid-js adds
+  `hasValidRoute()` and `hasCrossingObstacles()` from its fork.
+- **Invalid input.** In the published libavoid-js versions, input that
+  violates one of upstream's assertions aborts the WebAssembly module until
+  a reload; libavoid-js's unreleased 0.5.0 throws for most of it. Here the
+  call throws or the input is ignored, and the module keeps working.
+- **Speed.** Where both compute the same routes, libavoid-js is up to
+  about 20% faster on light scenes and this package is faster on heavy ones. Some
+  orthogonal scenes take libavoid-js's fork much longer (the slowest: 16.8 s
+  there, 0.95 s here).
+- **Size.** libavoid-js is about half the download (177 kB of gzipped
+  WebAssembly against 326 kB).
+- **API style.** This package mirrors the C++ API; libavoid-js 0.5.0 is
+  moving to an API designed for JavaScript.
+
+The details, the reasons behind each difference and how to reproduce them
+are in [`docs/LIBAVOID_JS_COMPARISON.md`](docs/LIBAVOID_JS_COMPARISON.md).
+
 ## Not included
 
 What upstream's public headers declare and this package does not expose

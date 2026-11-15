@@ -1,0 +1,11 @@
+router orth
+param 6 4
+param 0 10
+shape 1 0 0 400 300
+shape 2 50 50 60 60
+pin 2 1 0.5 1 2
+shape 3 290 190 60 60
+pin 3 1 0 0.5 4
+conn 10 S 2 1 S 3 1
+conn 11 P 70 270 P 330 20
+process
