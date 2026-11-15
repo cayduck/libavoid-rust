@@ -239,13 +239,22 @@ impl<I: ArenaIndex, T> Arena<I, T> {
             s.1 = Some(value);
             I::from_parts(slot as usize, s.0)
         } else {
+            // Vectors double while small, then grow by at most GROWTH
+            // slots: little unused space per arena, few copies in a chunk.
+            const GROWTH: usize = 4096;
+            fn push_slot<T>(v: &mut Vec<T>, x: T) {
+                if v.len() == v.capacity() {
+                    v.reserve_exact(v.len().clamp(4, GROWTH).min(CHUNK - v.len()));
+                }
+                v.push(x);
+            }
             if self.slot_count < CHUNK {
-                self.first.push((0, Some(value)));
+                push_slot(&mut self.first, (0, Some(value)));
             } else {
                 if self.slot_count & (CHUNK - 1) == 0 {
-                    self.chunks.push(Vec::with_capacity(CHUNK));
+                    self.chunks.push(Vec::new());
                 }
-                self.chunks.last_mut().unwrap().push((0, Some(value)));
+                push_slot(self.chunks.last_mut().unwrap(), (0, Some(value)));
             }
             self.slot_count += 1;
             I::from_parts(self.slot_count - 1, 0)
