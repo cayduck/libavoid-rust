@@ -2069,41 +2069,91 @@ pub(crate) struct RouteBounds {
     min_y: f64,
     max_y: f64,
     axis_aligned: bool,
+    /// No coordinate is NaN.  With NaN the geometry predicates' comparisons
+    /// all fail and nothing can be ruled out from the bounds.
+    nan_free: bool,
 }
 
 impl RouteBounds {
     /// None for an empty route.  `closed`: the last point joins the first.
     pub(crate) fn of(p: &Polygon, closed: bool) -> Option<RouteBounds> {
-        let first = p.ps.first()?;
+        RouteBounds::of_points(&p.ps, closed)
+    }
+
+    /// As `of()`, for a list of points.
+    pub(crate) fn of_points(ps: &[Point], closed: bool) -> Option<RouteBounds> {
+        let first = ps.first()?;
         let mut r = RouteBounds {
             min_x: first.x,
             max_x: first.x,
             min_y: first.y,
             max_y: first.y,
             axis_aligned: true,
+            nan_free: true,
         };
-        let mut prev = if closed { p.ps.last()? } else { first };
-        for q in &p.ps {
+        let mut prev = if closed { ps.last()? } else { first };
+        for q in ps {
             r.min_x = r.min_x.min(q.x);
             r.max_x = r.max_x.max(q.x);
             r.min_y = r.min_y.min(q.y);
             r.max_y = r.max_y.max(q.y);
             r.axis_aligned &= prev.x == q.x || prev.y == q.y;
+            r.nan_free &= !q.x.is_nan() && !q.y.is_nan();
             prev = q;
         }
         Some(r)
+    }
+
+    /// Axis-aligned and free of NaN (what `SegmentGrid` can index).
+    #[inline]
+    pub(crate) fn axis_aligned(&self) -> bool {
+        self.axis_aligned && self.nan_free
+    }
+    #[inline]
+    pub(crate) fn min_x(&self) -> f64 {
+        self.min_x
+    }
+    #[inline]
+    pub(crate) fn max_x(&self) -> f64 {
+        self.max_x
+    }
+    #[inline]
+    pub(crate) fn min_y(&self) -> f64 {
+        self.min_y
+    }
+    #[inline]
+    pub(crate) fn max_y(&self) -> f64 {
+        self.max_y
+    }
+
+    /// The bounds of both (axis-aligned if both are).
+    pub(crate) fn union(&self, b: &RouteBounds) -> RouteBounds {
+        RouteBounds {
+            min_x: self.min_x.min(b.min_x),
+            max_x: self.max_x.max(b.max_x),
+            min_y: self.min_y.min(b.min_y),
+            max_y: self.max_y.max(b.max_y),
+            axis_aligned: self.axis_aligned && b.axis_aligned,
+            nan_free: self.nan_free && b.nan_free,
+        }
     }
 
     /// Whether the boxes are strictly apart in x or in y, so that no point
     /// of one route equals a point of the other.
     #[inline]
     pub(crate) fn disjoint(&self, b: &RouteBounds) -> bool {
+        if !(self.nan_free && b.nan_free) {
+            return false;
+        }
         self.max_x < b.min_x || b.max_x < self.min_x || self.max_y < b.min_y || b.max_y < self.min_y
     }
 
     /// See `routes_cannot_touch()`.
     #[inline]
     pub(crate) fn cannot_touch(&self, b: &RouteBounds) -> bool {
+        if !(self.nan_free && b.nan_free) {
+            return false;
+        }
         let apart_x = self.max_x < b.min_x || b.max_x < self.min_x;
         let apart_y = self.max_y < b.min_y || b.max_y < self.min_y;
         if self.axis_aligned && b.axis_aligned {

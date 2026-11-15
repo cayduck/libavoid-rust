@@ -393,6 +393,43 @@ mod block_traversal {
         false
     }
 
+    /// Not upstream: walks the active tree exactly as `split_path(r, v, u,
+    /// m, false)` does and tells whether that call would find the path to
+    /// `r` (`Some`) and set `m` on it (`Some(true)`).  Without desperation
+    /// `split_path` only picks non-equality constraints followed rightwards,
+    /// which does not depend on the Lagrange multipliers, so this needs no
+    /// `compute_dfdv` first.
+    pub(super) fn split_path_has_candidate(
+        vs: &[Variable],
+        cs: &[Constraint],
+        this: BlockIdx,
+        r: VarIdx,
+        v: VarIdx,
+        u: Option<VarIdx>,
+    ) -> Option<bool> {
+        for &c in vs[v].in_.iter() {
+            let con = &cs[c];
+            if can_follow_left(vs, con, this, u) {
+                if con.left == r {
+                    return Some(false);
+                } else if let Some(found) = split_path_has_candidate(vs, cs, this, r, con.left, Some(v)) {
+                    return Some(found);
+                }
+            }
+        }
+        for &c in vs[v].out.iter() {
+            let con = &cs[c];
+            if can_follow_right(vs, con, this, u) {
+                if con.right == r {
+                    return Some(!con.equality);
+                } else if let Some(found) = split_path_has_candidate(vs, cs, this, r, con.right, Some(v)) {
+                    return Some(found || !con.equality);
+                }
+            }
+        }
+        None
+    }
+
     // upstream: vpsc.cpp Block::reset_active_lm()
     pub(super) fn reset_active_lm(
         vs: &[Variable],
@@ -578,6 +615,32 @@ pub struct IncSolver<'a> {
     needs_scaling: bool,
     inactive: Vec<ConIdx>,
     violated: Vec<ConIdx>,
+    /// Not upstream: bumped whenever a variable changes block or a
+    /// constraint changes `active`, i.e. whenever an active tree changes.
+    tree_version: u64,
+    tree_cache: ActiveTreeCache,
+    /// Not upstream: the active constraints of each variable (in no
+    /// particular order), maintained where `active` changes.
+    active_adj: Vec<Vec<ConIdx>>,
+}
+
+/// Not upstream: the active constraint tree of one block, rooted at its
+/// first variable, for `IncSolver::split_candidate_between()`.  Valid while
+/// `IncSolver::tree_version` equals `version`.
+#[derive(Default)]
+struct ActiveTreeCache {
+    block: Option<BlockIdx>,
+    version: u64,
+    /// Per variable (`u32::MAX`: not in the tree).
+    depth: Vec<u32>,
+    parent: Vec<u32>,
+    /// The constraint to the parent has this variable on its left (else
+    /// the parent), and is not an equality.
+    child_is_left: Vec<bool>,
+    non_equality: Vec<bool>,
+    stack: Vec<VarIdx>,
+    /// The variables with a depth set (to reset them on rebuilding).
+    members: Vec<VarIdx>,
 }
 
 /// Which heap of a block (upstream `Block::in` / `Block::out`).
@@ -616,6 +679,9 @@ impl<'a> IncSolver<'a> {
             needs_scaling,
             inactive: Vec::new(),
             violated: Vec::new(),
+            tree_version: 0,
+            tree_cache: ActiveTreeCache::default(),
+            active_adj: vec![Vec::new(); n],
         };
         solver.blocks_new();
 
@@ -800,7 +866,7 @@ impl<'a> IncSolver<'a> {
                 self.block_merge(lb, rb, v);
             } else {
                 let (vl, vr) = (self.cs[v].left, self.cs[v].right);
-                if self.block_is_active_directed_path_between(lb, vr, vl) {
+                if self.directed_path_between(lb, vr, vl) {
                     // cycle found, relax the violated, cyclic constraint
                     self.cs[v].unsatisfiable = true;
                     continue;
@@ -813,8 +879,8 @@ impl<'a> IncSolver<'a> {
                         debug_assert!(!self.cs[split_constraint].active);
                         self.inactive.push(split_constraint);
                     }
-                    Err(mut e) => {
-                        e.path.push(v);
+                    Err(_) => {
+                        // (upstream appends v to the discarded path)
                         self.cs[v].unsatisfiable = true;
                         continue;
                     }
@@ -1242,6 +1308,7 @@ impl<'a> IncSolver<'a> {
 
     // upstream: vpsc.cpp Block::addVariable()
     fn block_add_variable(&mut self, b: BlockIdx, v: VarIdx) {
+        self.tree_version += 1;
         self.vs[v].block = Some(b);
         let blk = &mut self.bs.arena[b];
         blk.vars.push(v);
@@ -1318,7 +1385,12 @@ impl<'a> IncSolver<'a> {
     // Merges b into this block across c.  Can be either a right merge or a
     // left merge.
     fn block_merge_dist(&mut self, this: BlockIdx, b: BlockIdx, c: ConIdx, dist: f64) {
+        self.tree_version += 1;
+        debug_assert!(!self.cs[c].active);
         self.cs[c].active = true;
+        let (l, r) = (self.cs[c].left, self.cs[c].right);
+        self.active_adj[l].push(c);
+        self.active_adj[r].push(c);
         let bvars = self.bs.arena[b].vars.clone();
         for v in bvars {
             self.vs[v].offset += dist;
@@ -1489,18 +1561,159 @@ impl<'a> IncSolver<'a> {
         lv: VarIdx,
         rv: VarIdx,
     ) -> Result<ConIdx, UnsatisfiableException> {
+        // (not upstream) When split_path() will find no constraint, which
+        // is by far the common case where constraints are unsatisfiable,
+        // the multipliers it would have compared are not computed.  They
+        // are scratch values: every reader (findMinLM(), and this function)
+        // recomputes them for the whole block first.
+        if self.split_candidate_between(this, lv, rv) != Some(true) {
+            return Err(UnsatisfiableException::default());
+        }
         let front = self.bs.arena[this].vars[0];
         self.block_reset_active_lm(this, front, None);
         self.block_compute_dfdv(this, front, None);
         let mut min_lm: Option<ConIdx> = None;
         self.block_split_path(this, rv, lv, None, &mut min_lm, false);
         match min_lm {
-            None => {
-                let mut e = UnsatisfiableException::default();
-                self.block_get_active_path_between(this, &mut e.path, lv, rv, None);
-                Err(e)
-            }
+            // Upstream fills the exception's path with
+            // getActivePathBetween(); its only catcher, satisfy(), discards
+            // it, so the (read-only) walk is not made here.
+            None => Err(UnsatisfiableException::default()),
             Some(c) => Ok(c),
+        }
+    }
+
+    /// Not upstream: `block_traversal::split_path_has_candidate(.., rv, lv,
+    /// None)`, answered from the block's cached active tree.  The active
+    /// constraints of a block form a tree (a constraint is only activated
+    /// when it merges two blocks), so the path the walk finds is the tree
+    /// path, whatever the order it explores in.  Repeated queries on an
+    /// unchanged block (`satisfy()` meeting unsatisfiable constraints one
+    /// after another) then cost the path length instead of a walk over the
+    /// block's constraint lists.
+    fn split_candidate_between(&mut self, this: BlockIdx, lv: VarIdx, rv: VarIdx) -> Option<bool> {
+        // (lv == rv: the walk finds no path at all; left to it)
+        let fast = if lv == rv { None } else { self.split_candidate_from_tree(this, lv, rv) };
+        let result = match fast {
+            Some(r) => Some(r),
+            // A variable outside the tree: the walk decides.
+            None => block_traversal::split_path_has_candidate(&*self.vs, &*self.cs, this, rv, lv, None),
+        };
+        debug_assert_eq!(
+            result,
+            block_traversal::split_path_has_candidate(&*self.vs, &*self.cs, this, rv, lv, None)
+        );
+        result
+    }
+
+    fn split_candidate_from_tree(&mut self, this: BlockIdx, lv: VarIdx, rv: VarIdx) -> Option<bool> {
+        // split_path() picks a constraint walked from its left variable to
+        // its right one.
+        self.walk_tree_path(this, lv, rv, |child_is_left, non_equality, upwards| {
+            non_equality && (child_is_left == upwards)
+        })
+        .map(|(any, _)| any)
+    }
+
+    /// Not upstream: `block_is_active_directed_path_between(this, u, v)`
+    /// from the cached active tree (see `split_candidate_between()`): the
+    /// walk follows constraints from left to right only, so it reaches `v`
+    /// exactly when every constraint of the tree path is walked that way.
+    fn directed_path_between(&mut self, this: BlockIdx, u: VarIdx, v: VarIdx) -> bool {
+        let fast = self
+            .walk_tree_path(this, u, v, |child_is_left, _, upwards| child_is_left == upwards)
+            .map(|(_, all)| all);
+        let result = match fast {
+            Some(r) => r,
+            None => self.block_is_active_directed_path_between(this, u, v),
+        };
+        debug_assert_eq!(result, self.block_is_active_directed_path_between(this, u, v));
+        result
+    }
+
+    /// Walks the tree path from `from` to `to` in the cached active tree of
+    /// `this` (rebuilt if stale), applying `pred(child_is_left,
+    /// non_equality, upwards)` to each constraint on it, `upwards` telling
+    /// whether it is walked from child to parent.  Returns whether `pred`
+    /// held for any and for all of them, or None if either variable is not
+    /// in the tree.
+    fn walk_tree_path(
+        &mut self,
+        this: BlockIdx,
+        from: VarIdx,
+        to: VarIdx,
+        pred: impl Fn(bool, bool, bool) -> bool,
+    ) -> Option<(bool, bool)> {
+        self.build_active_tree(this);
+        let t = &self.tree_cache;
+        if t.depth[from] == u32::MAX || t.depth[to] == u32::MAX {
+            return None;
+        }
+        let (mut a, mut b) = (from, to);
+        let (mut any, mut all) = (false, true);
+        let mut step = |x: usize, upwards: bool| {
+            let r = pred(t.child_is_left[x], t.non_equality[x], upwards);
+            any |= r;
+            all &= r;
+        };
+        while t.depth[a] > t.depth[b] {
+            step(a, true);
+            a = t.parent[a] as usize;
+        }
+        while t.depth[b] > t.depth[a] {
+            step(b, false);
+            b = t.parent[b] as usize;
+        }
+        while a != b {
+            step(a, true);
+            step(b, false);
+            a = t.parent[a] as usize;
+            b = t.parent[b] as usize;
+        }
+        Some((any, all))
+    }
+
+    /// Makes `tree_cache` hold the active tree of `this`.
+    fn build_active_tree(&mut self, this: BlockIdx) {
+        let n = self.vs.len();
+        let t = &mut self.tree_cache;
+        if t.block != Some(this) || t.version != self.tree_version || t.depth.len() != n {
+            t.block = Some(this);
+            t.version = self.tree_version;
+            if t.depth.len() != n {
+                t.depth = vec![u32::MAX; n];
+                t.parent = vec![u32::MAX; n];
+                t.child_is_left = vec![false; n];
+                t.non_equality = vec![false; n];
+            } else {
+                for &v in &t.members {
+                    t.depth[v] = u32::MAX;
+                }
+            }
+            t.members.clear();
+            let root = self.bs.arena[this].vars[0];
+            t.depth[root] = 0;
+            t.members.push(root);
+            t.parent[root] = u32::MAX;
+            t.stack.clear();
+            t.stack.push(root);
+            while let Some(v) = t.stack.pop() {
+                let d = t.depth[v] + 1;
+                for &c in self.active_adj[v].iter() {
+                    let con = &self.cs[c];
+                    debug_assert!(con.active);
+                    let child_is_left = con.right == v;
+                    let w = if child_is_left { con.left } else { con.right };
+                    if self.vs[w].block == Some(this) && t.depth[w] == u32::MAX {
+                        t.depth[w] = d;
+                        t.parent[w] = v as u32;
+                        t.child_is_left[w] = child_is_left;
+                        t.non_equality[w] = !con.equality;
+                        t.stack.push(w);
+                        t.members.push(w);
+                    }
+                }
+            }
         }
     }
 
@@ -1629,6 +1842,15 @@ impl<'a> IncSolver<'a> {
     // constraint c, placing the left subtree of constraints (and associated
     // variables) into l and the right into r.
     fn block_split(&mut self, this: BlockIdx, c: ConIdx) -> (BlockIdx, BlockIdx) {
+        self.tree_version += 1;
+        if self.cs[c].active {
+            let (l, r) = (self.cs[c].left, self.cs[c].right);
+            for v in [l, r] {
+                let list = &mut self.active_adj[v];
+                let pos = list.iter().position(|&x| x == c).expect("active constraint not listed");
+                list.swap_remove(pos);
+            }
+        }
         self.cs[c].active = false;
         let (cl, cr) = (self.cs[c].left, self.cs[c].right);
         let l = self.block_new(None);

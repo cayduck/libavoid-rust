@@ -32,7 +32,7 @@ use std::f64::consts::PI as M_PI;
 
 use crate::avoid::arena::{ANodeIdx, ConnIdx, EdgeIdx, VertIdx};
 use crate::avoid::connector::{
-    validate_bend_point, ConnType, ConnectorCrossings, CROSSING_SHARES_FIXED_SEGMENT, CROSSING_SHARES_PATH,
+    validate_bend_point, ConnType, ConnectorCrossings, RouteBounds, CROSSING_SHARES_FIXED_SEGMENT, CROSSING_SHARES_PATH,
     CROSSING_SHARES_PATH_AT_END,
 };
 use crate::avoid::geometry::{euclidean_dist, manhattan_dist, vec_dir};
@@ -340,6 +340,7 @@ fn dim_direction(difference: f64) -> i32 {
 fn cost(
     router: &mut Router,
     nodes: &ANodes,
+    others: &mut OtherRoutes,
     line_ref: ConnIdx,
     dist: f64,
     inf2: VertIdx,
@@ -467,13 +468,66 @@ fn cost(
         if conn_route.empty() {
             construct_polygon_path(router, nodes, &mut conn_route, inf2, inf3, inf1_node);
         }
-        let line_ref_id = router.conns[line_ref].id();
-        let conn_refs = router.conn_refs.clone();
-        for conn_ref in conn_refs {
-            if router.conns[conn_ref].id() == line_ref_id {
-                continue;
+        // (not upstream) `others` are the other connectors in
+        // `router.conn_refs` order, with the bounds of their display routes.
+        // countForSegment() looks at the last segment of `conn_route` only:
+        // where it cannot touch any segment of the other route (see
+        // `RouteBounds`; the route's bounds are checked first),
+        // splitting inserts no point into it or at its ends (points
+        // inserted before it leave its ends unchanged), so no point of it
+        // equals a point of the other route, and no segment intersection is
+        // found (the intersection test starts with an exact bounding box
+        // test).  The connector then adds nothing (adding 0.0 leaves
+        // `result` unchanged).
+        let conn_bounds = RouteBounds::of_points(&conn_route.ps[conn_route.size() - 2..], false);
+        // Upstream computes the lazily set display route of every other
+        // connector here; doing it once per search stores the same values
+        // (no route changes during a search).
+        if !others.display_routes_set {
+            for other in &others.list {
+                let _ = router.conns[other.conn].display_route();
             }
-            let route2 = router.conns[conn_ref].display_route().clone();
+            others.display_routes_set = true;
+        }
+        // The connectors with a segment that may touch the last segment of
+        // `conn_route`, in `others` order (all of them where the index
+        // cannot tell).
+        let candidates = conn_bounds.as_ref().and_then(|b| others.grid.query(b));
+        let n_candidates = candidates.map_or(others.list.len(), |c| c.len());
+        // Every connector left out has no segment that can touch.
+        #[cfg(debug_assertions)]
+        if let (Some(c), Some(b)) = (candidates, &conn_bounds) {
+            for (i, other) in others.list.iter().enumerate() {
+                if c.binary_search(&(i as u32)).is_err() {
+                    let route2 = &router.conns[other.conn].m_display_route;
+                    debug_assert!(route2.ps.windows(2).all(|seg| {
+                        RouteBounds::of_points(seg, false).is_some_and(|sb| sb.cannot_touch(b))
+                    }));
+                }
+            }
+        }
+        for k in 0..n_candidates {
+            let other = match candidates {
+                Some(c) => &others.list[c[k] as usize],
+                None => &others.list[k],
+            };
+            let conn_ref = other.conn;
+            let route2 = &router.conns[conn_ref].m_display_route;
+            match (&other.bounds, &conn_bounds) {
+                (Some(a), Some(b)) if a.cannot_touch(b) => continue,
+                // An empty route has no segment to split or count.
+                (None, _) => continue,
+                // The same, segment by segment (a single point has none).
+                (Some(_), Some(b))
+                    if route2.ps.windows(2).all(|seg| {
+                        RouteBounds::of_points(seg, false).is_some_and(|sb| sb.cannot_touch(b))
+                    }) =>
+                {
+                    continue
+                }
+                _ => {}
+            }
+            let route2 = router.conns[conn_ref].m_display_route.clone();
 
             let is_conn = true;
             let mut dynamic_route2 = route2;
@@ -504,6 +558,200 @@ fn cost(
     }
 
     result
+}
+
+/// Another connector as seen by `cost()` during a search (not upstream).
+#[derive(Debug)]
+struct OtherRoute {
+    conn: ConnIdx,
+    /// Bounds of its display route (which no search changes).
+    bounds: Option<RouteBounds>,
+}
+
+/// The other connectors of a search, with an index of their segments.
+#[derive(Debug, Default)]
+struct OtherRoutes {
+    list: Vec<OtherRoute>,
+    grid: SegmentGrid,
+    /// `cost()` has computed their display routes in this search.
+    display_routes_set: bool,
+}
+
+/// Uniform grid over the axis-aligned segments of the other routes, by
+/// index into `OtherRoutes::list` (not upstream).  A segment is entered in
+/// every cell its closed bounding box meets, so two axis-aligned segments
+/// whose boxes meet (the only way they can touch, see `RouteBounds`) share
+/// a cell: cell coordinates are monotonic in the position.  Segments that
+/// are not axis-aligned may touch a segment whose box they only meet in
+/// one dimension; their routes are always candidates.
+#[derive(Debug, Default)]
+struct SegmentGrid {
+    /// Bounds of the indexed segments.
+    extent: Option<RouteBounds>,
+    origin: (f64, f64),
+    inv_cell: (f64, f64),
+    n: (usize, usize),
+    cells: Vec<Vec<u32>>,
+    always: Vec<u32>,
+    stamp: Vec<u32>,
+    query_id: u32,
+    candidates: Vec<u32>,
+}
+
+impl SegmentGrid {
+    fn build(&mut self, segments: &[(RouteBounds, u32)], n_routes: usize) {
+        self.always.clear();
+        for c in self.cells.iter_mut() {
+            c.clear();
+        }
+        self.stamp.clear();
+        self.stamp.resize(n_routes, 0);
+        self.query_id = 0;
+        let mut ext: Option<RouteBounds> = None;
+        for (b, idx) in segments {
+            if !b.axis_aligned() {
+                self.always.push(*idx);
+                continue;
+            }
+            ext = Some(match ext {
+                None => *b,
+                Some(e) => e.union(b),
+            });
+        }
+        self.always.dedup();
+        self.extent = ext;
+        let Some(ext) = ext else {
+            self.n = (0, 0);
+            return;
+        };
+        let side = ((segments.len() as f64).sqrt().ceil() as usize).clamp(1, 128);
+        let (w, h) = (ext.max_x() - ext.min_x(), ext.max_y() - ext.min_y());
+        self.n = (if w > 0.0 { side } else { 1 }, if h > 0.0 { side } else { 1 });
+        self.origin = (ext.min_x(), ext.min_y());
+        self.inv_cell = (
+            if w > 0.0 { self.n.0 as f64 / w } else { 0.0 },
+            if h > 0.0 { self.n.1 as f64 / h } else { 0.0 },
+        );
+        let n_cells = self.n.0 * self.n.1;
+        if self.cells.len() < n_cells {
+            self.cells.resize_with(n_cells, Vec::new);
+        }
+        for (b, idx) in segments {
+            if !b.axis_aligned() {
+                continue;
+            }
+            let (x0, x1, y0, y1) = self.cell_range(b);
+            for y in y0..=y1 {
+                for x in x0..=x1 {
+                    let cell = &mut self.cells[y * self.n.0 + x];
+                    if cell.last() != Some(idx) {
+                        cell.push(*idx);
+                    }
+                }
+            }
+        }
+    }
+
+    #[inline]
+    fn cell_of(&self, v: f64, dim: usize) -> isize {
+        let (o, inv) = if dim == 0 { (self.origin.0, self.inv_cell.0) } else { (self.origin.1, self.inv_cell.1) };
+        ((v - o) * inv).floor() as isize
+    }
+
+    /// Cell ranges of a box, clamped to the grid.
+    fn cell_range(&self, b: &RouteBounds) -> (usize, usize, usize, usize) {
+        let clamp = |c: isize, n: usize| c.clamp(0, n as isize - 1) as usize;
+        (
+            clamp(self.cell_of(b.min_x(), 0), self.n.0),
+            clamp(self.cell_of(b.max_x(), 0), self.n.0),
+            clamp(self.cell_of(b.min_y(), 1), self.n.1),
+            clamp(self.cell_of(b.max_y(), 1), self.n.1),
+        )
+    }
+
+    /// The routes that may have a segment touching a segment with bounds
+    /// `b`, in ascending order; None if `b` is not axis-aligned.
+    fn query(&mut self, b: &RouteBounds) -> Option<&[u32]> {
+        if !b.axis_aligned() {
+            return None;
+        }
+        self.query_id = self.query_id.wrapping_add(1);
+        if self.query_id == 0 {
+            self.stamp.fill(0);
+            self.query_id = 1;
+        }
+        self.candidates.clear();
+        let q = self.query_id;
+        for &idx in &self.always {
+            if self.stamp[idx as usize] != q {
+                self.stamp[idx as usize] = q;
+                self.candidates.push(idx);
+            }
+        }
+        if let Some(ext) = self.extent {
+            // A box that does not meet the extent meets no indexed segment
+            // (clamping would wrongly pick border cells).  Otherwise both
+            // go through the same clamped, monotonic cell mapping.
+            let outside = b.max_x() < ext.min_x()
+                || b.min_x() > ext.max_x()
+                || b.max_y() < ext.min_y()
+                || b.min_y() > ext.max_y();
+            if !outside {
+                let (x0, x1, y0, y1) = self.cell_range(b);
+                for y in y0..=y1 {
+                    for x in x0..=x1 {
+                        for &idx in &self.cells[y * self.n.0 + x] {
+                            if self.stamp[idx as usize] != q {
+                                self.stamp[idx as usize] = q;
+                                self.candidates.push(idx);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        self.candidates.sort_unstable();
+        Some(&self.candidates)
+    }
+}
+
+/// The connectors `cost()` compares a route with (all of `router.conn_refs`
+/// but `line_ref`, by id as upstream), when it will compare at all: only in
+/// the crossing penalty rerouting stage with a crossing or shared path
+/// penalty.
+fn other_routes(router: &Router, line_ref: ConnIdx, others: &mut OtherRoutes, segments: &mut Vec<(RouteBounds, u32)>) {
+    others.display_routes_set = false;
+    let out = &mut others.list;
+    out.clear();
+    segments.clear();
+    let crossing_penalty = router.routing_parameter(RoutingParameter::CrossingPenalty);
+    let shared_path_penalty = router.routing_parameter(RoutingParameter::FixedSharedPathPenalty);
+    if !router.is_in_crossing_penalty_rerouting_stage() || !((shared_path_penalty > 0.0) || (crossing_penalty > 0.0)) {
+        return;
+    }
+    let line_ref_id = router.conns[line_ref].id();
+    for &conn_ref in &router.conn_refs {
+        let c = &router.conns[conn_ref];
+        if c.id() == line_ref_id {
+            continue;
+        }
+        // displayRoute() without storing it: it is the simplified route
+        // when unset, and cost() still sets it as upstream does.
+        let simplified;
+        let route = if c.m_display_route.empty() {
+            simplified = c.route().simplify();
+            &simplified
+        } else {
+            &c.m_display_route
+        };
+        let bounds = RouteBounds::of(route, false);
+        let idx = out.len() as u32;
+        for seg in route.ps.windows(2) {
+            segments.push((RouteBounds::of_points(seg, false).unwrap(), idx));
+        }
+        out.push(OtherRoute { conn: conn_ref, bounds });
+    }
+    others.grid.build(segments, out.len());
 }
 
 // Directions for estimated orthgonal cost, as bitflags.
@@ -847,6 +1095,9 @@ struct AStarPathPrivate {
     m_touched: Vec<VertIdx>,
     /// Not upstream: reused buffer for the edge list being expanded.
     m_vis_buf: Vec<EdgeIdx>,
+    /// Not upstream: the other connectors for `cost()`.
+    m_others: OtherRoutes,
+    m_segments_buf: Vec<(RouteBounds, u32)>,
 }
 
 impl AStarPathPrivate {
@@ -967,6 +1218,7 @@ impl AStarPathPrivate {
         start: Option<VertIdx>,
     ) {
         let is_orthogonal = router.conns[line_ref].routing_type() == ConnType::ConnTypeOrthogonal;
+        other_routes(router, line_ref, &mut self.m_others, &mut self.m_segments_buf);
 
         let start = match start {
             None => src,
@@ -1127,6 +1379,7 @@ impl AStarPathPrivate {
                         + cost(
                             router,
                             &self.m_available_nodes,
+                            &mut self.m_others,
                             line_ref,
                             edge_dist,
                             bn_inf,
@@ -1457,6 +1710,7 @@ impl AStarPathPrivate {
                             + cost(
                                 router,
                                 &self.m_available_nodes,
+                                &mut self.m_others,
                                 line_ref,
                                 edge_dist,
                                 best_node_inf,
