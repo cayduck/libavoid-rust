@@ -223,10 +223,43 @@ pub type ContainsMap = BTreeMap<VertID, ShapeSet>;
 /// A position in a per-vertex [`EdgeInfList`]: link slot `end` (0 = the
 /// edge's `m_pos1`, i.e. membership in `m_vert1`'s list; 1 = `m_pos2`) of
 /// `edge`.  Upstream equivalent: `EdgeInfList::iterator`.
+///
+/// Packed into eight bytes (`Option<EdgePos>` too): the edge's slot index,
+/// and its generation plus one with `end` in the top bit (arena
+/// generations stay below 2^31 - 1, see `Arena::free`).  Every edge holds
+/// four of them.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct EdgePos {
-    pub edge: EdgeIdx,
-    pub end: EdgeEnd,
+    index: u32,
+    generation_1_end: std::num::NonZeroU32,
+}
+
+impl EdgePos {
+    #[inline]
+    pub fn new(edge: EdgeIdx, end: EdgeEnd) -> EdgePos {
+        use crate::avoid::arena::ArenaIndex;
+        let g = edge.generation() + 1;
+        debug_assert!(g < 1 << 31);
+        EdgePos {
+            index: edge.index() as u32,
+            generation_1_end: std::num::NonZeroU32::new(g | ((end as u32) << 31)).expect("EdgePos generation"),
+        }
+    }
+
+    #[inline]
+    pub fn edge(self) -> EdgeIdx {
+        use crate::avoid::arena::ArenaIndex;
+        EdgeIdx::from_parts(self.index as usize, (self.generation_1_end.get() & 0x7fff_ffff) - 1)
+    }
+
+    #[inline]
+    pub fn end(self) -> EdgeEnd {
+        if self.generation_1_end.get() >> 31 == 0 {
+            EdgeEnd::First
+        } else {
+            EdgeEnd::Second
+        }
+    }
 }
 
 /// Which end of an edge an [`EdgePos`] names.  (An enum rather than a
@@ -311,25 +344,25 @@ impl EdgeInfList {
     /// The edge at `begin()`.
     #[inline]
     pub fn front(&self) -> Option<EdgeIdx> {
-        self.head.map(|p| p.edge)
+        self.head.map(|p| p.edge())
     }
 
     /// The edge at `--end()`.
     #[inline]
     pub fn back(&self) -> Option<EdgeIdx> {
-        self.tail.map(|p| p.edge)
+        self.tail.map(|p| p.edge())
     }
 
     /// `++it`.
     #[inline]
     pub fn next(edges: &EdgeArena, pos: EdgePos) -> Option<EdgePos> {
-        edges[pos.edge].m_pos[pos.end as usize].next
+        edges[pos.edge()].m_pos[pos.end() as usize].next
     }
 
     /// `--it` (None if `pos` is `begin()`).
     #[inline]
     pub fn prev(edges: &EdgeArena, pos: EdgePos) -> Option<EdgePos> {
-        edges[pos.edge].m_pos[pos.end as usize].prev
+        edges[pos.edge()].m_pos[pos.end() as usize].prev
     }
 
     /// Iterates the edges in list order.  Borrows the edge arena, so the
@@ -351,12 +384,12 @@ impl EdgeInfList {
     pub fn push_front(&mut self, edges: &mut EdgeArena, pos: EdgePos) {
         let old_head = self.head;
         {
-            let link = &mut edges[pos.edge].m_pos[pos.end as usize];
+            let link = &mut edges[pos.edge()].m_pos[pos.end() as usize];
             link.prev = None;
             link.next = old_head;
         }
         match old_head {
-            Some(h) => edges[h.edge].m_pos[h.end as usize].prev = Some(pos),
+            Some(h) => edges[h.edge()].m_pos[h.end() as usize].prev = Some(pos),
             None => self.tail = Some(pos),
         }
         self.head = Some(pos);
@@ -365,22 +398,22 @@ impl EdgeInfList {
 
     /// `erase(pos)`.
     pub fn erase(&mut self, edges: &mut EdgeArena, pos: EdgePos) {
-        let link = edges[pos.edge].m_pos[pos.end as usize];
+        let link = edges[pos.edge()].m_pos[pos.end() as usize];
         match link.prev {
-            Some(p) => edges[p.edge].m_pos[p.end as usize].next = link.next,
+            Some(p) => edges[p.edge()].m_pos[p.end() as usize].next = link.next,
             None => {
                 debug_assert_eq!(self.head, Some(pos));
                 self.head = link.next;
             }
         }
         match link.next {
-            Some(n) => edges[n.edge].m_pos[n.end as usize].prev = link.prev,
+            Some(n) => edges[n.edge()].m_pos[n.end() as usize].prev = link.prev,
             None => {
                 debug_assert_eq!(self.tail, Some(pos));
                 self.tail = link.prev;
             }
         }
-        edges[pos.edge].m_pos[pos.end as usize] = EdgeListLink::default();
+        edges[pos.edge()].m_pos[pos.end() as usize] = EdgeListLink::default();
         self.len -= 1;
     }
 
@@ -403,7 +436,7 @@ impl EdgeInfList {
         F: FnMut(EdgeIdx, EdgeIdx) -> bool,
     {
         let items = self.positions(edges);
-        libstdcxx_list_sort(items, &mut |a: &EdgePos, b: &EdgePos| less(a.edge, b.edge))
+        libstdcxx_list_sort(items, &mut |a: &EdgePos, b: &EdgePos| less(a.edge(), b.edge()))
     }
 
     /// Phase 2 of an in-place sort: relinks the list into `order`, which
@@ -411,7 +444,7 @@ impl EdgeInfList {
     pub fn relink(&mut self, edges: &mut EdgeArena, order: &[EdgePos]) {
         debug_assert_eq!(order.len(), self.len as usize);
         for (i, &p) in order.iter().enumerate() {
-            let link = &mut edges[p.edge].m_pos[p.end as usize];
+            let link = &mut edges[p.edge()].m_pos[p.end() as usize];
             link.prev = if i > 0 { Some(order[i - 1]) } else { None };
             link.next = order.get(i + 1).copied();
         }
@@ -449,7 +482,7 @@ impl Iterator for EdgeInfListIter<'_> {
     fn next(&mut self) -> Option<EdgeIdx> {
         let p = self.pos?;
         self.pos = EdgeInfList::next(self.edges, p);
-        Some(p.edge)
+        Some(p.edge())
     }
 }
 
@@ -795,7 +828,7 @@ impl VertInf {
         for which in [VertEdgeList::Vis, VertEdgeList::OrthogVis] {
             let mut pos = router.vert_infs[v].edge_list(which).first();
             while let Some(p) = pos {
-                let edge = p.edge;
+                let edge = p.edge();
                 if directions == CONN_DIR_ALL {
                     router.edge_infs[edge].set_disabled(false);
                 } else {

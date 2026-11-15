@@ -48,13 +48,20 @@ macro_rules! avoid_define_handle {
         #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
         pub struct $name {
             index: u32,
-            generation: u32,
+            /// The generation plus one (generations stay below
+            /// `MAX_GENERATION`, see `Arena::free`), so that `Option<$name>`
+            /// needs no tag.
+            generation_1: std::num::NonZeroU32,
         }
 
         impl $crate::avoid::arena::ArenaIndex for $name {
             #[inline]
             fn from_parts(index: usize, generation: u32) -> Self {
-                $name { index: index as u32, generation }
+                $name {
+                    index: index as u32,
+                    generation_1: std::num::NonZeroU32::new(generation.wrapping_add(1))
+                        .expect("arena generation out of range"),
+                }
             }
             #[inline]
             fn index(self) -> usize {
@@ -62,7 +69,7 @@ macro_rules! avoid_define_handle {
             }
             #[inline]
             fn generation(self) -> u32 {
-                self.generation
+                self.generation_1.get() - 1
             }
         }
 
@@ -75,7 +82,7 @@ macro_rules! avoid_define_handle {
             /// A handle that names no object of any arena (for tests).
             #[inline]
             pub fn dangling() -> Self {
-                $name { index: u32::MAX, generation: u32::MAX }
+                $name { index: u32::MAX, generation_1: std::num::NonZeroU32::MAX }
             }
         }
     };
@@ -170,6 +177,9 @@ impl<I> Ord for PtrKey<I> {
         self.serial.cmp(&other.serial)
     }
 }
+
+/// Slot generations stay below this (see `Arena::free`).
+pub const MAX_GENERATION: u32 = (1 << 31) - 1;
 
 /// Slots per chunk of an arena (a power of two).  The first `CHUNK` slots
 /// are in `Arena::first`, the others in `Arena::chunks`.
@@ -289,10 +299,12 @@ impl<I: ArenaIndex, T> Arena<I, T> {
         }
         let s = self.slot_entry_mut(index);
         let value = s.1.take().unwrap();
-        s.0 = s.0.wrapping_add(1);
-        // A slot whose generation wrapped is retired rather than reused, so
-        // that a 2^32-times-stale handle can never alias.
-        if s.0 != 0 {
+        s.0 += 1;
+        // A slot whose generation reaches MAX_GENERATION is retired rather
+        // than reused: generations stay below it (handles store generation
+        // + 1 in a NonZeroU32, `EdgePos` also packs a bit above it) and a
+        // handle never aliases a later object.
+        if s.0 != MAX_GENERATION {
             self.free.push(index as u32);
         }
         self.live -= 1;

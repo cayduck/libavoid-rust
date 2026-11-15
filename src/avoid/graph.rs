@@ -37,7 +37,38 @@ use crate::avoid::vertices::{
 // upstream: graph.h typedef std::list<int> ShapeList
 pub type ShapeList = Vec<i32>;
 // upstream: graph.h typedef std::list<bool *> FlagList
-pub type FlagList = Vec<RerouteFlagIdx>;
+///
+/// Boxed, so that the (usually empty) list costs an edge one pointer
+/// rather than a whole `Vec`.
+#[derive(Clone, Debug, Default)]
+pub struct FlagList(Option<Box<Vec<RerouteFlagIdx>>>);
+
+impl FlagList {
+    pub const fn new() -> FlagList {
+        FlagList(None)
+    }
+
+    pub fn push(&mut self, flag: RerouteFlagIdx) {
+        self.0.get_or_insert_with(Default::default).push(flag);
+    }
+
+    /// Empties the list (and frees it).
+    pub fn clear(&mut self) {
+        self.0 = None;
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.as_ref().is_none_or(|v| v.is_empty())
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.as_ref().map_or(0, |v| v.len())
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<'_, RerouteFlagIdx> {
+        self.0.as_deref().map_or(&[][..], |v| v.as_slice()).iter()
+    }
+}
 
 /// Index of the *active* non-orthogonal edges (those in their vertices'
 /// `visList` / `invisList`, i.e. `m_added`) by unordered vertex pair.  No upstream counterpart: upstream's
@@ -242,7 +273,7 @@ impl EdgeInf {
             m_vert1: v1,
             m_vert2: v2,
             m_pos: [EdgeListLink::default(); 2],
-            m_conns: Vec::new(),
+            m_conns: FlagList::new(),
             m_dist: -1.0,
             m_mtst_dist: 0.0,
         };
@@ -327,8 +358,8 @@ impl EdgeInf {
             debug_assert!(!edge.m_added);
             (edge.m_orthogonal, edge.m_visible, edge.m_vert1, edge.m_vert2)
         };
-        let pos1 = EdgePos { edge: e, end: EdgeEnd::First };
-        let pos2 = EdgePos { edge: e, end: EdgeEnd::Second };
+        let pos1 = EdgePos::new(e, EdgeEnd::First);
+        let pos2 = EdgePos::new(e, EdgeEnd::Second);
 
         let Router {
             vert_infs,
@@ -373,8 +404,8 @@ impl EdgeInf {
             debug_assert!(edge.m_added);
             (edge.m_orthogonal, edge.m_visible, edge.m_vert1, edge.m_vert2)
         };
-        let pos1 = EdgePos { edge: e, end: EdgeEnd::First };
-        let pos2 = EdgePos { edge: e, end: EdgeEnd::Second };
+        let pos1 = EdgePos::new(e, EdgeEnd::First);
+        let pos2 = EdgePos::new(e, EdgeEnd::Second);
 
         let Router {
             vert_infs,
@@ -858,11 +889,11 @@ impl EdgeInf {
 fn find_in_list(edges: &EdgeArena, list: &EdgeInfList, i: VertIdx, j: VertIdx) -> Option<EdgeIdx> {
     let mut cur = list.first();
     while let Some(p) = cur {
-        let edge = &edges[p.edge];
+        let edge = &edges[p.edge()];
         if edge.is_between(i, j) {
-            return Some(p.edge);
+            return Some(p.edge());
         }
-        cur = edge.m_pos[p.end as usize].next;
+        cur = edge.m_pos[p.end() as usize].next;
     }
     None
 }
