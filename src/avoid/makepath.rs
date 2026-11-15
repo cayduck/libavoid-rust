@@ -120,26 +120,45 @@ fn a_node_cmp(a: &ANode, b: &ANode) -> bool {
 // libstdc++ heap algorithms (bits/stl_heap.h), ported step by step.
 // ---------------------------------------------------------------------------
 
+/// Element storage for the heap algorithms below (not upstream): a plain
+/// slice, or the A* pending heap, which also tracks where each node is.
+trait HeapSlots<T: Copy> {
+    fn get(&self, i: usize) -> T;
+    fn set(&mut self, i: usize, x: T);
+}
+
+impl<T: Copy> HeapSlots<T> for [T] {
+    #[inline]
+    fn get(&self, i: usize) -> T {
+        self[i]
+    }
+    #[inline]
+    fn set(&mut self, i: usize, x: T) {
+        self[i] = x;
+    }
+}
+
 /// libstdc++ `std::__push_heap`.
-fn libstdcxx_push_heap_hole<T: Copy, F: FnMut(&T, &T) -> bool>(
-    v: &mut [T],
+fn libstdcxx_push_heap_hole<T: Copy, S: HeapSlots<T> + ?Sized, F: FnMut(&T, &T) -> bool>(
+    v: &mut S,
     mut hole_index: isize,
     top_index: isize,
     value: T,
     comp: &mut F,
 ) {
     let mut parent = (hole_index - 1) / 2;
-    while hole_index > top_index && comp(&v[parent as usize], &value) {
-        v[hole_index as usize] = v[parent as usize];
+    while hole_index > top_index && comp(&v.get(parent as usize), &value) {
+        let p = v.get(parent as usize);
+        v.set(hole_index as usize, p);
         hole_index = parent;
         parent = (hole_index - 1) / 2;
     }
-    v[hole_index as usize] = value;
+    v.set(hole_index as usize, value);
 }
 
 /// libstdc++ `std::__adjust_heap`.
-fn libstdcxx_adjust_heap<T: Copy, F: FnMut(&T, &T) -> bool>(
-    v: &mut [T],
+fn libstdcxx_adjust_heap<T: Copy, S: HeapSlots<T> + ?Sized, F: FnMut(&T, &T) -> bool>(
+    v: &mut S,
     mut hole_index: isize,
     len: isize,
     value: T,
@@ -149,35 +168,47 @@ fn libstdcxx_adjust_heap<T: Copy, F: FnMut(&T, &T) -> bool>(
     let mut second_child = hole_index;
     while second_child < (len - 1) / 2 {
         second_child = 2 * (second_child + 1);
-        if comp(&v[second_child as usize], &v[(second_child - 1) as usize]) {
+        if comp(&v.get(second_child as usize), &v.get((second_child - 1) as usize)) {
             second_child -= 1;
         }
-        v[hole_index as usize] = v[second_child as usize];
+        let c = v.get(second_child as usize);
+        v.set(hole_index as usize, c);
         hole_index = second_child;
     }
     if (len & 1) == 0 && second_child == (len - 2) / 2 {
         second_child = 2 * (second_child + 1);
-        v[hole_index as usize] = v[(second_child - 1) as usize];
+        let c = v.get((second_child - 1) as usize);
+        v.set(hole_index as usize, c);
         hole_index = second_child - 1;
     }
     libstdcxx_push_heap_hole(v, hole_index, top_index, value, comp);
 }
 
-/// libstdc++ `std::make_heap(first, last, comp)`.
-pub fn make_heap<T: Copy, F: FnMut(&T, &T) -> bool>(v: &mut [T], comp: &mut F) {
-    let len = v.len() as isize;
+/// libstdc++ `std::make_heap` on the first `len` slots.
+fn libstdcxx_make_heap<T: Copy, S: HeapSlots<T> + ?Sized, F: FnMut(&T, &T) -> bool>(
+    v: &mut S,
+    len: usize,
+    comp: &mut F,
+) {
+    let len = len as isize;
     if len < 2 {
         return;
     }
     let mut parent = (len - 2) / 2;
     loop {
-        let value = v[parent as usize];
+        let value = v.get(parent as usize);
         libstdcxx_adjust_heap(v, parent, len, value, comp);
         if parent == 0 {
             return;
         }
         parent -= 1;
     }
+}
+
+/// libstdc++ `std::make_heap(first, last, comp)`.
+pub fn make_heap<T: Copy, F: FnMut(&T, &T) -> bool>(v: &mut [T], comp: &mut F) {
+    let len = v.len();
+    libstdcxx_make_heap(v, len, comp);
 }
 
 /// libstdc++ `std::push_heap(first, last, comp)` (the new element is the
@@ -191,16 +222,305 @@ pub fn push_heap<T: Copy, F: FnMut(&T, &T) -> bool>(v: &mut [T], comp: &mut F) {
     libstdcxx_push_heap_hole(v, len - 1, 0, value, comp);
 }
 
-/// libstdc++ `std::pop_heap(first, last, comp)`: moves the top to the last
-/// position and re-heapifies the rest.
-pub fn pop_heap<T: Copy, F: FnMut(&T, &T) -> bool>(v: &mut [T], comp: &mut F) {
-    let len = v.len() as isize;
+/// libstdc++ `std::pop_heap(first, last, comp)` on the first `len` slots:
+/// moves the top to the last position and re-heapifies the rest.
+fn libstdcxx_pop_heap<T: Copy, S: HeapSlots<T> + ?Sized, F: FnMut(&T, &T) -> bool>(
+    v: &mut S,
+    len: usize,
+    comp: &mut F,
+) {
+    let len = len as isize;
     if len > 1 {
         let last = len - 1;
         // __pop_heap(first, last, last, comp)
-        let value = v[last as usize];
-        v[last as usize] = v[0];
-        libstdcxx_adjust_heap(&mut v[..last as usize], 0, last, value, comp);
+        let value = v.get(last as usize);
+        let top = v.get(0);
+        v.set(last as usize, top);
+        libstdcxx_adjust_heap(v, 0, last, value, comp);
+    }
+}
+
+/// libstdc++ `std::pop_heap(first, last, comp)`: moves the top to the last
+/// position and re-heapifies the rest.
+pub fn pop_heap<T: Copy, F: FnMut(&T, &T) -> bool>(v: &mut [T], comp: &mut F) {
+    let len = v.len();
+    libstdcxx_pop_heap(v, len, comp);
+}
+
+/// The A* PENDING heap (not upstream as a type): upstream's vector of
+/// nodes kept with `std::make_heap` / `push_heap` / `pop_heap`, which this
+/// reproduces exactly, plus what lets a node's key change cost less than
+/// upstream's full `make_heap()` (see `key_changed()`).
+#[derive(Debug, Default)]
+struct PendingHeap {
+    v: Vec<ANodeIdx>,
+    /// Position in `v` of each node (`u32::MAX`: not in the heap).
+    pos: Vec<u32>,
+    /// The `f` values in the heap.
+    keys: KeyTies,
+    /// Every heap operation since the last full `make_heap()` ran while the
+    /// comparison was a strict total order (see `KeyTies`), so that every
+    /// parent orders strictly before its children.
+    ordered: bool,
+}
+
+/// The heap's slots as seen by the heap algorithms: writes update `pos`.
+struct TrackedSlots<'a> {
+    v: &'a mut [ANodeIdx],
+    pos: &'a mut [u32],
+}
+
+impl HeapSlots<ANodeIdx> for TrackedSlots<'_> {
+    #[inline]
+    fn get(&self, i: usize) -> ANodeIdx {
+        self.v[i]
+    }
+    #[inline]
+    fn set(&mut self, i: usize, x: ANodeIdx) {
+        self.v[i] = x;
+        self.pos[x.0 as usize] = i as u32;
+    }
+}
+
+/// The multiset of `f` values in the heap, grouped into clusters (not
+/// upstream): maximal runs of distinct values in which neighbours differ by
+/// no more than `a_node_cmp()`'s epsilon.  When every cluster spans no more
+/// than the epsilon, `a_node_cmp()` compares values of one cluster by time
+/// stamp (unique per node) and values of different clusters, which differ
+/// by more than the epsilon, by `f`: a strict total order.  Otherwise it
+/// may not be transitive.
+#[derive(Debug, Default)]
+struct KeyTies {
+    counts: std::collections::BTreeMap<u64, u32>,
+    /// Clusters, start -> end.
+    clusters: std::collections::BTreeMap<u64, u64>,
+    /// Clusters that span more than the epsilon.
+    wide: usize,
+    nan: usize,
+}
+
+impl KeyTies {
+    const EPS: f64 = 0.0000001;
+
+    /// f64 to u64, order-preserving (for non-NaN values).
+    fn ord(f: f64) -> u64 {
+        let b = f.to_bits();
+        if b >> 63 == 1 {
+            !b
+        } else {
+            b | (1 << 63)
+        }
+    }
+
+    fn val(k: u64) -> f64 {
+        f64::from_bits(if k >> 63 == 1 { k & !(1 << 63) } else { !k })
+    }
+
+    /// `a < b`, close enough to be in one cluster.
+    fn close(a: u64, b: u64) -> bool {
+        Self::val(b) - Self::val(a) <= Self::EPS
+    }
+
+    fn add_cluster(&mut self, start: u64, end: u64) {
+        self.clusters.insert(start, end);
+        self.wide += !Self::close(start, end) as usize;
+    }
+
+    fn remove_cluster(&mut self, start: u64) -> u64 {
+        let end = self.clusters.remove(&start).expect("KeyTies: no such cluster");
+        self.wide -= !Self::close(start, end) as usize;
+        end
+    }
+
+    /// The start of the cluster holding (or ending at or after) key `k`.
+    fn cluster_of(&self, k: u64) -> u64 {
+        *self.clusters.range(..=k).next_back().expect("KeyTies: key outside clusters").0
+    }
+
+    fn insert(&mut self, f: f64) {
+        if f.is_nan() {
+            self.nan += 1;
+            return;
+        }
+        let k = Self::ord(f);
+        let c = self.counts.entry(k).or_insert(0);
+        *c += 1;
+        if *c > 1 {
+            return;
+        }
+        let lo = self.counts.range(..k).next_back().map(|(&x, _)| x);
+        let hi = self.counts.range(k + 1..).next().map(|(&x, _)| x);
+        if let (Some(lo), Some(hi)) = (lo, hi) {
+            if Self::close(lo, hi) {
+                // Inside a cluster: it keeps its ends.
+                return;
+            }
+        }
+        let mut start = k;
+        let mut end = k;
+        if let Some(lo) = lo.filter(|&lo| Self::close(lo, k)) {
+            start = self.cluster_of(lo);
+            self.remove_cluster(start);
+        }
+        if let Some(hi) = hi.filter(|&hi| Self::close(k, hi)) {
+            // `hi` starts its cluster (it is not close to `lo`).
+            end = self.remove_cluster(hi);
+        }
+        self.add_cluster(start, end);
+    }
+
+    fn remove(&mut self, f: f64) {
+        if f.is_nan() {
+            self.nan -= 1;
+            return;
+        }
+        let k = Self::ord(f);
+        let c = self.counts.get_mut(&k).expect("KeyTies: removing an absent key");
+        *c -= 1;
+        if *c > 0 {
+            return;
+        }
+        self.counts.remove(&k);
+        let start = self.cluster_of(k);
+        let end = self.remove_cluster(start);
+        let lo = self.counts.range(..k).next_back().map(|(&x, _)| x).filter(|&lo| lo >= start);
+        let hi = self.counts.range(k + 1..).next().map(|(&x, _)| x).filter(|&hi| hi <= end);
+        match (lo, hi) {
+            (Some(lo), Some(hi)) if Self::close(lo, hi) => self.add_cluster(start, end),
+            _ => {
+                if let Some(lo) = lo {
+                    self.add_cluster(start, lo);
+                }
+                if let Some(hi) = hi {
+                    self.add_cluster(hi, end);
+                }
+            }
+        }
+    }
+
+    fn clear(&mut self) {
+        self.counts.clear();
+        self.clusters.clear();
+        self.wide = 0;
+        self.nan = 0;
+    }
+
+    /// `a_node_cmp()` is a strict total order on the values present.
+    fn strict(&self) -> bool {
+        self.wide == 0 && self.nan == 0
+    }
+}
+
+impl PendingHeap {
+    fn clear(&mut self) {
+        for &n in &self.v {
+            self.pos[n.0 as usize] = u32::MAX;
+        }
+        self.v.clear();
+        self.keys.clear();
+        self.ordered = false;
+    }
+
+    #[inline]
+    fn len(&self) -> usize {
+        self.v.len()
+    }
+
+    #[inline]
+    fn top(&self) -> ANodeIdx {
+        self.v[0]
+    }
+
+    fn slots(&mut self) -> TrackedSlots<'_> {
+        TrackedSlots {
+            v: &mut self.v,
+            pos: &mut self.pos,
+        }
+    }
+
+    /// `pending.push_back(n)` (without heap ordering).
+    fn push_back(&mut self, nodes: &ANodes, n: ANodeIdx) {
+        if self.pos.len() <= n.0 as usize {
+            self.pos.resize(nodes.len().max(n.0 as usize + 1), u32::MAX);
+        }
+        self.pos[n.0 as usize] = self.v.len() as u32;
+        self.v.push(n);
+        self.keys.insert(nodes[n.0 as usize].f);
+    }
+
+    /// `std::make_heap(pending.begin(), pending.end(), ANodeCmp())`.
+    fn make_heap(&mut self, nodes: &ANodes) {
+        let len = self.v.len();
+        let mut cmp = |a: &ANodeIdx, b: &ANodeIdx| a_node_cmp(&nodes[a.0 as usize], &nodes[b.0 as usize]);
+        libstdcxx_make_heap(&mut self.slots(), len, &mut cmp);
+        self.ordered = self.keys.strict();
+    }
+
+    /// `pending.push_back(n)` and `std::push_heap(...)`.
+    fn push(&mut self, nodes: &ANodes, n: ANodeIdx) {
+        self.push_back(nodes, n);
+        let len = self.v.len();
+        let value = self.v[len - 1];
+        let mut cmp = |a: &ANodeIdx, b: &ANodeIdx| a_node_cmp(&nodes[a.0 as usize], &nodes[b.0 as usize]);
+        libstdcxx_push_heap_hole(&mut self.slots(), len as isize - 1, 0, value, &mut cmp);
+        self.ordered &= self.keys.strict();
+    }
+
+    /// `std::pop_heap(...)` and `pending.pop_back()`.
+    fn pop(&mut self, nodes: &ANodes) {
+        let len = self.v.len();
+        let mut cmp = |a: &ANodeIdx, b: &ANodeIdx| a_node_cmp(&nodes[a.0 as usize], &nodes[b.0 as usize]);
+        libstdcxx_pop_heap(&mut self.slots(), len, &mut cmp);
+        self.ordered &= self.keys.strict();
+        let n = self.v.pop().expect("pop of an empty heap");
+        self.pos[n.0 as usize] = u32::MAX;
+        self.keys.remove(nodes[n.0 as usize].f);
+    }
+
+    /// Node `n` in the heap had key `old_f` and now has `nodes[n]`'s:
+    /// upstream calls `std::make_heap()` on the whole heap.
+    ///
+    /// When every parent orders strictly before its children under a strict
+    /// total order (`ordered`, and `strict()` with the new key), each step
+    /// of make_heap() -- `__adjust_heap()` at every parent position, last
+    /// to first -- leaves the heap unchanged except at the changed node's
+    /// position and its ancestors': elsewhere the value at a position
+    /// orders before everything below it, so the hole it leaves goes down
+    /// and the value comes back up the same path.  Only those steps are
+    /// run then, in make_heap()'s order, which gives the same heap.
+    fn key_changed(&mut self, nodes: &ANodes, n: ANodeIdx, old_f: f64) {
+        self.keys.remove(old_f);
+        self.keys.insert(nodes[n.0 as usize].f);
+        if !(self.ordered && self.keys.strict()) {
+            self.make_heap(nodes);
+            return;
+        }
+        #[cfg(debug_assertions)]
+        let expected = {
+            let mut v = self.v.clone();
+            make_heap(&mut v, &mut |a: &ANodeIdx, b: &ANodeIdx| {
+                a_node_cmp(&nodes[a.0 as usize], &nodes[b.0 as usize])
+            });
+            v
+        };
+        let len = self.v.len() as isize;
+        if len >= 2 {
+            let i = self.pos[n.0 as usize] as isize;
+            let mut cmp = |a: &ANodeIdx, b: &ANodeIdx| a_node_cmp(&nodes[a.0 as usize], &nodes[b.0 as usize]);
+            let mut slots = self.slots();
+            if i <= (len - 2) / 2 {
+                let value = slots.get(i as usize);
+                libstdcxx_adjust_heap(&mut slots, i, len, value, &mut cmp);
+            }
+            let mut a = i;
+            while a > 0 {
+                a = (a - 1) / 2;
+                let value = slots.get(a as usize);
+                libstdcxx_adjust_heap(&mut slots, a, len, value, &mut cmp);
+            }
+        }
+        #[cfg(debug_assertions)]
+        debug_assert_eq!(self.v, expected);
     }
 }
 
@@ -1097,6 +1417,8 @@ struct AStarPathPrivate {
     m_vis_buf: Vec<EdgeIdx>,
     /// Not upstream: the other connectors for `cost()`.
     m_others: OtherRoutes,
+    /// Not upstream: the PENDING heap, kept for its buffers.
+    m_pending: PendingHeap,
     m_segments_buf: Vec<(RouteBounds, u32)>,
 }
 
@@ -1310,7 +1632,8 @@ impl AStarPathPrivate {
         end_points.push(router.vert_infs[tar].point);
 
         // Heap of PENDING nodes.
-        let mut pending: Vec<ANodeIdx> = Vec::with_capacity(1000);
+        let mut pending = std::mem::take(&mut self.m_pending);
+        pending.clear();
 
         let mut explored_count: usize = 0;
         let mut node: ANode;
@@ -1408,7 +1731,7 @@ impl AStarPathPrivate {
                     explored_count += 1;
                 } else {
                     let new_node = self.new_a_node(router, &node, true);
-                    pending.push(new_node);
+                    pending.push_back(&self.m_available_nodes, new_node);
                 }
 
                 r_indx += 1;
@@ -1445,30 +1768,25 @@ impl AStarPathPrivate {
 
             // Populate the PENDING container with the first location
             let new_node = self.new_a_node(router, &node, true);
-            pending.push(new_node);
+            pending.push_back(&self.m_available_nodes, new_node);
         }
 
         router.vert_infs[tar].path_next = None;
 
         // Create a heap from PENDING for sorting
-        {
-            let nodes = &self.m_available_nodes;
-            make_heap(&mut pending, &mut |a: &ANodeIdx, b: &ANodeIdx| {
-                a_node_cmp(&nodes[a.0 as usize], &nodes[b.0 as usize])
-            });
-        }
+        pending.make_heap(&self.m_available_nodes);
 
         let src_point = router.vert_infs[src].point;
         let line_src = router.conns[line_ref].src();
         let line_dst = router.conns[line_ref].dst();
 
         // Continue until the queue is empty.
-        while !pending.is_empty() {
+        while pending.len() != 0 {
             // Set the Node with lowest f value to BESTNODE.
             // Since the ANode operator< is reversed, the head of the
             // heap is the node with the lowest f value.
             crate::avoid::timer::timer_var_add!(router, 0, 1);
-            let bn = pending[0];
+            let bn = pending.top();
             // (upstream assigns bestNode here; `bn` plays that role below.)
             let best_node_inf = inf_of(&self.m_available_nodes, bn);
 
@@ -1496,14 +1814,8 @@ impl AStarPathPrivate {
             // far left value to the far right.  The node
             // is not actually removed since the pop is to
             // the heap and not the container.
-            {
-                let nodes = &self.m_available_nodes;
-                pop_heap(&mut pending, &mut |a: &ANodeIdx, b: &ANodeIdx| {
-                    a_node_cmp(&nodes[a.0 as usize], &nodes[b.0 as usize])
-                });
-            }
             // Remove node from right (the value we pop_heap'd)
-            pending.pop();
+            pending.pop(&self.m_available_nodes);
 
             // Add the bestNode into the Done set.
             self.push_done(router, best_node_inf, bn);
@@ -1751,11 +2063,10 @@ impl AStarPathPrivate {
                         // If already on PENDING
                         if node.g < ati.g {
                             // Replace the existing node in PENDING
+                            let old_f = self.m_available_nodes[curr_ind.0 as usize].f;
                             self.m_available_nodes[curr_ind.0 as usize] = node;
-                            let nodes = &self.m_available_nodes;
-                            make_heap(&mut pending, &mut |a: &ANodeIdx, b: &ANodeIdx| {
-                                a_node_cmp(&nodes[a.0 as usize], &nodes[b.0 as usize])
-                            });
+                            // (upstream: std::make_heap(PENDING...))
+                            pending.key_changed(&self.m_available_nodes, curr_ind, old_f);
                         }
                         b_node_found = true;
                         break;
@@ -1790,17 +2101,15 @@ impl AStarPathPrivate {
                     // If Node NOT in either Pending or Done.
                     // Push NewNode onto PENDING
                     let new_node = self.new_a_node(router, &node, true);
-                    pending.push(new_node);
                     // Push NewNode onto heap
-                    let nodes = &self.m_available_nodes;
-                    push_heap(&mut pending, &mut |a: &ANodeIdx, b: &ANodeIdx| {
-                        a_node_cmp(&nodes[a.0 as usize], &nodes[b.0 as usize])
-                    });
+                    pending.push(&self.m_available_nodes, new_node);
                 }
             }
             self.m_vis_buf = vis_list;
         }
         let _ = explored_count;
+        pending.clear();
+        self.m_pending = pending;
 
         // Cleanup lists used to store Done and Pending sets for each vertex.
         // (Upstream walks every vertex; only the touched ones have entries.)
@@ -1871,6 +2180,51 @@ mod tests {
             out.push(v.pop().unwrap());
         }
         assert_eq!(out, vec![11, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0]);
+    }
+
+    /// KeyTies against a recomputation from the sorted values.
+    #[test]
+    fn key_ties_clusters() {
+        fn brute(vals: &[f64]) -> bool {
+            let mut v: Vec<f64> = vals.to_vec();
+            v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            v.dedup();
+            let mut start = 0;
+            for i in 1..=v.len() {
+                if i == v.len() || v[i] - v[i - 1] > KeyTies::EPS {
+                    if v[i - 1] - v[start] > KeyTies::EPS {
+                        return false;
+                    }
+                    start = i;
+                }
+            }
+            true
+        }
+        let mut seed: u64 = 0x1234_5678_9abc_def1;
+        let mut next = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        for round in 0..200 {
+            let mut t = KeyTies::default();
+            let mut vals: Vec<f64> = Vec::new();
+            for _ in 0..300 {
+                if vals.is_empty() || next() % 3 != 0 {
+                    // Values on a coarse grid with noise around the epsilon.
+                    let base = (next() % 20) as f64 * if round % 2 == 0 { 1e-7 } else { 1.0 };
+                    let noise = (next() % 7) as f64 * 3e-8 - 9e-8;
+                    let f = if next() % 2 == 0 { base } else { base + noise };
+                    t.insert(f);
+                    vals.push(f);
+                } else {
+                    let i = (next() % vals.len() as u64) as usize;
+                    t.remove(vals.swap_remove(i));
+                }
+                assert_eq!(t.strict(), brute(&vals));
+            }
+        }
     }
 
     #[test]
