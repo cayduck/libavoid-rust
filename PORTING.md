@@ -78,6 +78,7 @@ tests. The pieces are:
 | `tests/debug_output_files.rs` | The file-writing forms, and what no fixture reaches (`HyperedgeRerouter::outputInstanceToSVG()` with pending registrations; a scene with clusters, pins, checkpoints, a fixed route and a poly-line connector), against `tools/oracle/debug_output_oracle.cpp`. |
 | `tests/fork_route_status_oracle.rs` | `ConnRef::has_valid_route()` and `has_crossing_obstacles()`, taken from the libavoid-js fork (see "Where the port differs from upstream"), after every transaction of 250 generated scenes with checkpoints, against the vendored upstream with the fork's two commits applied (`tools/oracle/fork_route_status.sh`). Debug builds check a tenth. |
 | `tests/nested_shapes_oracle.rs` | `Router::set_route_inside_parent_shapes()` (see "Where the port differs from upstream") on 200 generated scenes with shapes nested in shapes: the routes after every transaction must match upstream with the option off and upstream with `tools/oracle/nested_shapes.patch` with it on (`tools/oracle/nested_shapes.sh`). Debug builds check a tenth. |
+| `tests/reroute_after_edits_oracle.rs` | `Router::set_reroute_after_edits()` on 200 generated scenes that set checkpoints on routed connectors or delete connectors that hold pins: the routes after every transaction must match upstream with the option off and upstream with `tools/oracle/reroute_after_edits.patch` with it on (`tools/oracle/reroute_after_edits.sh`). Debug builds check a tenth. |
 | `tests/e2e_svg_oracle.rs` | The same two SVGs after every transaction of the 865 committed fuzz scenes on which upstream is well defined, byte for byte (hashes recorded by `tools/oracle/e2e_svg_oracle.sh`). Debug builds check a tenth. |
 | `tests/*_debug_oracle.rs`, `tests/debughandler_oracle.rs`, `tests/timer_oracle.rs` | The feature-gated debug output (see "Debug output") against the C++ built with the matching define, over all fixtures and audit scenes. Run with the feature named in each file. |
 | `tools/audit/inventory.py --check` | Every upstream item is accounted for, and every `// upstream:` comment names something that exists. |
@@ -232,6 +233,23 @@ differences are confined to the following.
     does not need it, and it changes routes in many scenes without nesting
     and makes some several times slower (see
     `docs/LIBAVOID_JS_COMPARISON.md`).
+  - `Router::set_reroute_after_edits()`: `ConnRef::set_routing_checkpoints()`
+    schedules the connector for rerouting (commit `0ab3467b`), and
+    `Router::delete_connector()` schedules the connectors attached to the
+    deleted one's shapes (commit `2ebee142`). Upstream applies new
+    checkpoints only when something else reroutes the connector, and keeps
+    a connector that found no path as a straight line after the connector
+    that blocked it (for example by holding the only free pin) is deleted.
+    Off by default; the fork has it always on.
+  - Not taken: the fork's rework of how nudging decides that all variables
+    are satisfied (commits `f5105ceb`, `1d1e5517`, `c3de7912`). It removes
+    upstream assertions, but it also changes routes in scenes where no
+    assertion fires (16 of 600 random scenes), so it is a change of
+    behaviour rather than a fix. The fork's cleanup of objects still queued
+    when a `Router` is destroyed (commit `2778992d`) has no counterpart to
+    fix: dropping a `Router` frees everything it holds. The fork's ordering
+    of objects by creation instead of by address (`4a71c184` and later) is
+    what the port does already (see "Pointer order").
 - **Not ported.** Dead `#if 0` code and functions that upstream declares
   but never defines; the inventory lists each one with its reason. The
   debug output is ported (see "Debug output" above); of upstream's debug

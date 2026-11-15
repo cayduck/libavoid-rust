@@ -38,6 +38,7 @@ const adapters = {
     end: (e) => e.shape ? new A.ConnEnd(e.shape, e.pin) : new A.ConnEnd(new A.Point(e.x, e.y)),
     conn(r, id, a, b) { return new A.ConnRef(r, this.end(a), this.end(b), id); },
     move: (r, s, dx, dy) => r.moveShape(s, dx, dy),
+    checkpoints: (c, pts) => c.setRoutingCheckpoints(pts.map((p) => new A.Checkpoint(new A.Point(p.x, p.y)))),
     delconn: (r, c) => r.deleteConnector(c),
     process: (r) => r.processTransaction(),
     route: (c) => c.displayRoute().ps.map((p) => [p.x, p.y]),
@@ -52,6 +53,7 @@ const adapters = {
     end: (e) => e.shape ? new A.ConnEnd(e.shape, e.pin) : new A.ConnEnd(new A.Point(e.x, e.y)),
     conn(r, id, a, b) { return new A.ConnRef(r, this.end(a), this.end(b), id); },
     move: (r, s, dx, dy) => r.moveShape(s, dx, dy),
+    checkpoints() { throw new Error("libavoid-js 0.4.5 has no ConnRef.setRoutingCheckpoints"); },
     delconn: (r, c) => r.deleteConnector(c),
     process: (r) => r.processTransaction(),
     route(c) { const pl = c.displayRoute(); const out = []; for (let i = 0; i < pl.size(); i++) { const p = pl.get_ps(i); out.push([p.x, p.y]); } return out; },
@@ -66,6 +68,7 @@ const adapters = {
     end: (e) => e.shape ? new A.ConnEnd(e.shape, e.pin) : new A.ConnEnd(new A.Point(e.x, e.y)),
     conn(r, id, a, b) { return new A.ConnRef(r, this.end(a), this.end(b), id); },
     move: (r, s, dx, dy) => r.moveShape_delta(s, dx, dy),
+    checkpoints(c, pts) { const v = new A.CheckpointVector(); for (const p of pts) v.push_back(new A.Checkpoint(new A.Point(p.x, p.y))); c.setRoutingCheckpoints(v); },
     delconn: (r, c) => r.deleteConnector(c),
     process: (r) => r.processTransaction(),
     route(c) { const pl = c.displayRoute(); const ps = pl.ps; const out = []; for (let i = 0; i < ps.size(); i++) { const p = ps.get(i); out.push([p.x, p.y]); } return out; },
@@ -80,6 +83,7 @@ const adapters = {
     end: (e) => e.shape ? { shape: e.shape, pin: e.pin } : { x: e.x, y: e.y },
     conn(r, id, a, b) { return r.addConnector(this.end(a), this.end(b), { id }); },
     move: (r, s, dx, dy) => r.moveShape(s, dx, dy),
+    checkpoints: (c, pts) => c.setRoutingCheckpoints(pts),
     delconn: (r, c) => r.deleteConnector(c),
     process: (r) => r.processTransaction(),
     route: (c) => c.displayRoute().map((p) => [p.x, p.y]),
@@ -110,6 +114,12 @@ function run(file) {
       case "shape": shapes.set(+w[1], ad.shape(r, +w[1], +w[2], +w[3], +w[4], +w[5])); break;
       case "pin": ad.pin(shapes.get(+w[1]), +w[2], +w[3], +w[4], +w[5]); break;
       case "conn": { const [a, i] = end(w, 2); const [b] = end(w, i); conns.set(+w[1], ad.conn(r, +w[1], a, b)); break; }
+      case "checkpoints": {
+        const pts = [];
+        for (let i = 0; i < +w[2]; i++) pts.push({ x: +w[3 + 2 * i], y: +w[4 + 2 * i] });
+        ad.checkpoints(conns.get(+w[1]), pts);
+        break;
+      }
       case "move": ad.move(r, shapes.get(+w[1]), +w[2], +w[3]); break;
       case "delconn": ad.delconn(r, conns.get(+w[1])); conns.delete(+w[1]); break;
       case "process": {
@@ -118,6 +128,8 @@ function run(file) {
         for (const id of [...conns.keys()].sort((a, b) => a - b)) { const pts = ad.route(conns.get(id)); out.push(`c ${id} ${pts.length} ${pts.flat().join(" ")}`); }
         break;
       }
+      default:
+        throw new Error(`unknown op ${w[0]}`);
     }
   }
   ad.free(r);

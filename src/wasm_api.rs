@@ -687,6 +687,17 @@ impl RawRouter {
         Ok(self.router.route_inside_parent_shapes())
     }
 
+    #[wasm_bindgen(js_name = setRerouteAfterEdits)]
+    pub fn set_reroute_after_edits(&mut self, value: bool) -> Res<()> {
+        self.router.set_reroute_after_edits(value);
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = rerouteAfterEdits)]
+    pub fn reroute_after_edits(&self) -> Res<bool> {
+        Ok(self.router.reroute_after_edits())
+    }
+
     #[wasm_bindgen(js_name = setRoutingPenalty)]
     pub fn set_routing_penalty(&mut self, pen_type: u32, pen_val: f64) -> Res<()> {
         let p = param_of(pen_type)?;

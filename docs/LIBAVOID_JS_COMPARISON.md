@@ -144,6 +144,7 @@ typings.
 | SVG and text debug output | yes | no | no | no |
 | Routing inside shapes that contain other shapes (from the fork) | opt-in (`setRouteInsideParentShapes`), since the release after 0.2.1 | always | always | always |
 | `ConnRef.hasValidRoute()`, `hasCrossingObstacles()` (from the fork) | yes, since the release after 0.2.1 | no | yes | yes |
+| Rerouting after checkpoint changes and connector deletions (from the fork) | opt-in (`setRerouteAfterEdits`), since the release after 0.2.1 | deletions only (no checkpoint API) | always | always |
 
 `docs/JS_API_COVERAGE.md` lists every public item of upstream's headers
 with its libavoid-rust counterpart.

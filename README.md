@@ -15,12 +15,14 @@ clusters, checkpoints, nudging, and hyperedge rerouting and improvement. Its
 routes are checked against the original C++ (see [Verification](#verification)).
 The JavaScript API mirrors upstream's public C++ API (`namespace Avoid`):
 the same classes, methods, arguments and defaults, backed by that core. It
-adds three things from the Adaptagrams fork that libavoid-js builds on:
+adds a few things from the Adaptagrams fork that libavoid-js builds on:
 `ConnRef.hasValidRoute()` and `ConnRef.hasCrossingObstacles()`, which tell
-whether the router found a route and whether it crosses obstacles, and
+whether the router found a route and whether it crosses obstacles;
 `Router.setRouteInsideParentShapes(true)`, which routes orthogonal
-connectors inside shapes that contain other shapes (off by default, so
-routes stay upstream's).
+connectors inside shapes that contain other shapes; and
+`Router.setRerouteAfterEdits(true)`, which reroutes connectors after
+checkpoint changes and connector deletions that upstream does not reroute
+for. The two settings are off by default, so routes stay upstream's.
 
 ## Install
 

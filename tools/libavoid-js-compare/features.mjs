@@ -21,6 +21,8 @@ const f = {
   "SVG debug output (Router.outputInstanceToSVG)": has("Router", "outputInstanceToSVG"),
   "routing inside parent shapes (always on in libavoid-js; Router.setRouteInsideParentShapes here)":
     impl !== "rust" || has("Router", "setRouteInsideParentShapes"),
+  "rerouting after edits (always on in libavoid-js; Router.setRerouteAfterEdits here)":
+    impl !== "rust" || has("Router", "setRerouteAfterEdits"),
   "route status (ConnRef.hasValidRoute, hasCrossingObstacles, from the fork)": has("ConnRef", "hasValidRoute") && has("ConnRef", "hasCrossingObstacles"),
 };
 for (const [k, v] of Object.entries(f)) console.log(`${impl}\t${v ? "yes" : "no"}\t${k}`);

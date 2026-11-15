@@ -491,9 +491,11 @@ Behaviour of [Aksem/adaptagrams](https://github.com/Aksem/adaptagrams), the
 Adaptagrams fork that libavoid-js builds on, that upstream does not have.
 The first two only read state and change no route
 (`tests/fork_route_status_oracle.rs` checks them against the C++ of that
-fork). The last two switch the fork's routing inside shapes that enclose
-other shapes on and off; it is off by default, which keeps upstream's
-routes (`tests/nested_shapes_oracle.rs` checks both settings against the
+fork). The others switch two of the fork's behaviours on and off: routing
+inside shapes that enclose other shapes, and rerouting after checkpoint
+changes and connector deletions. Both are off by default, which keeps
+upstream's routes (`tests/nested_shapes_oracle.rs` and
+`tests/reroute_after_edits_oracle.rs` check both settings against the
 C++). The first column names the fork's C++ code.
 
 | Fork | JavaScript | Args / value | Notes |
@@ -502,6 +504,8 @@ C++). The first column names the fork's C++ code.
 | `ConnRef::hasCrossingObstacles()` | `Avoid.ConnRef#hasCrossingObstacles` | 0 | fork commit fe73f026 |
 | `Node::isShapeInShape()` (always on in the fork) | `Avoid.Router#setRouteInsideParentShapes` | 1 | fork commit 1b4a2369; off by default |
 | `Node::isShapeInShape()` | `Avoid.Router#routeInsideParentShapes` | 0 | whether the above is on |
+| `ConnRef::setRoutingCheckpoints()`, `Router::deleteConnector()` rerouting (always on in the fork) | `Avoid.Router#setRerouteAfterEdits` | 1 | fork commits 0ab3467b, 2ebee142; off by default |
+| `ConnRef::setRoutingCheckpoints()`, `Router::deleteConnector()` rerouting | `Avoid.Router#rerouteAfterEdits` | 0 | whether the above is on |
 
 ## JavaScript items without an upstream counterpart
 

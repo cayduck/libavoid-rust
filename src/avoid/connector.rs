@@ -353,6 +353,12 @@ impl ConnRef {
                 vertex_visibility(router, v, None, true, true);
             }
         }
+
+        // fork: Aksem/adaptagrams connector.cpp ConnRef::setRoutingCheckpoints()
+        if router.m_reroute_after_edits {
+            router.conns[c].make_path_invalid();
+            router.modify_connector(c);
+        }
     }
 
     // upstream: connector.cpp ConnRef::common_updateEndPoint()

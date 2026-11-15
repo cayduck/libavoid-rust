@@ -140,9 +140,11 @@
 // only read state and change no route (tests/fork_route_status_oracle.rs
 // checks them against the C++ of that fork).
 // `Router.setRouteInsideParentShapes(true)` turns on the fork's routing
-// inside shapes that enclose other shapes; it is off by default, so routes
-// are upstream's unless it is set (tests/nested_shapes_oracle.rs checks
-// both settings against the C++).
+// inside shapes that enclose other shapes, and
+// `Router.setRerouteAfterEdits(true)` its rerouting after checkpoint
+// changes and connector deletions.  Both are off by default, so routes are
+// upstream's unless they are set (tests/nested_shapes_oracle.rs and
+// tests/reroute_after_edits_oracle.rs check both settings against the C++).
 
 // --- constants (upstream names) -------------------------------------------------
 
@@ -478,6 +480,19 @@ export class Router {
   setRouteInsideParentShapes(value: boolean): void;
   /** See `setRouteInsideParentShapes()`. */
   routeInsideParentShapes(): boolean;
+  /**
+   * From the libavoid-js fork (no upstream counterpart): reroutes
+   * connectors after two edits that upstream does not reroute for.
+   * `conn.setRoutingCheckpoints()` reroutes that connector (upstream applies
+   * new checkpoints only when something else reroutes it), and
+   * `router.deleteConnector()` reroutes the connectors attached to the
+   * shapes the deleted one was attached to (upstream leaves a connector
+   * that found no path, for example while the deleted one held the only
+   * free pin, as a straight line).  Off by default, as upstream.
+   */
+  setRerouteAfterEdits(value: boolean): void;
+  /** See `setRerouteAfterEdits()`. */
+  rerouteAfterEdits(): boolean;
   setRoutingPenalty(penType: PenaltyType, penVal?: number): void;
   /** The router's HyperedgeRerouter (the same object every time). */
   hyperedgeRerouter(): HyperedgeRerouter;

@@ -661,6 +661,11 @@ pub struct Router {
     /// as its frame rather than as an obstacle (off: upstream).
     // fork: Aksem/adaptagrams scanline.cpp Node::isShapeInShape()
     pub m_route_inside_parent_shapes: bool,
+    /// Whether setting a connector's checkpoints, or deleting a connector,
+    /// schedules the connectors it affects for rerouting (off: upstream).
+    // fork: Aksem/adaptagrams connector.cpp ConnRef::setRoutingCheckpoints(),
+    // router.cpp Router::deleteConnector()
+    pub m_reroute_after_edits: bool,
 
     pub m_hyperedge_improver: HyperedgeImprover,
     /// `DebugHandler *m_debug_handler` (owned here; only called with the
@@ -1099,6 +1104,7 @@ impl Router {
             m_in_crossing_rerouting_stage: false,
             m_settings_changes: false,
             m_route_inside_parent_shapes: false,
+            m_reroute_after_edits: false,
             m_hyperedge_improver: HyperedgeImprover::new(),
             m_debug_handler: None,
             #[cfg(feature = "avoid-profile")]
@@ -1352,9 +1358,33 @@ impl Router {
         if !self.conns.contains(connector) {
             return;
         }
+        // fork: Aksem/adaptagrams router.cpp Router::deleteConnector()
+        let deleted_shape_ids = if self.m_reroute_after_edits {
+            let (src, dst) = self.conns[connector].endpoint_conn_ends(self);
+            Some((src.shape(self).map(|s| s.id(self)), dst.shape(self).map(|s| s.id(self))))
+        } else {
+            None
+        };
+
         self.m_currently_calling_destructors = true;
         ConnRef::delete(self, connector);
         self.m_currently_calling_destructors = false;
+
+        // fork: Aksem/adaptagrams router.cpp Router::deleteConnector()
+        // Deleting a connector can affect the routes near it.  Reroute those
+        // attached to a shape the deleted connector was attached to.
+        if let Some((src_id, dst_id)) = deleted_shape_ids {
+            let attached_to_deleted = |id: Option<u32>| id.is_some() && (id == src_id || id == dst_id);
+            for i in self.conn_refs.clone() {
+                let (src, dst) = self.conns[i].endpoint_conn_ends(self);
+                if attached_to_deleted(src.shape(self).map(|s| s.id(self))) {
+                    self.modify_connector(i);
+                }
+                if attached_to_deleted(dst.shape(self).map(|s| s.id(self))) {
+                    self.modify_connector(i);
+                }
+            }
+        }
     }
 
     /// Move or resize an existing shape by a relative offset.
@@ -2718,6 +2748,27 @@ impl Router {
     #[inline]
     pub fn route_inside_parent_shapes(&self) -> bool {
         self.m_route_inside_parent_shapes
+    }
+
+    /// Reroutes connectors after two edits that upstream does not reroute
+    /// for: `ConnRef::set_routing_checkpoints()` reroutes that connector,
+    /// and `delete_connector()` reroutes the connectors attached to the
+    /// shapes the deleted one was attached to.  Upstream applies new
+    /// checkpoints only when something else reroutes the connector, and
+    /// leaves a connector that had no path (a straight-line fallback, for
+    /// example while another connector held the only free pin) as it is
+    /// after the blocking connector is deleted.  Off by default, which is
+    /// upstream's behaviour; on, it is the libavoid-js fork's.
+    // fork: Aksem/adaptagrams connector.cpp ConnRef::setRoutingCheckpoints(),
+    // router.cpp Router::deleteConnector() (always on there)
+    pub fn set_reroute_after_edits(&mut self, value: bool) {
+        self.m_reroute_after_edits = value;
+    }
+
+    /// See `set_reroute_after_edits()`.
+    #[inline]
+    pub fn reroute_after_edits(&self) -> bool {
+        self.m_reroute_after_edits
     }
 
     /// Sets or removes penalty values that are applied during connector

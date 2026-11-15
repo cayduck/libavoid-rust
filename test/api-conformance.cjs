@@ -473,6 +473,47 @@ test("Router: setRouteInsideParentShapes (from the libavoid-js fork)", () => {
   assert.throws(() => new Router(Avoid.OrthogonalRouting).setRouteInsideParentShapes(1), TypeError);
 });
 
+test("Router: setRerouteAfterEdits (from the libavoid-js fork)", () => {
+  // Expected routes from the C++: upstream (off) and upstream with
+  // tools/oracle/reroute_after_edits.patch (on).
+  const deletion = (on) => {
+    // Two connectors want the only pin of a shape; one falls back to a
+    // straight line from the shape's centre.  Deleting the other frees it.
+    const r = new Router(Avoid.OrthogonalRouting);
+    assert.equal(r.rerouteAfterEdits(), false);
+    r.setRerouteAfterEdits(on);
+    assert.equal(r.rerouteAfterEdits(), on);
+    const s = new ShapeRef(r, rect(100, 100, 160, 160), 1);
+    new ShapeConnectionPin(s, 1, 1, 0.5, true, 0, Avoid.ConnDirRight);
+    const a = new ConnRef(r, new ConnEnd(s, 1), new ConnEnd(P(300, 130)), 10);
+    const b = new ConnRef(r, new ConnEnd(s, 1), new ConnEnd(P(300, 200)), 11);
+    r.processTransaction();
+    assert.deepEqual(xy(a.displayRoute()), [[130, 130], [300, 130]]);
+    r.deleteConnector(b);
+    r.processTransaction();
+    const out = xy(a.displayRoute());
+    r.delete();
+    return out;
+  };
+  assert.deepEqual(deletion(false), [[130, 130], [300, 130]]);
+  assert.deepEqual(deletion(true), [[160, 130], [300, 130]]);
+
+  const checkpoints = (on) => {
+    const r = new Router(Avoid.OrthogonalRouting);
+    r.setRerouteAfterEdits(on);
+    new ShapeRef(r, rect(100, 0, 160, 60), 1);
+    const c = new ConnRef(r, new ConnEnd(P(0, 30)), new ConnEnd(P(260, 30)), 10);
+    r.processTransaction();
+    c.setRoutingCheckpoints([new Checkpoint(P(130, 120))]);
+    r.processTransaction();
+    const out = xy(c.displayRoute());
+    r.delete();
+    return out;
+  };
+  assert.deepEqual(checkpoints(false), [[0, 30], [0, 0], [260, 0], [260, 30]]);
+  assert.deepEqual(checkpoints(true), [[0, 30], [0, 120], [260, 120], [260, 30]]);
+});
+
 test("ConnRef: hasValidRoute, hasCrossingObstacles (from the libavoid-js fork)", () => {
   // Two scenes whose expected values come from the fork's C++
   // (tools/oracle/fork_route_status.cpp, with the same objects and ids).

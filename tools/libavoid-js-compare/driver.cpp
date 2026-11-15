@@ -6,6 +6,7 @@
 #include <map>
 #include <string>
 #include <chrono>
+#include <vector>
 #include "libavoid/libavoid.h"
 using namespace Avoid;
 int main(int argc, char **argv) {
@@ -29,6 +30,9 @@ int main(int argc, char **argv) {
       new ShapeConnectionPin(shapes[id], c, px, py, true, 0, (ConnDirFlags) d); }
     else if (op == "conn") { unsigned id; ss >> id; ConnEnd a = readEnd(ss); ConnEnd b = readEnd(ss);
       conns[id] = new ConnRef(router, a, b, id); }
+    else if (op == "checkpoints") { unsigned id; size_t n; ss >> id >> n; std::vector<Checkpoint> cps;
+      for (size_t i = 0; i < n; ++i) { double x, y; ss >> x >> y; cps.push_back(Checkpoint(Point(x, y))); }
+      conns[id]->setRoutingCheckpoints(cps); }
     else if (op == "move") { unsigned id; double dx, dy; ss >> id >> dx >> dy; router->moveShape(shapes[id], dx, dy); }
     else if (op == "delconn") { unsigned id; ss >> id; router->deleteConnector(conns[id]); conns.erase(id); }
     else if (op == "process") {
@@ -41,6 +45,7 @@ int main(int argc, char **argv) {
         for (auto &p : r.ps) printf(" %.17g %.17g", p.x, p.y);
         printf("\n"); }
     }
+    else if (!op.empty()) { fprintf(stderr, "unknown op %s\n", op.c_str()); return 2; }
   }
   fprintf(stderr, "time_ms %.3f\n", total);
   delete router;
