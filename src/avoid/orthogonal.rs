@@ -2666,25 +2666,41 @@ impl ImproveOrthogonalRoutes {
             // Take a reference segment
             let current_segment = self.m_segment_list.remove(0);
             // Then, find the segments that overlap this one.
+            //
+            // Upstream scans the list from its start for a segment that
+            // overlaps one in the region, moves it to the region, and
+            // starts over, so the next one taken is always the first
+            // remaining segment overlapping any region member.  Here each
+            // segment is compared with the rest once, when it joins the
+            // region, and those overlapping it wait in a min-heap by list
+            // position: the same segments in the same order.
             current_region = vec![current_segment];
-            let mut curr = 0;
-            while curr < self.m_segment_list.len() {
-                let mut overlaps = false;
-                for curr2 in current_region.iter() {
-                    if self.m_segment_list[curr].nudging_overlaps_with(curr2, dimension, router) {
-                        overlaps = true;
-                        break;
+            {
+                let list = std::mem::take(&mut self.m_segment_list);
+                let n = list.len();
+                let mut state = vec![0u8; n]; // 0: remaining, 1: waiting, 2: taken
+                let mut list: Vec<Option<NudgingShiftSegment>> = list.into_iter().map(Some).collect();
+                let mut waiting: std::collections::BinaryHeap<std::cmp::Reverse<usize>> =
+                    std::collections::BinaryHeap::new();
+                let mut newest = 0;
+                loop {
+                    let member = &current_region[newest];
+                    for idx in 0..n {
+                        if state[idx] == 0
+                            && list[idx].as_ref().unwrap().nudging_overlaps_with(member, dimension, router)
+                        {
+                            state[idx] = 1;
+                            waiting.push(std::cmp::Reverse(idx));
+                        }
                     }
+                    let Some(std::cmp::Reverse(idx)) = waiting.pop() else {
+                        break;
+                    };
+                    state[idx] = 2;
+                    current_region.push(list[idx].take().unwrap());
+                    newest = current_region.len() - 1;
                 }
-                if overlaps {
-                    let seg = self.m_segment_list.remove(curr);
-                    current_region.push(seg);
-                    // Consider segments from the beginning, since we may have
-                    // since passed segments that overlap with the new set.
-                    curr = 0;
-                } else {
-                    curr += 1;
-                }
+                self.m_segment_list = list.into_iter().flatten().collect();
             }
 
             if !just_unifying {
