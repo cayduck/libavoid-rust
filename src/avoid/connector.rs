@@ -2886,7 +2886,7 @@ mod route_bounds_tests {
             seed ^= seed << 17;
             seed
         };
-        let mut coord = |n: &mut dyn FnMut() -> u64| -> f64 {
+        let coord = |n: &mut dyn FnMut() -> u64| -> f64 {
             // Small grid (many shared and collinear points), sometimes
             // nudged by tiny amounts.
             let base = (n() % 7) as f64 * 10.0;

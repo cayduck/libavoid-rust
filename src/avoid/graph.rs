@@ -41,6 +41,7 @@ pub type ShapeList = Vec<i32>;
 /// Boxed, so that the (usually empty) list costs an edge one pointer
 /// rather than a whole `Vec`.
 #[derive(Clone, Debug, Default)]
+#[allow(clippy::box_collection)] // one pointer per edge instead of a Vec
 pub struct FlagList(Option<Box<Vec<RerouteFlagIdx>>>);
 
 impl FlagList {
