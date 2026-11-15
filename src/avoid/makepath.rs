@@ -639,6 +639,73 @@ fn construct_polygon_path(
     }
 }
 
+/// What constructPolygonPath() reads of a node (not upstream), kept next to
+/// the nodes: the vertex's point, whether it is a connection pin, and the
+/// number of nodes on its path back to the start.
+#[derive(Clone, Copy, Debug)]
+struct NodeInfo {
+    point: Point,
+    is_connection_pin: bool,
+    path_nodes: u32,
+}
+
+impl NodeInfo {
+    fn of(router: &Router, infos: &[NodeInfo], node: &ANode) -> NodeInfo {
+        let v = &router.vert_infs[node.inf.expect("ANode without VertInf")];
+        NodeInfo {
+            point: v.point,
+            is_connection_pin: v.id.is_connection_pin(),
+            path_nodes: 1 + node.prev_node.map_or(0, |p| infos[p.0 as usize].path_nodes),
+        }
+    }
+}
+
+/// `construct_polygon_path()` reading `NodeInfo` instead of the vertices
+/// (not upstream; the same steps).
+fn construct_polygon_path_from_info(
+    infos: &[NodeInfo],
+    nodes: &ANodes,
+    conn_route: &mut Polygon,
+    p2: Point,
+    p3: Point,
+    inf1_node: Option<ANodeIdx>,
+) {
+    let mut route_size: isize = 2 + inf1_node.map_or(0, |n| infos[n.0 as usize].path_nodes) as isize;
+    conn_route.ps.clear();
+    conn_route.ps.resize(route_size as usize, Point::default());
+    let array_size = route_size;
+    conn_route.ps[(route_size - 1) as usize] = p3;
+    conn_route.ps[(route_size - 2) as usize] = p2;
+    route_size -= 3;
+    let mut curr = inf1_node;
+    while let Some(c) = curr {
+        let info = &infos[c.0 as usize];
+        if (Some(c) == inf1_node)
+            || vec_dir(
+                &info.point,
+                &conn_route.ps[(route_size + 1) as usize],
+                &conn_route.ps[(route_size + 2) as usize],
+                0.0,
+            ) != 0
+        {
+            conn_route.ps[route_size as usize] = info.point;
+            route_size -= 1;
+        } else {
+            conn_route.ps[(route_size + 1) as usize] = info.point;
+        }
+        if info.is_connection_pin {
+            break;
+        }
+        curr = nodes[c.0 as usize].prev_node;
+    }
+    let diff = route_size + 1;
+    if diff > 0 {
+        conn_route.ps.copy_within(diff as usize..array_size as usize, 0);
+        let new_len = conn_route.size() - diff as usize;
+        conn_route.ps.truncate(new_len);
+    }
+}
+
 /// Used to get an indication of if a diffence is positive (1),
 /// negative (-1) or no different (0).
 // upstream: makepath.cpp dimDirection() (static inline)
@@ -662,6 +729,7 @@ fn cost(
     nodes: &ANodes,
     others: &mut OtherRoutes,
     cluster_boundaries: &[ClusterBoundary],
+    node_info: &[NodeInfo],
     line_ref: ConnIdx,
     dist: f64,
     inf2: VertIdx,
@@ -710,7 +778,7 @@ fn cost(
     // XXX: Clustered routing doesn't yet work with orthogonal connectors.
     if router.clustered_routing && !router.cluster_refs.is_empty() && (cluster_crossing_penalty > 0.0) {
         if conn_route.empty() {
-            construct_polygon_path(router, nodes, &mut conn_route, inf2, inf3, inf1_node);
+            others.route_prefix.build(router, nodes, node_info, &mut conn_route, inf2, inf3, inf1_node);
         }
         // There are clusters so do cluster routing.
         // (not upstream) The boundaries are prepared once per search; as for
@@ -796,7 +864,7 @@ fn cost(
     let shared_path_penalty = router.routing_parameter(RoutingParameter::FixedSharedPathPenalty);
     if (shared_path_penalty > 0.0) || (crossing_penalty > 0.0) {
         if conn_route.empty() {
-            construct_polygon_path(router, nodes, &mut conn_route, inf2, inf3, inf1_node);
+            others.route_prefix.build(router, nodes, node_info, &mut conn_route, inf2, inf3, inf1_node);
         }
         // (not upstream) `others` are the other connectors in
         // `router.conn_refs` order, with the bounds of their display routes.
@@ -961,6 +1029,63 @@ struct OtherRoutes {
     /// each cluster boundary.
     conn_prefixes: PrefixSplits,
     cluster_prefixes: PrefixSplits,
+    route_prefix: RoutePrefix,
+}
+
+/// constructPolygonPath() for the edges of one expansion (not upstream):
+/// every point of the route but the last (`inf3`) depends only on `inf2`
+/// and the node before it (see `PrefixSplits`), so that prefix is built
+/// once per expansion.
+#[derive(Debug, Default)]
+struct RoutePrefix {
+    key: Option<(Option<ANodeIdx>, VertIdx)>,
+    prefix: Polygon,
+}
+
+impl RoutePrefix {
+    #[allow(clippy::too_many_arguments)]
+    fn build(
+        &mut self,
+        router: &Router,
+        nodes: &ANodes,
+        node_info: &[NodeInfo],
+        conn_route: &mut Polygon,
+        inf2: VertIdx,
+        inf3: VertIdx,
+        inf1_node: Option<ANodeIdx>,
+    ) {
+        let key = (inf1_node, inf2);
+        if self.key == Some(key) {
+            conn_route.assign_from(&self.prefix);
+            conn_route.ps.push(router.vert_infs[inf3].point);
+            #[cfg(debug_assertions)]
+            {
+                let mut full = Polygon::new();
+                construct_polygon_path(router, nodes, &mut full, inf2, inf3, inf1_node);
+                debug_assert!(full.ps.len() == conn_route.ps.len()
+                    && full.ps.iter().zip(&conn_route.ps).all(|(a, b)| a == b && a.id == b.id && a.vn == b.vn));
+            }
+            return;
+        }
+        construct_polygon_path_from_info(
+            node_info,
+            nodes,
+            conn_route,
+            router.vert_infs[inf2].point,
+            router.vert_infs[inf3].point,
+            inf1_node,
+        );
+        #[cfg(debug_assertions)]
+        {
+            let mut full = Polygon::new();
+            construct_polygon_path(router, nodes, &mut full, inf2, inf3, inf1_node);
+            debug_assert!(full.ps.len() == conn_route.ps.len()
+                && full.ps.iter().zip(&conn_route.ps).all(|(a, b)| a == b && a.id == b.id && a.vn == b.vn));
+        }
+        self.key = Some(key);
+        self.prefix.assign_from(conn_route);
+        self.prefix.ps.pop();
+    }
 }
 
 /// `cost()` builds the route `conn_route` from the expanded node's path
@@ -1182,6 +1307,7 @@ fn other_routes(router: &Router, line_ref: ConnIdx, others: &mut OtherRoutes, se
     others.display_routes_set = false;
     others.conn_prefixes.reset();
     others.cluster_prefixes.reset();
+    others.route_prefix.key = None;
     let out = &mut others.list;
     out.clear();
     others.seg_bounds.clear();
@@ -1546,6 +1672,9 @@ fn point_aligned_with_one_of(point: &Point, points: &[Point], dim: usize) -> boo
 struct AStarPathPrivate {
     /// Upstream `m_available_nodes` blocks (with the array/node indices).
     m_available_nodes: Vec<ANode>,
+    /// Not upstream: per node, what constructPolygonPath() reads (see
+    /// `NodeInfo`).
+    m_node_info: Vec<NodeInfo>,
 
     // For determining estimated cost target.
     m_cost_targets: Vec<VertIdx>,
@@ -1576,6 +1705,8 @@ impl AStarPathPrivate {
     fn new_a_node(&mut self, router: &mut Router, node: &ANode, add_to_pending: bool) -> ANodeIdx {
         let new_node = ANodeIdx(self.m_available_nodes.len() as u32);
         self.m_available_nodes.push(*node);
+        let info = NodeInfo::of(router, &self.m_node_info, node);
+        self.m_node_info.push(info);
         if add_to_pending {
             let v = node.inf.unwrap();
             self.touch(router, v);
@@ -1852,6 +1983,7 @@ impl AStarPathPrivate {
                             &self.m_available_nodes,
                             &mut self.m_others,
                             &self.m_cluster_boundaries,
+                            &self.m_node_info,
                             line_ref,
                             edge_dist,
                             bn_inf,
@@ -2173,6 +2305,7 @@ impl AStarPathPrivate {
                                 &self.m_available_nodes,
                                 &mut self.m_others,
                                 &self.m_cluster_boundaries,
+                            &self.m_node_info,
                                 line_ref,
                                 edge_dist,
                                 best_node_inf,
@@ -2215,6 +2348,8 @@ impl AStarPathPrivate {
                             // Replace the existing node in PENDING
                             let old_f = self.m_available_nodes[curr_ind.0 as usize].f;
                             self.m_available_nodes[curr_ind.0 as usize] = node;
+                            // (a pending node has no successors yet)
+                            self.m_node_info[curr_ind.0 as usize] = NodeInfo::of(router, &self.m_node_info, &node);
                             // (upstream: std::make_heap(PENDING...))
                             pending.key_changed(&self.m_available_nodes, curr_ind, old_f);
                         }

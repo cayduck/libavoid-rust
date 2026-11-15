@@ -313,7 +313,7 @@ use crate::avoid::arena::{
 };
 use crate::avoid::connectionpin::{ConnectionPinIds, PinArena};
 use crate::avoid::connector::{
-    ConnRef, ConnType, ConnectorCrossings, CROSSING_SHARES_FIXED_SEGMENT, CROSSING_SHARES_PATH,
+    ConnRef, ConnType, ConnectorCrossings, RouteBounds, CROSSING_SHARES_FIXED_SEGMENT, CROSSING_SHARES_PATH,
     CROSSING_SHARES_PATH_AT_END, CROSSING_TOUCHES,
 };
 use crate::avoid::connend::ConnEnd;
@@ -2177,7 +2177,14 @@ impl Router {
                 let mut i_route = std::mem::take(&mut self.conns[i].m_route);
                 let mut j_route = std::mem::take(&mut self.conns[j].m_route);
                 let mut add = false;
-                {
+                // (not upstream) Routes that cannot touch (see
+                // `RouteBounds`) split nothing, share no point and do not
+                // intersect: no crossing and no flags for any segment.
+                let apart = match (RouteBounds::of(&i_route, false), RouteBounds::of(&j_route, false)) {
+                    (Some(a), Some(b)) => a.cannot_touch(&b),
+                    _ => false,
+                };
+                if !apart {
                     let mut cross = ConnectorCrossings::new(true, Some(i), Some(j));
                     let mut j_ind = 1;
                     while j_ind < j_route.size() {
