@@ -591,6 +591,9 @@ pub struct Router {
     /// Index of the active edges by vertex pair, for `EdgeInf::existingEdge()`
     /// (no upstream counterpart; see `EdgePairIndex`).
     pub edge_pair_index: crate::avoid::graph::EdgePairIndex,
+    /// Invisibility edges by blocker, for `checkAllBlockedEdges()` (no
+    /// upstream counterpart; see `BlockedIndex`).
+    pub blocked_index: crate::avoid::graph::BlockedIndex,
     /// Cells allocated by `VertInf::makeTreeRootPointer()`.
     pub tree_root_cells: Arena<TreeRootPtr, Option<VertIdx>>,
     pub obstacles: ObstacleArena,
@@ -1044,6 +1047,7 @@ impl Router {
             vert_infs: Arena::new(),
             edge_infs: Arena::new(),
             edge_pair_index: Default::default(),
+            blocked_index: Default::default(),
             tree_root_cells: Arena::new(),
             obstacles: Arena::new(),
             conns: Arena::new(),
@@ -2321,11 +2325,25 @@ impl Router {
     pub fn check_all_blocked_edges(&mut self, pid: i32) {
         debug_assert!(self.invisibility_grph);
 
-        let mut iter = self.invis_graph.begin();
-        while iter != self.invis_graph.end() {
-            let tmp = iter.unwrap();
-            iter = self.edge_infs[tmp].lst_next;
-
+        // (not upstream) Upstream walks the whole invisibility graph; only
+        // edges blocked by `pid` or by -1 (unknown) are acted on, and the
+        // index lists those in list order (checking one changes only that
+        // edge, so the walk sees them in that order too).
+        let candidates = crate::avoid::graph::BlockedIndex::candidates(self, pid);
+        #[cfg(debug_assertions)]
+        {
+            let mut walk = Vec::new();
+            let mut iter = self.invis_graph.begin();
+            while let Some(tmp) = iter {
+                iter = self.edge_infs[tmp].lst_next;
+                let b = self.edge_infs[tmp].blocker();
+                if b == -1 || b == pid {
+                    walk.push(tmp);
+                }
+            }
+            debug_assert_eq!(walk, candidates);
+        }
+        for tmp in candidates {
             if self.edge_infs[tmp].blocker() == -1 {
                 EdgeInf::alert_conns(self, tmp);
                 EdgeInf::check_vis(self, tmp);

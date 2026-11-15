@@ -101,6 +101,109 @@ pub struct EdgePairIndex {
     several: std::collections::HashMap<u64, u32, std::hash::BuildHasherDefault<PairHasher>>,
 }
 
+/// The invisibility edges by blocker, for `Router::check_all_blocked_edges()`
+/// (no upstream counterpart: upstream walks the whole invisibility graph
+/// for every moved or deleted obstacle).
+///
+/// Every edge given a non-zero blocker (`add_blocker()`, the only place that
+/// sets one; the edge is then in the invisibility graph) is listed under
+/// it.  Entries go stale when the blocker changes, the edge leaves the graph
+/// or is deleted; `candidates()` skips those, and the index is rebuilt from
+/// the graph when stale entries outnumber live ones.  The graph only grows
+/// at its end, so `m_invis_stamp`, taken from a counter when an edge joins
+/// it, orders its edges as the graph does.
+#[derive(Default)]
+pub struct BlockedIndex {
+    /// Slot numbers of the edges (the edge now in the slot is checked).
+    by_blocker: std::collections::HashMap<i32, Vec<u32>>,
+    entries: usize,
+    next_stamp: u32,
+}
+
+impl BlockedIndex {
+    /// Stamps edge `e`, just appended to the invisibility graph `list`.
+    pub(crate) fn stamp(&mut self, list: &EdgeList, edges: &mut EdgeArena, e: EdgeIdx) {
+        if self.next_stamp == u32::MAX {
+            // Renumber the graph in order.
+            self.next_stamp = 0;
+            let mut it = list.begin();
+            while let Some(x) = it {
+                self.next_stamp += 1;
+                edges[x].m_invis_stamp = self.next_stamp;
+                it = edges[x].lst_next;
+            }
+            return;
+        }
+        self.next_stamp += 1;
+        edges[e].m_invis_stamp = self.next_stamp;
+    }
+
+    /// Edge `e` now has blocker `b` (non-zero).
+    pub(crate) fn note(&mut self, e: EdgeIdx, b: i32, graph_size: usize) {
+        self.by_blocker.entry(b).or_default().push(e.slot());
+        self.entries += 1;
+        if self.entries > 2 * graph_size + 4096 {
+            // Too many stale entries: dropped here, rebuilt on next use.
+            self.by_blocker.clear();
+            self.entries = usize::MAX;
+        }
+    }
+
+    /// The edges of the invisibility graph whose blocker is `pid` or -1, in
+    /// graph order.
+    pub fn candidates(router: &mut Router, pid: i32) -> Vec<EdgeIdx> {
+        let idx = &mut router.blocked_index;
+        let edges = &router.edge_infs;
+        if idx.entries == usize::MAX {
+            // Rebuild from the graph.
+            idx.by_blocker.clear();
+            idx.entries = 0;
+            let mut it = router.invis_graph.begin();
+            while let Some(x) = it {
+                let b = edges[x].m_blocker;
+                if b != 0 {
+                    idx.by_blocker.entry(b).or_default().push(x.slot());
+                    idx.entries += 1;
+                }
+                it = edges[x].lst_next;
+            }
+        }
+        let mut out: Vec<EdgeIdx> = Vec::new();
+        for key in [pid, -1] {
+            if key == 0 || (key == -1 && pid == -1 && !out.is_empty()) {
+                continue;
+            }
+            let Some(list) = idx.by_blocker.get_mut(&key) else { continue };
+            // Keep the live entries (dropping duplicates and stale ones).
+            let before = list.len();
+            list.retain(|&slot| {
+                edges.handle_at(slot as usize).is_some_and(|e| {
+                    let x = &edges[e];
+                    x.m_added && !x.m_visible && !x.m_orthogonal && x.m_blocker == key
+                })
+            });
+            list.sort_unstable();
+            list.dedup();
+            idx.entries -= before - list.len();
+            out.extend(list.iter().map(|&slot| edges.handle_at(slot as usize).unwrap()));
+        }
+        out.sort_unstable_by_key(|&e| edges[e].m_invis_stamp);
+        if pid == 0 {
+            // Blocker 0 is not indexed: walk the graph.
+            out.clear();
+            let mut it = router.invis_graph.begin();
+            while let Some(x) = it {
+                let b = edges[x].m_blocker;
+                if b == 0 || b == -1 {
+                    out.push(x);
+                }
+                it = edges[x].lst_next;
+            }
+        }
+        out
+    }
+}
+
 /// What the index knows about a pair.
 enum PairLookup {
     /// No active edge.
@@ -211,6 +314,9 @@ pub struct EdgeInf {
     pub m_dist: f64,
     /// Uninitialised upstream; 0.0 here.
     pub m_mtst_dist: f64,
+    /// Not upstream: when the edge last joined the invisibility graph (see
+    /// `BlockedIndex`).
+    pub m_invis_stamp: u32,
 }
 
 // upstream: graph.cpp orthogTurnOrder() (static inline)
@@ -277,6 +383,7 @@ impl EdgeInf {
             m_conns: FlagList::new(),
             m_dist: -1.0,
             m_mtst_dist: 0.0,
+            m_invis_stamp: 0,
         };
         router.edge_infs.alloc(edge)
     }
@@ -368,6 +475,7 @@ impl EdgeInf {
             vis_graph,
             invis_graph,
             vis_orthog_graph,
+            blocked_index,
             ..
         } = router;
 
@@ -387,6 +495,7 @@ impl EdgeInf {
         } else {
             // if (invisible)
             invis_graph.add_edge(edge_infs, vert_infs, e);
+            blocked_index.stamp(invis_graph, edge_infs, e);
             vert_infs[v1].invis_list.push_front(edge_infs, pos1);
             vert_infs[v1].invis_list_size += 1;
             vert_infs[v2].invis_list.push_front(edge_infs, pos2);
@@ -551,6 +660,9 @@ impl EdgeInf {
         let edge = &mut router.edge_infs[e];
         edge.m_dist = 0.0;
         edge.m_blocker = b;
+        if b != 0 {
+            router.blocked_index.note(e, b, router.invis_graph.size() as usize);
+        }
     }
 
     // upstream: graph.cpp EdgeInf::ids()

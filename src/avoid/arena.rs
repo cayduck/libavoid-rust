@@ -326,6 +326,20 @@ impl<I: ArenaIndex, T> Arena<I, T> {
         self.slot(handle).is_some()
     }
 
+    /// The handle of the live object in slot `index`, if any.
+    #[inline]
+    pub fn handle_at(&self, index: usize) -> Option<I> {
+        if index >= self.slot_count {
+            return None;
+        }
+        let s = if index < CHUNK {
+            &self.first[index]
+        } else {
+            &self.chunks[(index >> CHUNK_BITS) - 1][index & (CHUNK - 1)]
+        };
+        s.1.as_ref().map(|_| I::from_parts(index, s.0))
+    }
+
     #[inline]
     pub fn get(&self, handle: I) -> Option<&T> {
         self.slot(handle)

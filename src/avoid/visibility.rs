@@ -222,6 +222,35 @@ struct VertSet {
 }
 
 impl VertSet {
+    /// `std::set` built by inserting `items` in order (not upstream as a
+    /// function): sorted, keeping the first of equivalent elements.  With
+    /// finite angles and distances `PointPair::less` is a strict weak order
+    /// (lexicographic), so a stable sort and dropping later equivalents
+    /// give the set; otherwise the elements are inserted one by one.
+    fn from_insertions(items: Vec<PointPair>) -> VertSet {
+        if items.iter().all(|p| p.angle.is_finite() && p.distance.is_finite()) {
+            let mut items = items;
+            items.sort_by(|a, b| {
+                if a.less(b) {
+                    std::cmp::Ordering::Less
+                } else if b.less(a) {
+                    std::cmp::Ordering::Greater
+                } else {
+                    std::cmp::Ordering::Equal
+                }
+            });
+            // dedup_by keeps the first of each run; `b` precedes `a`.
+            items.dedup_by(|a, b| !a.less(b) && !b.less(a));
+            VertSet { items }
+        } else {
+            let mut v = VertSet::default();
+            for pp in items {
+                v.insert(pp);
+            }
+            v
+        }
+    }
+
     /// `std::set::insert`: no-op if an equivalent element exists.
     fn insert(&mut self, pp: PointPair) {
         // lower_bound: first element not less than pp.
@@ -348,6 +377,14 @@ fn sweep_edge_list_remove(list: &mut SweepEdgeList, value: &EdgePair) {
 
 /// `std::list<EdgePair>::sort()`.
 fn sweep_edge_list_sort(list: &mut SweepEdgeList) {
+    // (not upstream) The list is sorted again after every event and is
+    // usually still in order.  With finite keys `EdgePair::less` is a strict
+    // weak order, and the stable merge sort leaves an ordered list as it is.
+    if list.iter().all(|e| e.angle_dist.is_finite() && e.dist2.is_finite())
+        && list.windows(2).all(|w| !w[1].less(&w[0]))
+    {
+        return;
+    }
     let items = std::mem::take(list);
     *list = libstdcxx_list_sort(items, &mut |a: &EdgePair, b: &EdgePair| a.less(b));
 }
@@ -457,7 +494,8 @@ fn vertex_sweep(router: &mut Router, vert: VertIdx) {
 
     // List of shape (and maybe endpt) vertices, except p
     // Sort list, around
-    let mut v = VertSet::default();
+    // (collected in insertion order, then made into the set)
+    let mut v: Vec<PointPair> = Vec::new();
 
     // Initialise the vertex list
     // (`router->contains[centerID]` default-inserts, as upstream.)
@@ -491,25 +529,26 @@ fn vertex_sweep(router: &mut Router, vert: VertIdx) {
             // Add connector endpoint.
             if center_id.is_conn_pt() {
                 if inf_id.is_connection_pin() {
-                    v.insert(PointPair::new(router, &center_point, iv));
+                    v.push(PointPair::new(router, &center_point, iv));
                 } else if center_id.is_connection_pin() {
                     // Connection pins have visibility to everything.
-                    v.insert(PointPair::new(router, &center_point, iv));
+                    v.push(PointPair::new(router, &center_point, iv));
                 } else if inf_id.obj_id == center_id.obj_id {
                     // Center is an endpoint, so only include the other
                     // endpoints or checkpoints from the matching connector.
-                    v.insert(PointPair::new(router, &center_point, iv));
+                    v.push(PointPair::new(router, &center_point, iv));
                 }
             } else {
                 // Center is a shape vertex, so add all endpoint vertices.
-                v.insert(PointPair::new(router, &center_point, iv));
+                v.push(PointPair::new(router, &center_point, iv));
             }
         } else {
             // Add shape vertex.
-            v.insert(PointPair::new(router, &center_point, iv));
+            v.push(PointPair::new(router, &center_point, iv));
         }
         inf = next;
     }
+    let v = VertSet::from_insertions(v);
     let mut on_border_ids: BTreeSet<u32> = BTreeSet::new();
 
     // Add edges to T that intersect the initial ray.

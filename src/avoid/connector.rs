@@ -1972,6 +1972,11 @@ pub fn split_branching_segments(poly: &mut Polygon, poly_is_conn: bool, conn: &m
     if routes_cannot_touch(poly, poly_is_conn, conn) {
         return;
     }
+    // (not upstream) Likewise per segment of `conn`: one that cannot touch
+    // any segment of `poly` (judged from `poly`'s bounds, which the points
+    // inserted into it, lying on its segments, leave unchanged) gets no
+    // point inserted and inserts none, so its inner loop changes nothing.
+    let poly_bounds = RouteBounds::of(poly, !poly_is_conn);
     let mut i: usize = 0;
     while i != conn.ps.len() {
         if i == 0 {
@@ -1979,6 +1984,12 @@ pub fn split_branching_segments(poly: &mut Polygon, poly_is_conn: bool, conn: &m
             // There are points-1 segments in a connector.
             i += 1;
             continue;
+        }
+        if let (Some(pb), Some(cb)) = (&poly_bounds, RouteBounds::of_points(&conn.ps[i - 1..=i], false)) {
+            if cb.cannot_touch_any_segment_of(pb) {
+                i += 1;
+                continue;
+            }
         }
 
         let mut j: usize = 0;
@@ -2180,6 +2191,27 @@ impl RouteBounds {
                 let apart_dim = if apart_x { 0 } else { 1 };
                 let ok = |s: &RouteBounds| s.between_dim == 2 || s.between_dim == apart_dim;
                 ok(self) && ok(b)
+            }
+        }
+    }
+
+    /// For a single segment (`self`) and the bounds of a polygon or route
+    /// `poly`: whether the segment cannot touch any segment of it (see
+    /// `segment_cannot_touch()`; each of those lies in `poly`'s box, and is
+    /// axis-aligned if `poly` is).
+    #[inline]
+    pub(crate) fn cannot_touch_any_segment_of(&self, poly: &RouteBounds) -> bool {
+        if !(self.nan_free && poly.nan_free) {
+            return false;
+        }
+        let apart_x = self.max_x < poly.min_x || poly.max_x < self.min_x;
+        let apart_y = self.max_y < poly.min_y || poly.max_y < self.min_y;
+        match (apart_x, apart_y) {
+            (true, true) => true,
+            (false, false) => false,
+            _ => {
+                let apart_dim = if apart_x { 0 } else { 1 };
+                (self.between_dim == 2 || self.between_dim == apart_dim) && poly.axis_aligned
             }
         }
     }
@@ -2922,5 +2954,65 @@ mod route_bounds_tests {
             }
         }
         assert!(checked > 10_000);
+    }
+
+    /// `cannot_touch_any_segment_of()` never rules out a segment that one of
+    /// the polygon's segments (closing one included) can touch.
+    #[test]
+    fn cannot_touch_any_segment_of_is_sound() {
+        struct Rng(u64);
+        impl Rng {
+            fn next(&mut self) -> u64 {
+                self.0 ^= self.0 << 13;
+                self.0 ^= self.0 >> 7;
+                self.0 ^= self.0 << 17;
+                self.0
+            }
+            fn c(&mut self) -> f64 {
+                (self.next() % 9) as f64 * 10.0 + if self.next() % 5 == 0 { 1e-15 } else { 0.0 }
+            }
+            fn pt(&mut self, axis: Option<(f64, f64)>) -> Point {
+                match axis {
+                    Some((x, _)) if self.next() % 2 == 0 => Point::new(x, self.c()),
+                    Some((_, y)) => Point::new(self.c(), y),
+                    None => Point::new(self.c(), self.c()),
+                }
+            }
+        }
+        let mut r = Rng(0x0123_4567_89ab_cdef);
+        let mut checked = 0;
+        for _ in 0..100_000 {
+            // A polygon of 3-5 points, sometimes axis-aligned.
+            let aligned = r.next() % 2 == 0;
+            let n = 3 + (r.next() % 3) as usize;
+            let mut ps = vec![r.pt(None)];
+            for _ in 1..n {
+                let last = *ps.last().unwrap();
+                ps.push(r.pt(if aligned { Some((last.x, last.y)) } else { None }));
+            }
+            let closed = r.next() % 2 == 0;
+            let poly = Polygon { _id: 0, ps: ps.clone(), ts: Vec::new(), checkpoints_on_route: Vec::new() };
+            let pb = RouteBounds::of(&poly, closed).unwrap();
+            let (a1, a2) = (r.pt(None), r.pt(None));
+            let sb = RouteBounds::of_points(&[a1, a2], false).unwrap();
+            if !sb.cannot_touch_any_segment_of(&pb) {
+                continue;
+            }
+            checked += 1;
+            let segs: Vec<(Point, Point)> = (1..n)
+                .map(|j| (ps[j - 1], ps[j]))
+                .chain(if closed { Some((ps[n - 1], ps[0])) } else { None })
+                .collect();
+            for (b1, b2) in segs {
+                for tol in [0.0, f64::EPSILON] {
+                    for (p, q, c) in [(a1, a2, b1), (a1, a2, b2), (b1, b2, a1), (b1, b2, a2)] {
+                        assert!(!point_on_line(&p, &q, &c, tol), "{p:?} {q:?} {c:?}");
+                    }
+                }
+                let (mut x, mut y) = (0.0, 0.0);
+                assert!(segment_intersect_point(&a1, &a2, &b1, &b2, &mut x, &mut y) != DO_INTERSECT);
+            }
+        }
+        assert!(checked > 5_000, "{checked}");
     }
 }
