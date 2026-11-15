@@ -666,6 +666,9 @@ pub struct Router {
     // fork: Aksem/adaptagrams connector.cpp ConnRef::setRoutingCheckpoints(),
     // router.cpp Router::deleteConnector()
     pub m_reroute_after_edits: bool,
+    /// Not upstream: the buffers of the last A* search, reused by the next
+    /// one (see `AStarPath::search_reusing`).
+    pub m_spare_a_star: Option<crate::avoid::makepath::AStarPath>,
 
     pub m_hyperedge_improver: HyperedgeImprover,
     /// `DebugHandler *m_debug_handler` (owned here; only called with the
@@ -1105,6 +1108,7 @@ impl Router {
             m_settings_changes: false,
             m_route_inside_parent_shapes: false,
             m_reroute_after_edits: false,
+            m_spare_a_star: None,
             m_hyperedge_improver: HyperedgeImprover::new(),
             m_debug_handler: None,
             #[cfg(feature = "avoid-profile")]

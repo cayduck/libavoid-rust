@@ -576,6 +576,37 @@ where
     out
 }
 
+/// `libstdcxx_list_sort` for `Copy` items, in place, with buffers the
+/// caller keeps across calls (not upstream: the same order, without the
+/// three allocations of the general version).
+pub fn libstdcxx_list_sort_copy<T, F>(items: &mut [T], next: &mut Vec<u32>, tmp: &mut Vec<T>, comp: &mut F)
+where
+    T: Copy,
+    F: FnMut(&T, &T) -> bool,
+{
+    let n = items.len();
+    if n < 2 {
+        return;
+    }
+    assert!(n < LIST_NIL as usize);
+    next.clear();
+    next.resize(n, LIST_NIL);
+    let head = libstdcxx_list_sort_links(items, next, comp);
+    if list_in_index_order(next, head) {
+        return;
+    }
+    tmp.clear();
+    tmp.extend_from_slice(items);
+    let mut cur = head;
+    let mut k = 0;
+    while cur != LIST_NIL {
+        items[k] = tmp[cur as usize];
+        k += 1;
+        cur = next[cur as usize];
+    }
+    debug_assert_eq!(k, n);
+}
+
 /// Whether the list from `head` through `next` is 0, 1, 2, ... in order.
 fn list_in_index_order(next: &[u32], head: u32) -> bool {
     let mut cur = head;
@@ -668,9 +699,9 @@ pub struct VertInf {
 
     pub vis_directions: ConnDirFlags,
     /// Upstream `std::list<ANode *>`; push_back/erase/iterate preserve
-    /// order in a `Vec`.
-    pub a_star_done_nodes: Vec<ANodeIdx>,
-    pub a_star_pending_nodes: Vec<ANodeIdx>,
+    /// order in an `ANodeList`.
+    pub a_star_done_nodes: ANodeList,
+    pub a_star_pending_nodes: ANodeList,
     /// Flags for orthogonal visibility properties, i.e., whether the line
     /// points to a shape edge, connection point or an obstacle.
     pub orthog_vis_prop_flags: u32,
@@ -703,8 +734,8 @@ impl VertInf {
             m_tree_root: TreeRootField::Null,
             sptf_dist: 0.0,
             vis_directions: CONN_DIR_NONE,
-            a_star_done_nodes: Vec::new(),
-            a_star_pending_nodes: Vec::new(),
+            a_star_done_nodes: ANodeList::default(),
+            a_star_pending_nodes: ANodeList::default(),
             orthog_vis_prop_flags: 0,
         };
         let idx = router.vert_infs.alloc(vert);
@@ -1051,6 +1082,87 @@ impl VertInf {
     }
 }
 
+/// A vertex's A* Done or Pending nodes, in insertion order (upstream
+/// `std::list<ANode *>`).  Not upstream: the first few are stored inline,
+/// because most vertices hold only a few and the orthogonal graph is
+/// rebuilt every transaction, so a `Vec` would allocate for every vertex a
+/// search reaches.
+#[derive(Clone, Debug)]
+pub struct ANodeList {
+    len: u8,
+    inline: [ANodeIdx; ANodeList::INLINE],
+    /// All the nodes once there are more than `INLINE`.
+    spill: Vec<ANodeIdx>,
+}
+
+impl Default for ANodeList {
+    fn default() -> ANodeList {
+        ANodeList {
+            len: 0,
+            inline: [ANodeIdx(0); ANodeList::INLINE],
+            spill: Vec::new(),
+        }
+    }
+}
+
+impl ANodeList {
+    const INLINE: usize = 4;
+
+    #[inline]
+    fn as_slice(&self) -> &[ANodeIdx] {
+        if self.spill.is_empty() {
+            &self.inline[..self.len as usize]
+        } else {
+            &self.spill
+        }
+    }
+
+    #[inline]
+    pub fn iter(&self) -> std::slice::Iter<'_, ANodeIdx> {
+        self.as_slice().iter()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.as_slice().is_empty()
+    }
+
+    #[inline]
+    pub fn push(&mut self, n: ANodeIdx) {
+        if self.spill.is_empty() {
+            let len = self.len as usize;
+            if len < Self::INLINE {
+                self.inline[len] = n;
+                self.len += 1;
+                return;
+            }
+            self.spill.extend_from_slice(&self.inline[..len]);
+        }
+        self.spill.push(n);
+    }
+
+    /// Removes the node at `index`, keeping the order of the others.
+    pub fn remove(&mut self, index: usize) {
+        if self.spill.is_empty() {
+            let len = self.len as usize;
+            assert!(index < len, "ANodeList::remove out of range");
+            self.inline.copy_within(index + 1..len, index);
+            self.len -= 1;
+        } else {
+            self.spill.remove(index);
+            if self.spill.is_empty() {
+                self.len = 0;
+            }
+        }
+    }
+
+    #[inline]
+    pub fn clear(&mut self) {
+        self.len = 0;
+        self.spill.clear();
+    }
+}
+
 // upstream: vertices.cpp directVis()
 pub fn direct_vis(router: &mut Router, src: VertIdx, dst: VertIdx) -> bool {
     let mut ss = ShapeSet::new();
@@ -1379,6 +1491,40 @@ impl VertInfList {
 mod tests {
     use super::*;
     use crate::avoid::router::{Router, POLY_LINE_ROUTING};
+
+    /// `ANodeList` against a `Vec` under random pushes, removals and
+    /// clears, across the inline / spilled boundary.
+    #[test]
+    fn a_node_list_matches_vec() {
+        let mut seed: u32 = 12345;
+        let mut next = move || {
+            seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+            seed >> 16
+        };
+        let mut list = ANodeList::default();
+        let mut reference: Vec<ANodeIdx> = Vec::new();
+        for step in 0..20_000 {
+            match next() % 10 {
+                0..=5 => {
+                    let n = ANodeIdx(step);
+                    list.push(n);
+                    reference.push(n);
+                }
+                6..=8 if !reference.is_empty() => {
+                    let i = next() as usize % reference.len();
+                    list.remove(i);
+                    reference.remove(i);
+                }
+                9 if next() % 4 == 0 => {
+                    list.clear();
+                    reference.clear();
+                }
+                _ => {}
+            }
+            assert_eq!(list.iter().copied().collect::<Vec<_>>(), reference, "step {step}");
+            assert_eq!(list.is_empty(), reference.is_empty());
+        }
+    }
 
     fn conn(router: &mut Router, id: u32) -> VertIdx {
         VertInf::new(

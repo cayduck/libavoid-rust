@@ -629,8 +629,16 @@ impl LineSegment {
     // endpoint of the segment is shared by multiple connector endpoints.
     // (Upstream passes `vertLine`; only its `pos` is read.)
     // upstream: orthogonal.cpp LineSegment::addEdgeHorizontalTillIntersection()
-    pub fn add_edge_horizontal_till_intersection(&mut self, router: &mut Router, vert_line_pos: f64) -> VertSet {
-        let mut intersection_set = VertSet::new();
+    /// Upstream returns the intersection points as a `VertSet`; here they
+    /// are written to `intersection_set` in the set's order (not upstream:
+    /// the caller only iterates them, and the buffer is reused).
+    pub fn add_edge_horizontal_till_intersection(
+        &mut self,
+        router: &mut Router,
+        vert_line_pos: f64,
+        intersection_set: &mut Vec<VertKey>,
+    ) {
+        intersection_set.clear();
 
         self.hori_commit_begin(router, None);
 
@@ -641,25 +649,28 @@ impl LineSegment {
         // at the intersection position.
         let rest_begin = self.add_segments_up_to(&router.vert_infs, vert_line_pos);
 
+        // Adjust segment to remove processed portion.
+        // vertInfs.erase(vertInfs.begin(), restBegin);
+        // (`rest_begin == None` is `vertInfs.end()`.  Not upstream: the
+        // processed points are popped from the front rather than split off
+        // into a new set, which allocates.)
+        match rest_begin {
+            Some(rb) => {
+                while self.vert_infs.first().is_some_and(|f| *f < rb) {
+                    self.vert_infs.pop_first();
+                }
+            }
+            None => self.vert_infs.clear(),
+        }
+
         // Add the intersections points to intersectionSet.
-        // (`rest_begin == None` is `vertInfs.end()`: nothing to add.)
-        let rest = match rest_begin {
-            Some(rb) => self.vert_infs.split_off(&rb),
-            None => VertSet::new(),
-        };
-        for v in rest.iter() {
+        for v in self.vert_infs.iter() {
             if v.x != vert_line_pos {
                 break;
             }
-            intersection_set.insert(*v);
+            intersection_set.push(*v);
         }
-
-        // Adjust segment to remove processed portion.
         self.begin = vert_line_pos;
-        // vertInfs.erase(vertInfs.begin(), restBegin);
-        self.vert_infs = rest;
-
-        intersection_set
     }
 
     // Insert vertical breakpoints.
@@ -930,6 +941,7 @@ fn intersect_segments(router: &mut Router, segments: &mut SegmentList, vert_line
     // elements; rebuild the list from the survivors.)
     let old = std::mem::take(segments);
     let mut kept: SegmentList = Vec::with_capacity(old.len());
+    let mut intersection_verts: Vec<VertKey> = Vec::new();
     for mut hori_line in old {
         let in_vert_seg_region = (vert_line.begin <= hori_line.pos) && (vert_line.finish >= hori_line.pos);
 
@@ -969,7 +981,7 @@ fn intersect_segments(router: &mut Router, segments: &mut SegmentList, vert_line
 
             if in_vert_seg_region {
                 // Add horizontal visibility segment.
-                let intersection_verts = hori_line.add_edge_horizontal_till_intersection(router, vert_line.pos);
+                hori_line.add_edge_horizontal_till_intersection(router, vert_line.pos, &mut intersection_verts);
 
                 for v in intersection_verts.iter() {
                     vert_line.break_points.insert(PosVertInf::new(

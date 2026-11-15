@@ -1172,9 +1172,8 @@ impl ConnRef {
                 }
             }
 
-            let mut a_star = AStarPath::new();
             // Route the connector
-            a_star.search(router, c, start, end, None);
+            AStarPath::search_reusing(router, c, start, end, None);
 
             // Restore changes made for checkpoint visibility directions.
             if last_successful_index > 0 {
@@ -1288,9 +1287,8 @@ impl ConnRef {
         }
         let mut pathlen: u32 = 0;
         while pathlen == 0 {
-            let mut a_star = AStarPath::new();
             let start = router.conns[c].start();
-            a_star.search(router, c, src_vert, tar, start);
+            AStarPath::search_reusing(router, c, src_vert, tar, start);
             pathlen = VertInf::path_leads_back_to(&router.vert_infs, tar, Some(src_vert));
             if pathlen < 2 {
                 if existing_path_start == 0 {
@@ -2528,9 +2526,11 @@ impl<'a> ConnectorCrossings<'a> {
         let a2 = conn.ps[a2_idx];
 
         // Arrays for computing shared paths (indices into conn / poly).
-        let max_path_size = std::cmp::min(poly_size, conn.size());
-        let mut c_path: Vec<usize> = Vec::with_capacity(max_path_size);
-        let mut p_path: Vec<usize> = Vec::with_capacity(max_path_size);
+        // (Upstream allocates min(poly.size(), conn.size()) entries up
+        // front; here they grow once a shared path is traced, which most
+        // calls never do.)
+        let mut c_path: Vec<usize> = Vec::new();
+        let mut p_path: Vec<usize> = Vec::new();
         let mut size: usize;
 
         let j_start = if self.poly_is_conn { 1 } else { 0 };

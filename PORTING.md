@@ -339,6 +339,23 @@ differences are confined to the following.
     built. So after a failed split the multipliers keep their previous
     values, which only `IncSolver::print_blocks` shows.
   - `EdgeInf::existingEdge()` uses an index of the non-orthogonal edges.
+  - A* search: the orthogonal exploration order (`CmpVisEdgeRotation`) is
+    sorted on keys computed once per edge (debug builds compare every
+    comparison with the comparator); whether a connection pin neighbours the
+    dummy target is asked of the target's short edge list, and only when the
+    target is a dummy pin helper.
+  - The PENDING heap keeps the multiset of keys that lets a node's key
+    change skip the full `std::make_heap` only while it holds 64 nodes or
+    more (until it falls below 32). A smaller heap runs `make_heap` as
+    upstream does.
+  - Allocation (these change no computation): an A* search reuses the
+    buffers of the router's previous one, a vertex's Done and Pending lists
+    keep their first four nodes inline, `countForSegment()` allocates its
+    shared-path arrays only when it traces a shared path, the poly-line
+    sweep sorts its edge list in place with reused buffers and sorts its
+    angular point set on small keys, and
+    `LineSegment::addEdgeHorizontalTillIntersection()` drops the processed
+    points instead of splitting the set.
 
 ## Known slow cases
 

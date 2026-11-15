@@ -15,7 +15,7 @@
 //! * `SweepEdgeList` (`std::list<EdgePair>`) is a vector in list order;
 //!   `push_front`/`push_back`/`remove` keep list semantics and `sort()` uses
 //!   the step-by-step port of libstdc++'s `std::list::sort`
-//!   ([`libstdcxx_list_sort`]).
+//!   (`crate::avoid::vertices::libstdcxx_list_sort_copy`).
 //! * `EdgePair` / `PointPair` hold `VertInf *` upstream; here they keep the
 //!   handle plus copies of the (immutable during a sweep) vertex id and
 //!   point they read.
@@ -35,7 +35,7 @@ use crate::avoid::debug::db_printf;
 use crate::avoid::graph::EdgeInf;
 use crate::avoid::obstacle::Obstacle;
 use crate::avoid::router::Router;
-use crate::avoid::vertices::{libstdcxx_list_sort, ShapeSet, VertID, VertInf, DUMMY_ORTHOG_ID};
+use crate::avoid::vertices::{libstdcxx_list_sort_copy, ShapeSet, VertID, VertInf, DUMMY_ORTHOG_ID};
 
 // upstream: visibility.cpp Obstacle::computeVisibilityNaive()
 pub fn compute_visibility_naive(router: &mut Router, obstacle: ObstacleIdx) {
@@ -229,19 +229,36 @@ impl VertSet {
     /// give the set; otherwise the elements are inserted one by one.
     fn from_insertions(items: Vec<PointPair>) -> VertSet {
         if items.iter().all(|p| p.angle.is_finite() && p.distance.is_finite()) {
-            let mut items = items;
-            items.sort_by(|a, b| {
-                if a.less(b) {
+            // (Not upstream: the stable sort moves small keys, which hold
+            // what `PointPair::less` reads and the element's index, rather
+            // than the elements.)
+            let mut keys: Vec<(f64, f64, VertID, u32)> = items
+                .iter()
+                .enumerate()
+                .map(|(i, p)| (p.angle, p.distance, p.v_id, i as u32))
+                .collect();
+            let less = |a: &(f64, f64, VertID, u32), b: &(f64, f64, VertID, u32)| {
+                // PointPair::less on the keys.
+                if a.0 == b.0 {
+                    if a.1 == b.1 {
+                        return a.2 < b.2;
+                    }
+                    return a.1 < b.1;
+                }
+                a.0 < b.0
+            };
+            keys.sort_by(|a, b| {
+                if less(a, b) {
                     std::cmp::Ordering::Less
-                } else if b.less(a) {
+                } else if less(b, a) {
                     std::cmp::Ordering::Greater
                 } else {
                     std::cmp::Ordering::Equal
                 }
             });
             // dedup_by keeps the first of each run; `b` precedes `a`.
-            items.dedup_by(|a, b| !a.less(b) && !b.less(a));
-            VertSet { items }
+            keys.dedup_by(|a, b| !less(a, b) && !less(b, a));
+            VertSet { items: keys.iter().map(|k| items[k.3 as usize]).collect() }
         } else {
             let mut v = VertSet::default();
             for pp in items {
@@ -375,8 +392,9 @@ fn sweep_edge_list_remove(list: &mut SweepEdgeList, value: &EdgePair) {
     list.retain(|e| !e.equals(value));
 }
 
-/// `std::list<EdgePair>::sort()`.
-fn sweep_edge_list_sort(list: &mut SweepEdgeList) {
+/// `std::list<EdgePair>::sort()`.  `scratch` holds buffers reused across
+/// calls (not upstream).
+fn sweep_edge_list_sort(list: &mut SweepEdgeList, scratch: &mut (Vec<u32>, Vec<EdgePair>)) {
     // (not upstream) The list is sorted again after every event and is
     // usually still in order.  With finite keys `EdgePair::less` is a strict
     // weak order, and the stable merge sort leaves an ordered list as it is.
@@ -385,8 +403,7 @@ fn sweep_edge_list_sort(list: &mut SweepEdgeList) {
     {
         return;
     }
-    let items = std::mem::take(list);
-    *list = libstdcxx_list_sort(items, &mut |a: &EdgePair, b: &EdgePair| a.less(b));
+    libstdcxx_list_sort_copy(list, &mut scratch.0, &mut scratch.1, &mut |a: &EdgePair, b: &EdgePair| a.less(b));
 }
 
 // upstream: visibility.cpp #define AHEAD / BEHIND
@@ -605,6 +622,7 @@ fn vertex_sweep(router: &mut Router, vert: VertIdx) {
 
     let _is_bounding = IsBoundingShape { ss: &ss };
     let ignore_regions = router.ignore_regions;
+    let mut sort_scratch = (Vec::new(), Vec::new());
     for t in v.items.iter() {
         let curr_inf = t.v_inf;
         let curr_id = router.vert_infs[curr_inf].id;
@@ -621,7 +639,7 @@ fn vertex_sweep(router: &mut Router, vert: VertIdx) {
         for c in e.iter_mut() {
             c.set_curr_angle(t);
         }
-        sweep_edge_list_sort(&mut e);
+        sweep_edge_list_sort(&mut e, &mut sort_scratch);
 
         // Check visibility.
         let mut blocker: i32 = 0;

@@ -262,6 +262,11 @@ struct PendingHeap {
     /// comparison was a strict total order (see `KeyTies`), so that every
     /// parent orders strictly before its children.
     ordered: bool,
+    /// `keys` holds the heap's keys.  Not while the heap is small: keeping
+    /// `KeyTies` costs more than the full `make_heap()` it can save then, so
+    /// `ordered` stays false and `key_changed()` runs make_heap() as
+    /// upstream does.
+    tracking: bool,
 }
 
 /// The heap's slots as seen by the heap algorithms: writes update `pos`.
@@ -412,6 +417,10 @@ impl KeyTies {
 }
 
 impl PendingHeap {
+    /// Heap sizes at which `keys` starts and stops being kept.
+    const TRACK_FROM: usize = 64;
+    const TRACK_BELOW: usize = 32;
+
     fn clear(&mut self) {
         for &n in &self.v {
             self.pos[n.0 as usize] = u32::MAX;
@@ -419,6 +428,31 @@ impl PendingHeap {
         self.v.clear();
         self.keys.clear();
         self.ordered = false;
+        self.tracking = false;
+    }
+
+    /// Starts keeping `keys` once the heap is large, and stops once it is
+    /// small again.  `ordered` is false after either change (until the next
+    /// full make_heap()).
+    fn update_tracking(&mut self, nodes: &ANodes) {
+        if !self.tracking && self.v.len() >= Self::TRACK_FROM {
+            self.keys.clear();
+            for &n in &self.v {
+                self.keys.insert(nodes[n.0 as usize].f);
+            }
+            self.tracking = true;
+            self.ordered = false;
+        } else if self.tracking && self.v.len() < Self::TRACK_BELOW {
+            self.keys.clear();
+            self.tracking = false;
+            self.ordered = false;
+        }
+    }
+
+    /// `keys.strict()` while `keys` is kept; false otherwise.
+    #[inline]
+    fn strict(&self) -> bool {
+        self.tracking && self.keys.strict()
     }
 
     #[inline]
@@ -445,7 +479,11 @@ impl PendingHeap {
         }
         self.pos[n.0 as usize] = self.v.len() as u32;
         self.v.push(n);
-        self.keys.insert(nodes[n.0 as usize].f);
+        if self.tracking {
+            self.keys.insert(nodes[n.0 as usize].f);
+        } else {
+            self.update_tracking(nodes);
+        }
     }
 
     /// `std::make_heap(pending.begin(), pending.end(), ANodeCmp())`.
@@ -453,7 +491,7 @@ impl PendingHeap {
         let len = self.v.len();
         let mut cmp = |a: &ANodeIdx, b: &ANodeIdx| a_node_cmp(&nodes[a.0 as usize], &nodes[b.0 as usize]);
         libstdcxx_make_heap(&mut self.slots(), len, &mut cmp);
-        self.ordered = self.keys.strict();
+        self.ordered = self.strict();
     }
 
     /// `pending.push_back(n)` and `std::push_heap(...)`.
@@ -463,7 +501,7 @@ impl PendingHeap {
         let value = self.v[len - 1];
         let mut cmp = |a: &ANodeIdx, b: &ANodeIdx| a_node_cmp(&nodes[a.0 as usize], &nodes[b.0 as usize]);
         libstdcxx_push_heap_hole(&mut self.slots(), len as isize - 1, 0, value, &mut cmp);
-        self.ordered &= self.keys.strict();
+        self.ordered &= self.strict();
     }
 
     /// `std::pop_heap(...)` and `pending.pop_back()`.
@@ -471,10 +509,13 @@ impl PendingHeap {
         let len = self.v.len();
         let mut cmp = |a: &ANodeIdx, b: &ANodeIdx| a_node_cmp(&nodes[a.0 as usize], &nodes[b.0 as usize]);
         libstdcxx_pop_heap(&mut self.slots(), len, &mut cmp);
-        self.ordered &= self.keys.strict();
+        self.ordered &= self.strict();
         let n = self.v.pop().expect("pop of an empty heap");
         self.pos[n.0 as usize] = u32::MAX;
-        self.keys.remove(nodes[n.0 as usize].f);
+        if self.tracking {
+            self.keys.remove(nodes[n.0 as usize].f);
+            self.update_tracking(nodes);
+        }
     }
 
     /// Node `n` in the heap had key `old_f` and now has `nodes[n]`'s:
@@ -489,9 +530,11 @@ impl PendingHeap {
     /// and the value comes back up the same path.  Only those steps are
     /// run then, in make_heap()'s order, which gives the same heap.
     fn key_changed(&mut self, nodes: &ANodes, n: ANodeIdx, old_f: f64) {
-        self.keys.remove(old_f);
-        self.keys.insert(nodes[n.0 as usize].f);
-        if !(self.ordered && self.keys.strict()) {
+        if self.tracking {
+            self.keys.remove(old_f);
+            self.keys.insert(nodes[n.0 as usize].f);
+        }
+        if !(self.ordered && self.strict()) {
             self.make_heap(nodes);
             return;
         }
@@ -1695,7 +1738,8 @@ fn estimated_cost_specific(
 
 // upstream: makepath.cpp class CmpVisEdgeRotation — see
 // crate::avoid::graph::cmp_vis_edge_rotation.
-use crate::avoid::graph::cmp_vis_edge_rotation;
+use crate::avoid::arena::ArenaIndex;
+use crate::avoid::graph::orthog_turn_order;
 
 // upstream: makepath.cpp pointAlignedWithOneOf() (static inline)
 #[inline]
@@ -1737,9 +1781,69 @@ struct AStarPathPrivate {
     /// Not upstream: the cluster boundaries for `cost()`.
     m_cluster_boundaries: Vec<ClusterBoundary>,
     m_segments_buf: Vec<(RouteBounds, u32)>,
+    /// Not upstream: per edge slot, what `cmp_vis_edge_rotation` reads, for
+    /// the edges of the vertex being expanded (see `search`).
+    m_rotation_keys: Vec<RotationKey>,
+}
+
+/// What `cmp_vis_edge_rotation(prevInf, u, v)` reads of an edge `u` of the
+/// vertex being expanded: whether it is orthogonal, its turn order from
+/// the previous point, and its creation serial.  Not upstream.
+#[derive(Clone, Copy, Debug, Default)]
+struct RotationKey {
+    orthogonal: bool,
+    turn: i32,
+    serial: u64,
 }
 
 impl AStarPathPrivate {
+    /// A fresh `AStarPathPrivate` that takes over the (emptied) buffers of
+    /// `old`, so that they need not grow again.  Not upstream.
+    fn recycled(old: AStarPathPrivate) -> AStarPathPrivate {
+        let AStarPathPrivate {
+            mut m_available_nodes,
+            mut m_node_info,
+            mut m_cost_targets,
+            mut m_cost_targets_directions,
+            mut m_cost_targets_displacements,
+            mut m_touched,
+            mut m_vis_buf,
+            m_others: _,
+            m_pending,
+            mut m_cluster_boundaries,
+            mut m_segments_buf,
+            m_rotation_keys,
+        } = old;
+        m_available_nodes.clear();
+        m_node_info.clear();
+        m_cost_targets.clear();
+        m_cost_targets_directions.clear();
+        m_cost_targets_displacements.clear();
+        m_touched.clear();
+        m_vis_buf.clear();
+        m_cluster_boundaries.clear();
+        m_segments_buf.clear();
+        let PendingHeap { mut v, mut pos, .. } = m_pending;
+        v.clear();
+        pos.clear();
+        AStarPathPrivate {
+            m_available_nodes,
+            m_node_info,
+            m_cost_targets,
+            m_cost_targets_directions,
+            m_cost_targets_displacements,
+            m_touched,
+            m_vis_buf,
+            m_pending: PendingHeap { v, pos, ..Default::default() },
+            m_cluster_boundaries,
+            m_segments_buf,
+            // (Entries are written before they are read; stale ones are
+            // unused.)
+            m_rotation_keys,
+            ..Default::default()
+        }
+    }
+
     /// Returns a handle to an ANode for aStar search.  Upstream default for
     /// `add_to_pending` is true.
     // upstream: makepath.cpp AStarPathPrivate::newANode()
@@ -2101,6 +2205,7 @@ impl AStarPathPrivate {
         let src_point = router.vert_infs[src].point;
         let line_src = router.conns[line_ref].src();
         let line_dst = router.conns[line_ref].dst();
+        let dst_is_dummy_pin_helper = line_dst.is_some_and(|d| router.vert_infs[d].id.is_dummy_pin_helper());
 
         // Continue until the queue is empty.
         while pending.len() != 0 {
@@ -2200,9 +2305,51 @@ impl AStarPathPrivate {
             if is_orthogonal {
                 // We would like to explore in a structured way,
                 // so sort the points in the visList...
-                VertInf::sort_edge_list(router, best_node_inf, which, |r, u, v| {
-                    cmp_vis_edge_rotation(r, prev_inf, u, v)
+                // (Not upstream: what the comparator reads of each edge is
+                // computed once per edge rather than in every comparison.
+                // `cmp_vis_edge_rotation` compares two edges of this vertex
+                // by their turn order from `prevInf` around their common
+                // vertex.  That is this vertex, unless both edges join the
+                // same two vertices, and then the turn orders are equal
+                // around either one.)
+                let common_pt = router.vert_infs[best_node_inf].point;
+                let last_pt = match prev_inf {
+                    Some(l) => router.vert_infs[l].point,
+                    // If no lastPt, use one directly to the left;
+                    None => Point::new(common_pt.x - 10.0, common_pt.y),
+                };
+                let mut keys = std::mem::take(&mut self.m_rotation_keys);
+                for edge in router.vert_infs[best_node_inf].edge_list(which).iter(&router.edge_infs) {
+                    let e = &router.edge_infs[edge];
+                    let orthogonal = e.is_orthogonal(&router.vert_infs);
+                    let turn = if orthogonal {
+                        let other = e.other_vert(best_node_inf);
+                        orthog_turn_order(&last_pt, &common_pt, &router.vert_infs[other].point)
+                    } else {
+                        0
+                    };
+                    let i = edge.index();
+                    if keys.len() <= i {
+                        keys.resize(i + 1, RotationKey::default());
+                    }
+                    keys[i] = RotationKey { orthogonal, turn, serial: e.serial };
+                }
+                VertInf::sort_edge_list(router, best_node_inf, which, |_r, u, v| {
+                    let (a, b) = (keys[u.index()], keys[v.index()]);
+                    let less = if a.orthogonal && b.orthogonal {
+                        a.turn < b.turn
+                    } else {
+                        // PTR-ORDER, as in cmp_vis_edge_rotation.
+                        a.serial < b.serial
+                    };
+                    debug_assert_eq!(
+                        less,
+                        crate::avoid::graph::cmp_vis_edge_rotation(_r, prev_inf, u, v),
+                        "rotation key comparison differs from cmp_vis_edge_rotation"
+                    );
+                    less
                 });
+                self.m_rotation_keys = keys;
             }
             let mut vis_list = std::mem::take(&mut self.m_vis_buf);
             vis_list.clear();
@@ -2231,11 +2378,14 @@ impl AStarPathPrivate {
                 if node_id.is_connection_pin() && !node_id.is_conn_checkpoint() {
                     let src_dummy = (Some(best_node_inf) == line_src)
                         && router.vert_infs[line_src.unwrap()].id.is_dummy_pin_helper();
-                    let dst_dummy = !src_dummy && {
-                        let dst = line_dst.unwrap();
-                        VertInf::has_neighbour(router, node_inf, dst, is_orthogonal).is_some()
-                            && router.vert_infs[dst].id.is_dummy_pin_helper()
-                    };
+                    // (not upstream) Upstream asks whether `dst` is in the pin's
+                    // edge list, then whether it is a dummy pin helper.  The
+                    // second test comes first here, and the first asks `dst`'s
+                    // list instead: every edge is in the lists of both its
+                    // ends, and a pin's list can be long while `dst`'s is short.
+                    let dst_dummy = !src_dummy
+                        && dst_is_dummy_pin_helper
+                        && VertInf::has_neighbour(router, line_dst.unwrap(), node_inf, is_orthogonal).is_some();
                     if !src_dummy && !dst_dummy {
                         // Don't check connection pins if they don't have the
                         // target vertex as a direct neighbour, or are directly
@@ -2469,6 +2619,27 @@ impl AStarPath {
         AStarPath {
             m_private: AStarPathPrivate::default(),
         }
+    }
+
+    /// `AStarPath::new()` followed by `search()`, reusing the buffers of the
+    /// router's previous search (not upstream: upstream constructs a fresh
+    /// AStarPath for every search, and the growth of its arrays is a large
+    /// share of a small scene's allocations).  The search starts from the
+    /// same state as with a fresh AStarPath: every buffer is empty and
+    /// everything else is newly constructed.
+    pub fn search_reusing(
+        router: &mut Router,
+        line_ref: ConnIdx,
+        src: VertIdx,
+        tar: VertIdx,
+        start: Option<VertIdx>,
+    ) {
+        let mut a_star = match router.m_spare_a_star.take() {
+            Some(old) => AStarPath { m_private: AStarPathPrivate::recycled(old.m_private) },
+            None => AStarPath::new(),
+        };
+        a_star.search(router, line_ref, src, tar, start);
+        router.m_spare_a_star = Some(a_star);
     }
 
     /// Routes `line_ref` from `src` to `tar` (`start` is the rubber-band

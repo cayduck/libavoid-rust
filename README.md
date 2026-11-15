@@ -282,12 +282,13 @@ against libavoid-js 0.4.5, 0.5.0-beta.5 and its unreleased 0.5.0 work):
   violates one of upstream's assertions aborts the WebAssembly module until
   a reload; libavoid-js's unreleased 0.5.0 throws for most of it. Here the
   call throws or the input is ignored, and the module keeps working.
-- **Speed.** Where both compute the same routes, libavoid-js is up to
-  about 20% faster on light scenes and this package is faster on heavy
-  ones. Some orthogonal scenes take libavoid-js's fork much longer (the
-  slowest: 16.8 s there, 0.95 s here).
-- **Size.** libavoid-js is about half the download (177 kB of gzipped
-  WebAssembly against 326 kB).
+- **Speed.** Where both compute the same routes, this package (from the
+  release after 0.2.1) is faster at every scene size: by a median of 5% on
+  the lightest scenes and by more on heavier ones. Some orthogonal scenes
+  take libavoid-js's fork much longer (the slowest: 17.2 s there, 0.86 s
+  here).
+- **Size.** libavoid-js is a little over half the download (177 kB of
+  gzipped WebAssembly against 309 kB).
 - **API style.** This package mirrors the C++ API; libavoid-js 0.5.0 is
   moving to an API designed for JavaScript.
 
