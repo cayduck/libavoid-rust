@@ -418,6 +418,16 @@ impl EdgeInfList {
     }
 
     /// Positions in list order.
+    /// The positions in list order, without collecting them.
+    pub fn positions_iter<'a>(&self, edges: &'a EdgeArena) -> impl Iterator<Item = EdgePos> + 'a {
+        let mut cur = self.head;
+        std::iter::from_fn(move || {
+            let p = cur?;
+            cur = Self::next(edges, p);
+            Some(p)
+        })
+    }
+
     pub fn positions(&self, edges: &EdgeArena) -> Vec<EdgePos> {
         let mut out = Vec::with_capacity(self.len as usize);
         let mut cur = self.head;
@@ -549,6 +559,43 @@ where
     }
     assert!(n < LIST_NIL as usize);
     let mut next: Vec<u32> = vec![LIST_NIL; n];
+    let head = libstdcxx_list_sort_links(&items, &mut next, comp);
+    // Already in order (common for the sweep's edge list, which is sorted
+    // again after every event): nothing to move.
+    if list_in_index_order(&next, head) {
+        return items;
+    }
+    let mut slots: Vec<Option<T>> = items.into_iter().map(Some).collect();
+    let mut out = Vec::with_capacity(n);
+    let mut cur = head;
+    while cur != LIST_NIL {
+        out.push(slots[cur as usize].take().expect("list node visited once"));
+        cur = next[cur as usize];
+    }
+    debug_assert_eq!(out.len(), n);
+    out
+}
+
+/// Whether the list from `head` through `next` is 0, 1, 2, ... in order.
+fn list_in_index_order(next: &[u32], head: u32) -> bool {
+    let mut cur = head;
+    let mut k: u32 = 0;
+    while cur == k {
+        cur = next[cur as usize];
+        k += 1;
+    }
+    k as usize == next.len()
+}
+
+/// The steps of `libstdcxx_list_sort()` on the list `items[0]`, `items[1]`,
+/// ... (at least two): links the nodes through `next` (all `LIST_NIL` on
+/// entry) and returns the head (not upstream as a function).
+fn libstdcxx_list_sort_links<T, F>(items: &[T], next: &mut [u32], comp: &mut F) -> u32
+where
+    F: FnMut(&T, &T) -> bool,
+{
+    let n = items.len();
+    debug_assert!(n >= 2 && next.len() == n);
     let mut tmp: [u32; 64] = [LIST_NIL; 64];
     let mut fill: usize = 0;
     for i in 0..n as u32 {
@@ -558,7 +605,7 @@ where
         let mut counter = 0;
         while counter != fill && tmp[counter] != LIST_NIL {
             // __counter->merge(__carry, __comp);
-            libstdcxx_list_merge(&items, &mut next, &mut tmp[counter], &mut carry, comp);
+            libstdcxx_list_merge(items, next, &mut tmp[counter], &mut carry, comp);
             // __carry.swap(*__counter);
             std::mem::swap(&mut carry, &mut tmp[counter]);
             counter += 1;
@@ -572,28 +619,9 @@ where
     for counter in 1..fill {
         // __counter->merge(*(__counter - 1), __comp);
         let (lo, hi) = tmp.split_at_mut(counter);
-        libstdcxx_list_merge(&items, &mut next, &mut hi[0], &mut lo[counter - 1], comp);
+        libstdcxx_list_merge(items, next, &mut hi[0], &mut lo[counter - 1], comp);
     }
-    // Already in order (common for the sweep's edge list, which is sorted
-    // again after every event): nothing to move.
-    let mut cur = tmp[fill - 1];
-    let mut k: u32 = 0;
-    while cur == k {
-        cur = next[cur as usize];
-        k += 1;
-    }
-    if k as usize == n {
-        return items;
-    }
-    let mut slots: Vec<Option<T>> = items.into_iter().map(Some).collect();
-    let mut out = Vec::with_capacity(n);
-    let mut cur = tmp[fill - 1];
-    while cur != LIST_NIL {
-        out.push(slots[cur as usize].take().expect("list node visited once"));
-        cur = next[cur as usize];
-    }
-    debug_assert_eq!(out.len(), n);
-    out
+    tmp[fill - 1]
 }
 
 // ---------------------------------------------------------------------------
@@ -971,6 +999,43 @@ impl VertInf {
     where
         F: FnMut(&Router, EdgeIdx, EdgeIdx) -> bool,
     {
+        // (not upstream) Short lists (the usual case in the orthogonal
+        // graph) are sorted on the stack, and an order that does not change
+        // is not relinked.
+        const SMALL: usize = 16;
+        let list = router.vert_infs[v].edge_list(which);
+        let n = list.len();
+        if n < 2 {
+            return;
+        }
+        if n <= SMALL {
+            let r: &Router = router;
+            let first = list.first().expect("non-empty list");
+            let mut items = [first; SMALL];
+            for (k, p) in list.positions_iter(&r.edge_infs).enumerate() {
+                items[k] = p;
+            }
+            let mut next = [LIST_NIL; SMALL];
+            let head = libstdcxx_list_sort_links(&items[..n], &mut next[..n], &mut |a: &EdgePos, b: &EdgePos| {
+                less(r, a.edge(), b.edge())
+            });
+            if list_in_index_order(&next[..n], head) {
+                return;
+            }
+            let mut order = [first; SMALL];
+            let mut cur = head;
+            for slot in order.iter_mut().take(n) {
+                *slot = items[cur as usize];
+                cur = next[cur as usize];
+            }
+            let Router {
+                vert_infs,
+                edge_infs,
+                ..
+            } = router;
+            vert_infs[v].edge_list_mut(which).relink(edge_infs, &order[..n]);
+            return;
+        }
         let order = {
             let r: &Router = router;
             r.vert_infs[v]
