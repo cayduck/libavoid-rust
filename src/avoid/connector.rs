@@ -1972,12 +1972,30 @@ pub fn split_branching_segments(poly: &mut Polygon, poly_is_conn: bool, conn: &m
     if routes_cannot_touch(poly, poly_is_conn, conn) {
         return;
     }
-    // (not upstream) Likewise per segment of `conn`: one that cannot touch
+    split_branching_segments_from(poly, poly_is_conn, conn, tolerance, 0);
+}
+
+/// `split_branching_segments()` from segment `start` of `conn` on, without
+/// the bounding-box shortcut (not upstream).  The loop handles the segments
+/// of `conn` in order, and while it handles one it inserts points only at
+/// that segment and into `poly`, and reads no later point of `conn`: after
+/// segment `start - 1` its state does not depend on the points of `conn`
+/// from `start` on.  So running it on a prefix of `conn` and then, with
+/// further points appended, from `start = prefix length` gives the result
+/// of one run on the whole.
+pub fn split_branching_segments_from(
+    poly: &mut Polygon,
+    poly_is_conn: bool,
+    conn: &mut Polygon,
+    tolerance: f64,
+    start: usize,
+) {
+    // (not upstream) Per segment of `conn`: one that cannot touch
     // any segment of `poly` (judged from `poly`'s bounds, which the points
     // inserted into it, lying on its segments, leave unchanged) gets no
     // point inserted and inserts none, so its inner loop changes nothing.
     let poly_bounds = RouteBounds::of(poly, !poly_is_conn);
-    let mut i: usize = 0;
+    let mut i: usize = start;
     while i != conn.ps.len() {
         if i == 0 {
             // Skip the first point.
@@ -2306,6 +2324,10 @@ fn path_length(conn: &Polygon, poly: &Polygon, c_path: &[usize], p_path: &[usize
 pub struct ConnectorCrossings<'a> {
     pub poly_is_conn: bool,
     pub check_for_branching_segments: bool,
+    /// Not upstream: the caller has already run splitBranchingSegments() on
+    /// the routes it passes (and passes the final segment index), so
+    /// count_for_segment() does not.
+    pub already_split: bool,
     pub poly_conn_ref: Option<ConnIdx>,
     pub conn_conn_ref: Option<ConnIdx>,
 
@@ -2330,6 +2352,7 @@ impl<'a> ConnectorCrossings<'a> {
         ConnectorCrossings {
             poly_is_conn,
             check_for_branching_segments: false,
+            already_split: false,
             poly_conn_ref,
             conn_conn_ref,
             crossing_count: 0,
@@ -2387,11 +2410,12 @@ impl<'a> ConnectorCrossings<'a> {
         // either has a fixed route or it is a polyline connector.  This is not
         // needed for orthogonal connectors where crossings occur at vertices
         // in visibility graph and on the raw connector routes.
-        if self.check_for_branching_segments
-            || poly_is_fixed
-            || conn_is_fixed
-            || !poly_is_orthogonal
-            || !conn_is_orthogonal
+        if !self.already_split
+            && (self.check_for_branching_segments
+                || poly_is_fixed
+                || conn_is_fixed
+                || !poly_is_orthogonal
+                || !conn_is_orthogonal)
         {
             let epsilon = f64::EPSILON;
             let conn_pn = conn.size();

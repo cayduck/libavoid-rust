@@ -1385,6 +1385,13 @@ impl<'a> IncSolver<'a> {
     // Merges b into this block across c.  Can be either a right merge or a
     // left merge.
     fn block_merge_dist(&mut self, this: BlockIdx, b: BlockIdx, c: ConIdx, dist: f64) {
+        // (not upstream) When the cached active tree is this block's, the
+        // merged block's tree is grafted onto it through `c` below instead
+        // of the whole tree being rebuilt at the next query.
+        let graft = {
+            let t = &self.tree_cache;
+            t.block == Some(this) && t.version == self.tree_version && t.depth.len() == self.vs.len()
+        };
         self.tree_version += 1;
         debug_assert!(!self.cs[c].active);
         self.cs[c].active = true;
@@ -1400,6 +1407,20 @@ impl<'a> IncSolver<'a> {
         blk.posn = (blk.ps.ad - blk.ps.ab) / blk.ps.a2;
         debug_assert!(!blk.posn.is_nan());
         self.bs.arena[b].deleted = true;
+        if graft {
+            let t = &mut self.tree_cache;
+            let (root, parent) = if t.depth[l] == u32::MAX { (l, r) } else { (r, l) };
+            debug_assert!(t.depth[root] == u32::MAX && t.depth[parent] != u32::MAX);
+            t.depth[root] = t.depth[parent] + 1;
+            t.parent[root] = parent as u32;
+            t.child_is_left[root] = root == l;
+            t.non_equality[root] = !self.cs[c].equality;
+            t.members.push(root);
+            t.stack.clear();
+            t.stack.push(root);
+            Self::grow_active_tree(t, &self.active_adj, self.cs, self.vs, this);
+            t.version = self.tree_version;
+        }
     }
 
     // upstream: vpsc.cpp Block::mergeIn()
@@ -1673,6 +1694,34 @@ impl<'a> IncSolver<'a> {
         Some((any, all))
     }
 
+    /// Extends the cached tree from the variables on its stack over the
+    /// active constraints of block `this`.
+    fn grow_active_tree(
+        t: &mut ActiveTreeCache,
+        active_adj: &[Vec<ConIdx>],
+        cs: &[Constraint],
+        vs: &[Variable],
+        this: BlockIdx,
+    ) {
+        while let Some(v) = t.stack.pop() {
+            let d = t.depth[v] + 1;
+            for &c in active_adj[v].iter() {
+                let con = &cs[c];
+                debug_assert!(con.active);
+                let child_is_left = con.right == v;
+                let w = if child_is_left { con.left } else { con.right };
+                if vs[w].block == Some(this) && t.depth[w] == u32::MAX {
+                    t.depth[w] = d;
+                    t.parent[w] = v as u32;
+                    t.child_is_left[w] = child_is_left;
+                    t.non_equality[w] = !con.equality;
+                    t.stack.push(w);
+                    t.members.push(w);
+                }
+            }
+        }
+    }
+
     /// Makes `tree_cache` hold the active tree of `this`.
     fn build_active_tree(&mut self, this: BlockIdx) {
         let n = self.vs.len();
@@ -1697,23 +1746,7 @@ impl<'a> IncSolver<'a> {
             t.parent[root] = u32::MAX;
             t.stack.clear();
             t.stack.push(root);
-            while let Some(v) = t.stack.pop() {
-                let d = t.depth[v] + 1;
-                for &c in self.active_adj[v].iter() {
-                    let con = &self.cs[c];
-                    debug_assert!(con.active);
-                    let child_is_left = con.right == v;
-                    let w = if child_is_left { con.left } else { con.right };
-                    if self.vs[w].block == Some(this) && t.depth[w] == u32::MAX {
-                        t.depth[w] = d;
-                        t.parent[w] = v as u32;
-                        t.child_is_left[w] = child_is_left;
-                        t.non_equality[w] = !con.equality;
-                        t.stack.push(w);
-                        t.members.push(w);
-                    }
-                }
-            }
+            Self::grow_active_tree(t, &self.active_adj, self.cs, self.vs, this);
         }
     }
 

@@ -32,7 +32,7 @@ use std::f64::consts::PI as M_PI;
 
 use crate::avoid::arena::{ANodeIdx, ConnIdx, EdgeIdx, VertIdx};
 use crate::avoid::connector::{
-    validate_bend_point, ConnType, ConnectorCrossings, RouteBounds, CROSSING_SHARES_FIXED_SEGMENT, CROSSING_SHARES_PATH,
+    split_branching_segments_from, validate_bend_point, ConnType, ConnectorCrossings, RouteBounds, CROSSING_SHARES_FIXED_SEGMENT, CROSSING_SHARES_PATH,
     CROSSING_SHARES_PATH_AT_END,
 };
 use crate::avoid::geometry::{euclidean_dist, manhattan_dist, vec_dir};
@@ -717,7 +717,8 @@ fn cost(
         // the connectors below, a boundary none of whose segments can touch
         // the last segment of `conn_route` adds nothing.
         let last_bounds = RouteBounds::of_points(&conn_route.ps[conn_route.size() - 2..], false);
-        for cb in cluster_boundaries {
+        others.cluster_prefixes.begin((inf1_node, inf2));
+        for (ci, cb) in cluster_boundaries.iter().enumerate() {
             if cb.poly.size() <= 2 {
                 continue;
             }
@@ -727,8 +728,7 @@ fn cost(
                 }
             }
             let (c_boundary, dynamic_conn_route) = (&mut others.scratch.0, &mut others.scratch.1);
-            c_boundary.assign_from(&cb.poly);
-            debug_assert!(c_boundary.ps[0] != c_boundary.ps[c_boundary.size() - 1]);
+            debug_assert!(cb.poly.ps[0] != cb.poly.ps[cb.poly.size() - 1]);
             // Upstream also asserts that every non-orthogonal cluster
             // boundary point is a router vertex ("should correspond to shape
             // vertices").  Not ported (assert policy): ClusterRef accepts any
@@ -736,15 +736,19 @@ fn cost(
             // build works (tests/robustness.rs clusters).
 
             let is_conn = false;
-            dynamic_conn_route.assign_from(&conn_route);
+            // (splitBranchingSegments() as countForSegment() would run it,
+            // from the state cached for this route prefix; see
+            // `PrefixSplits`)
+            others.cluster_prefixes.split(ci, &conn_route, &cb.poly, is_conn, f64::EPSILON, c_boundary, dynamic_conn_route);
             let final_segment = Some(inf3) == router.conns[line_ref].dst();
             let mut cross = ConnectorCrossings::new(is_conn, None, None);
             cross.check_for_branching_segments = true;
+            cross.already_split = true;
             cross.count_for_segment(
                 &*router,
                 c_boundary,
                 dynamic_conn_route,
-                conn_route.size() - 1,
+                dynamic_conn_route.size() - 1,
                 final_segment,
             );
 
@@ -832,11 +836,13 @@ fn cost(
                 }
             }
         }
+        others.conn_prefixes.begin((inf1_node, inf2));
         for k in 0..n_candidates {
-            let other = match candidates {
-                Some(c) => &others.list[c[k] as usize],
-                None => &others.list[k],
+            let oi = match candidates {
+                Some(c) => c[k] as usize,
+                None => k,
             };
+            let other = &others.list[oi];
             let conn_ref = other.conn;
             let route2 = &router.conns[conn_ref].m_display_route;
             match (&other.bounds, &conn_bounds) {
@@ -845,29 +851,42 @@ fn cost(
                 (None, _) => continue,
                 // The same, segment by segment (a single point has none).
                 (Some(_), Some(b))
-                    if route2.ps.windows(2).all(|seg| {
-                        RouteBounds::of_points(seg, false).is_some_and(|sb| sb.segment_cannot_touch(b))
-                    }) =>
+                    if others.seg_bounds[other.segs.start as usize..other.segs.end as usize]
+                        .iter()
+                        .all(|sb| sb.segment_cannot_touch(b)) =>
                 {
+                    debug_assert!(route2.ps.windows(2).all(|seg| {
+                        RouteBounds::of_points(seg, false).is_some_and(|sb| sb.segment_cannot_touch(b))
+                    }));
                     continue
                 }
                 _ => {}
             }
-            // (copies into reused buffers)
+            // (copies into reused buffers, split as countForSegment() would
+            // split them, from the state cached for this route prefix; see
+            // `PrefixSplits`)
             let (dynamic_route2, dynamic_conn_route) = (&mut others.scratch.0, &mut others.scratch.1);
-            dynamic_route2.assign_from(&router.conns[conn_ref].m_display_route);
-            dynamic_conn_route.assign_from(&conn_route);
-
             let is_conn = true;
+            others.conn_prefixes.split(
+                oi,
+                &conn_route,
+                &router.conns[conn_ref].m_display_route,
+                is_conn,
+                0.0,
+                dynamic_route2,
+                dynamic_conn_route,
+            );
+
             let dst_point = router.vert_infs[router.conns[line_ref].dst().unwrap()].point;
             let final_segment = router.vert_infs[inf3].point == dst_point;
             let mut cross = ConnectorCrossings::new(is_conn, Some(conn_ref), Some(line_ref));
             cross.check_for_branching_segments = true;
+            cross.already_split = true;
             cross.count_for_segment(
                 &*router,
                 dynamic_route2,
                 dynamic_conn_route,
-                conn_route.size() - 1,
+                dynamic_conn_route.size() - 1,
                 final_segment,
             );
 
@@ -893,6 +912,8 @@ struct OtherRoute {
     conn: ConnIdx,
     /// Bounds of its display route (which no search changes).
     bounds: Option<RouteBounds>,
+    /// Its segments' bounds, in `OtherRoutes::seg_bounds`.
+    segs: std::ops::Range<u32>,
 }
 
 /// A cluster boundary as `cost()` uses it, with the bounds of its segments
@@ -930,11 +951,89 @@ fn cluster_boundaries(router: &Router, line_ref: ConnIdx, out: &mut Vec<ClusterB
 #[derive(Debug, Default)]
 struct OtherRoutes {
     list: Vec<OtherRoute>,
+    seg_bounds: Vec<RouteBounds>,
     grid: SegmentGrid,
     /// `cost()` has computed their display routes in this search.
     display_routes_set: bool,
     /// Buffers for the copies `cost()` hands to countForSegment().
     scratch: (Polygon, Polygon),
+    /// Split states of the route prefix against each other connector and
+    /// each cluster boundary.
+    conn_prefixes: PrefixSplits,
+    cluster_prefixes: PrefixSplits,
+}
+
+/// `cost()` builds the route `conn_route` from the expanded node's path
+/// plus the edge's far end `inf3`; every point but that last one depends
+/// only on the node (`inf2` and the node before it), so it is the same for
+/// all edges of one expansion.  splitBranchingSegments() of the route
+/// against another polygon handles the route's segments in order without
+/// reading ahead (see `split_branching_segments_from()`), so its state
+/// after the prefix is kept per polygon and only the last segment is split
+/// for each edge (not upstream).
+#[derive(Debug, Default)]
+struct PrefixSplits {
+    key: Option<(Option<ANodeIdx>, VertIdx)>,
+    stamp: u64,
+    /// Per polygon: (stamp, polygon after the prefix, prefix after it).
+    entries: Vec<(u64, Polygon, Polygon)>,
+}
+
+impl PrefixSplits {
+    fn reset(&mut self) {
+        self.key = None;
+    }
+
+    fn begin(&mut self, key: (Option<ANodeIdx>, VertIdx)) {
+        if self.key != Some(key) {
+            self.key = Some(key);
+            self.stamp += 1;
+        }
+    }
+
+    /// `out_poly`, `out_conn`: `poly` (polygon number `i`) and `conn_route`
+    /// after splitBranchingSegments(poly, poly_is_conn, conn_route,
+    /// tolerance).
+    #[allow(clippy::too_many_arguments)]
+    fn split(
+        &mut self,
+        i: usize,
+        conn_route: &Polygon,
+        poly: &Polygon,
+        poly_is_conn: bool,
+        tolerance: f64,
+        out_poly: &mut Polygon,
+        out_conn: &mut Polygon,
+    ) {
+        if self.entries.len() <= i {
+            self.entries.resize_with(i + 1, || (0, Polygon::new(), Polygon::new()));
+        }
+        let e = &mut self.entries[i];
+        if e.0 != self.stamp {
+            e.0 = self.stamp;
+            e.1.assign_from(poly);
+            e.2.assign_from(conn_route);
+            e.2.ps.pop();
+            split_branching_segments_from(&mut e.1, poly_is_conn, &mut e.2, tolerance, 0);
+        }
+        out_poly.assign_from(&e.1);
+        out_conn.assign_from(&e.2);
+        out_conn.ps.push(*conn_route.ps.last().expect("empty route"));
+        let start = e.2.ps.len();
+        split_branching_segments_from(out_poly, poly_is_conn, out_conn, tolerance, start);
+        #[cfg(debug_assertions)]
+        {
+            let (mut p, mut c) = (poly.clone(), conn_route.clone());
+            crate::avoid::connector::split_branching_segments(&mut p, poly_is_conn, &mut c, tolerance);
+            let same = |a: &Polygon, b: &Polygon| {
+                a.ps.len() == b.ps.len()
+                    && a.ps.iter().zip(&b.ps).all(|(x, y)| {
+                        x.x.to_bits() == y.x.to_bits() && x.y.to_bits() == y.y.to_bits() && x.vn == y.vn && x.id == y.id
+                    })
+            };
+            debug_assert!(same(&p, out_poly) && same(&c, out_conn));
+        }
+    }
 }
 
 /// Uniform grid over the axis-aligned segments of the other routes, by
@@ -1081,8 +1180,11 @@ impl SegmentGrid {
 /// penalty.
 fn other_routes(router: &Router, line_ref: ConnIdx, others: &mut OtherRoutes, segments: &mut Vec<(RouteBounds, u32)>) {
     others.display_routes_set = false;
+    others.conn_prefixes.reset();
+    others.cluster_prefixes.reset();
     let out = &mut others.list;
     out.clear();
+    others.seg_bounds.clear();
     segments.clear();
     let crossing_penalty = router.routing_parameter(RoutingParameter::CrossingPenalty);
     let shared_path_penalty = router.routing_parameter(RoutingParameter::FixedSharedPathPenalty);
@@ -1106,10 +1208,13 @@ fn other_routes(router: &Router, line_ref: ConnIdx, others: &mut OtherRoutes, se
         };
         let bounds = RouteBounds::of(route, false);
         let idx = out.len() as u32;
+        let start = others.seg_bounds.len() as u32;
         for seg in route.ps.windows(2) {
-            segments.push((RouteBounds::of_points(seg, false).unwrap(), idx));
+            let sb = RouteBounds::of_points(seg, false).unwrap();
+            segments.push((sb, idx));
+            others.seg_bounds.push(sb);
         }
-        out.push(OtherRoute { conn: conn_ref, bounds });
+        out.push(OtherRoute { conn: conn_ref, bounds, segs: start..others.seg_bounds.len() as u32 });
     }
     others.grid.build(segments, out.len());
 }
