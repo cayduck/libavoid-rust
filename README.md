@@ -154,6 +154,11 @@ counts as a stop request and is rethrown when that call returns. As upstream,
 a stop request takes effect only in the crossing-improvement phases, which
 run only with a non-zero `crossingPenalty` or `fixedSharedPathPenalty`;
 route search, nudging and hyperedge improvement always run to completion.
+The request is checked before each connector is rerouted, so the
+transaction stops at most one route search late. Upstream frees the routes
+of a whole group of crossing connectors before rerouting them one by one;
+after a stop, the connectors of that group not yet rerouted are left
+without a valid route.
 
 ### In the browser
 

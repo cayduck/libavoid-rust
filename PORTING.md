@@ -268,6 +268,27 @@ differences are confined to the following.
   call.
 - **Uncaught exceptions.** Where upstream's VPSC solver would throw an
   exception nothing catches, the port leaves that nudging region unchanged.
+- **Work skipped or reorganised, same results.** Each site is marked
+  `(not upstream)` and gives its argument; debug builds check most of them
+  against upstream's computation as it runs.
+  - A* search: the cleanup visits only the vertices the search touched;
+    replacing a pending node runs `std::make_heap`'s steps only at that
+    node's position and its ancestors when the node order is a strict total
+    order on the keys present (otherwise the whole `make_heap`).
+  - A* cost with crossing, shared-path or cluster penalties: connectors and
+    cluster boundaries whose segments cannot touch the route's last segment
+    are not compared (their contribution is zero); a per-search grid finds
+    the candidates.
+  - Crossing detection in `improveOrthogonalRoutes`: pairs of orthogonal
+    routes with disjoint bounding boxes are skipped.
+  - Nudging regions are gathered without rescanning the segment list.
+  - VPSC `satisfy()`: whether `findMinLMBetween` finds a split point, and
+    the cycle check, are answered from a cached active constraint tree; the
+    Lagrange multipliers are only computed when a split point exists, and
+    the path of an `UnsatisfiableException` (which upstream discards) is not
+    built. So after a failed split the multipliers keep their previous
+    values, which only `IncSolver::print_blocks` shows.
+  - `EdgeInf::existingEdge()` uses an index of the non-orthogonal edges.
 
 ## Known slow cases
 
@@ -308,6 +329,12 @@ like a hang in an interactive application.
     programs pinned to the same core, medians of 3): upstream's `IncSolver`
     took 5.1 s. The port took 10.4 s, and after moving the VPSC active-tree
     traversals onto slices it takes 6.6 s. The output is bit-identical.
+  - Since `satisfy()` answers its split and cycle questions from a cached
+    active tree (see "Work skipped or reorganised" above), most of these
+    solves are cheap: scenario `unify` of `examples/bench_suite.rs` (k
+    Z-shaped connectors sharing one channel) takes about 0.17 s per
+    transaction for k = 50, where it took 5.6 s, and about 1 s for k = 80.
+    The cost still grows about as P³.
 
   `reg-unifying-all-pairs` (24 connectors) in
   `tests/golden/e2e_fuzz_regressions.txt` checks this stage against the C++.
