@@ -2054,32 +2054,63 @@ pub fn split_branching_segments(poly: &mut Polygon, poly_is_conn: bool, conn: &m
 /// the third kind is only known to need the point inside its range in one
 /// of the dimensions, so then the boxes must be apart in both.
 fn routes_cannot_touch(poly: &Polygon, poly_is_conn: bool, conn: &Polygon) -> bool {
-    /// (min x, max x, min y, max y, all segments horizontal or vertical)
-    fn survey(p: &Polygon, closed: bool) -> Option<(f64, f64, f64, f64, bool)> {
+    match (RouteBounds::of(poly, !poly_is_conn), RouteBounds::of(conn, false)) {
+        (Some(a), Some(b)) => a.cannot_touch(&b),
+        _ => false,
+    }
+}
+
+/// Bounding box of a route, and whether all its segments are horizontal or
+/// vertical (not upstream; see `routes_cannot_touch()`).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct RouteBounds {
+    min_x: f64,
+    max_x: f64,
+    min_y: f64,
+    max_y: f64,
+    axis_aligned: bool,
+}
+
+impl RouteBounds {
+    /// None for an empty route.  `closed`: the last point joins the first.
+    pub(crate) fn of(p: &Polygon, closed: bool) -> Option<RouteBounds> {
         let first = p.ps.first()?;
-        let mut r = (first.x, first.x, first.y, first.y, true);
+        let mut r = RouteBounds {
+            min_x: first.x,
+            max_x: first.x,
+            min_y: first.y,
+            max_y: first.y,
+            axis_aligned: true,
+        };
         let mut prev = if closed { p.ps.last()? } else { first };
         for q in &p.ps {
-            r.0 = r.0.min(q.x);
-            r.1 = r.1.max(q.x);
-            r.2 = r.2.min(q.y);
-            r.3 = r.3.max(q.y);
-            r.4 &= prev.x == q.x || prev.y == q.y;
+            r.min_x = r.min_x.min(q.x);
+            r.max_x = r.max_x.max(q.x);
+            r.min_y = r.min_y.min(q.y);
+            r.max_y = r.max_y.max(q.y);
+            r.axis_aligned &= prev.x == q.x || prev.y == q.y;
             prev = q;
         }
         Some(r)
     }
-    match (survey(poly, !poly_is_conn), survey(conn, false)) {
-        (Some(a), Some(b)) => {
-            let apart_x = a.1 < b.0 || b.1 < a.0;
-            let apart_y = a.3 < b.2 || b.3 < a.2;
-            if a.4 && b.4 {
-                apart_x || apart_y
-            } else {
-                apart_x && apart_y
-            }
+
+    /// Whether the boxes are strictly apart in x or in y, so that no point
+    /// of one route equals a point of the other.
+    #[inline]
+    pub(crate) fn disjoint(&self, b: &RouteBounds) -> bool {
+        self.max_x < b.min_x || b.max_x < self.min_x || self.max_y < b.min_y || b.max_y < self.min_y
+    }
+
+    /// See `routes_cannot_touch()`.
+    #[inline]
+    pub(crate) fn cannot_touch(&self, b: &RouteBounds) -> bool {
+        let apart_x = self.max_x < b.min_x || b.max_x < self.min_x;
+        let apart_y = self.max_y < b.min_y || b.max_y < self.min_y;
+        if self.axis_aligned && b.axis_aligned {
+            apart_x || apart_y
+        } else {
+            apart_x && apart_y
         }
-        _ => false,
     }
 }
 

@@ -79,7 +79,7 @@ use std::collections::{BTreeSet, VecDeque};
 
 use crate::avoid::arena::{ConnIdx, VertIdx};
 use crate::avoid::connector::{
-    split_branching_segments, ConnType, ConnectorCrossings, PtOrderMap, CROSSING_SHARES_PATH_AT_END,
+    split_branching_segments, ConnType, RouteBounds, ConnectorCrossings, PtOrderMap, CROSSING_SHARES_PATH_AT_END,
 };
 use crate::avoid::geomtypes::{cpp_max, cpp_min, Point, PointOrd, Polygon, PolygonInterface, XDIM, YDIM};
 use crate::avoid::graph::EdgeInf;
@@ -3246,6 +3246,13 @@ impl ImproveOrthogonalRoutes {
             conn_routes.push(router.conns[conn_refs[ind]].display_route().clone());
         }
 
+        // (not upstream) Bounding boxes of the routes: most pairs of routes
+        // are far apart, and then both loops below do nothing for the pair
+        // (see `RouteBounds`).  Splitting only inserts points that lie on a
+        // segment, which changes no box; they are recomputed anyway when a
+        // route grows.
+        let mut bounds: Vec<Option<RouteBounds>> = conn_routes.iter().map(|r| RouteBounds::of(r, false)).collect();
+
         // Do segment splitting.
         for ind1 in 0..conn_refs.len() {
             let conn = conn_refs[ind1];
@@ -3263,8 +3270,21 @@ impl ImproveOrthogonalRoutes {
                     continue;
                 }
 
+                // splitBranchingSegments() changes nothing for routes that
+                // cannot touch (it would find that out itself, less cheaply).
+                if let (Some(b2), Some(b1)) = (&bounds[ind2], &bounds[ind1]) {
+                    if b2.cannot_touch(b1) {
+                        continue;
+                    }
+                }
+
                 let (route, route2) = two_mut(&mut conn_routes, ind1, ind2);
+                let sizes = (route.size(), route2.size());
                 split_branching_segments(route2, true, route, 0.0);
+                if sizes != (route.size(), route2.size()) {
+                    bounds[ind1] = RouteBounds::of(route, false);
+                    bounds[ind2] = RouteBounds::of(route2, false);
+                }
             }
         }
 
@@ -3279,6 +3299,21 @@ impl ImproveOrthogonalRoutes {
                 let conn2 = conn_refs[ind2];
                 if router_ref.conns[conn2].routing_type() != ConnType::ConnTypeOrthogonal {
                     continue;
+                }
+
+                // (not upstream) For two orthogonal routes neither of which is
+                // fixed, countForSegment() splits nothing and only acts where
+                // a point of one route equals a point of the other (the
+                // crossings are at visibility-graph vertices); with disjoint
+                // bounding boxes there is no such point, and every call would
+                // report no crossing and no flags.
+                if let (Some(b1), Some(b2)) = (&bounds[ind1], &bounds[ind2]) {
+                    if b1.disjoint(b2)
+                        && !router_ref.conns[conn].has_fixed_route()
+                        && !router_ref.conns[conn2].has_fixed_route()
+                    {
+                        continue;
+                    }
                 }
 
                 let (route, route2) = two_mut(&mut conn_routes, ind1, ind2);

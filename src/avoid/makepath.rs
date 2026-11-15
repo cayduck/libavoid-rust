@@ -30,7 +30,7 @@
 
 use std::f64::consts::PI as M_PI;
 
-use crate::avoid::arena::{ANodeIdx, ConnIdx, VertIdx};
+use crate::avoid::arena::{ANodeIdx, ConnIdx, EdgeIdx, VertIdx};
 use crate::avoid::connector::{
     validate_bend_point, ConnType, ConnectorCrossings, CROSSING_SHARES_FIXED_SEGMENT, CROSSING_SHARES_PATH,
     CROSSING_SHARES_PATH_AT_END,
@@ -838,6 +838,15 @@ struct AStarPathPrivate {
     m_cost_targets: Vec<VertIdx>,
     m_cost_targets_directions: Vec<u32>,
     m_cost_targets_displacements: Vec<f64>,
+
+    /// Not upstream: the vertices whose `a_star_done_nodes` /
+    /// `a_star_pending_nodes` this search filled, so that the cleanup at
+    /// the end of `search()` visits them instead of every vertex (upstream
+    /// walks the whole vertex list; the lists of all other vertices are
+    /// already empty).  May hold duplicates.
+    m_touched: Vec<VertIdx>,
+    /// Not upstream: reused buffer for the edge list being expanded.
+    m_vis_buf: Vec<EdgeIdx>,
 }
 
 impl AStarPathPrivate {
@@ -848,9 +857,27 @@ impl AStarPathPrivate {
         let new_node = ANodeIdx(self.m_available_nodes.len() as u32);
         self.m_available_nodes.push(*node);
         if add_to_pending {
-            router.vert_infs[node.inf.unwrap()].a_star_pending_nodes.push(new_node);
+            let v = node.inf.unwrap();
+            self.touch(router, v);
+            router.vert_infs[v].a_star_pending_nodes.push(new_node);
         }
         new_node
+    }
+
+    /// Records `v` for the cleanup before one of its A* lists is pushed to.
+    #[inline]
+    fn touch(&mut self, router: &Router, v: VertIdx) {
+        let vi = &router.vert_infs[v];
+        if vi.a_star_done_nodes.is_empty() && vi.a_star_pending_nodes.is_empty() {
+            self.m_touched.push(v);
+        }
+    }
+
+    /// Adds `n` to the Done set of vertex `v`.
+    #[inline]
+    fn push_done(&mut self, router: &mut Router, v: VertIdx, n: ANodeIdx) {
+        self.touch(router, v);
+        router.vert_infs[v].a_star_done_nodes.push(n);
     }
 
     // upstream: makepath.cpp AStarPathPrivate::determineEndPointLocation()
@@ -1124,7 +1151,7 @@ impl AStarPathPrivate {
                     let bn = self.new_a_node(router, &node, add_to_pending);
                     best_node = Some(bn);
                     let bn_inf = inf_of(&self.m_available_nodes, bn);
-                    router.vert_infs[bn_inf].a_star_done_nodes.push(bn);
+                    self.push_done(router, bn_inf, bn);
                     explored_count += 1;
                 } else {
                     let new_node = self.new_a_node(router, &node, true);
@@ -1149,7 +1176,7 @@ impl AStarPathPrivate {
                 timestamp += 1;
                 let bn = self.new_a_node(router, &n, add_to_pending);
                 best_node = Some(bn);
-                router.vert_infs[start_next].a_star_done_nodes.push(bn);
+                self.push_done(router, start_next, bn);
                 explored_count += 1;
             }
 
@@ -1226,7 +1253,7 @@ impl AStarPathPrivate {
             pending.pop();
 
             // Add the bestNode into the Done set.
-            router.vert_infs[best_node_inf].a_star_done_nodes.push(bn);
+            self.push_done(router, best_node_inf, bn);
             explored_count += 1;
 
             let bn_node = self.m_available_nodes[bn.0 as usize];
@@ -1290,8 +1317,10 @@ impl AStarPathPrivate {
                     cmp_vis_edge_rotation(r, prev_inf, u, v)
                 });
             }
-            let vis_list = router.vert_infs[best_node_inf].edge_list(which).to_vec(&router.edge_infs);
-            for edge in vis_list {
+            let mut vis_list = std::mem::take(&mut self.m_vis_buf);
+            vis_list.clear();
+            vis_list.extend(router.vert_infs[best_node_inf].edge_list(which).iter(&router.edge_infs));
+            for &edge in &vis_list {
                 if router.edge_infs[edge].is_disabled() {
                     // Skip disabled edges.
                     continue;
@@ -1452,8 +1481,7 @@ impl AStarPathPrivate {
                 b_node_found = false;
 
                 // Check to see if already on PENDING
-                let pending_list = router.vert_infs[node_inf].a_star_pending_nodes.clone();
-                for curr_ind in pending_list {
+                for &curr_ind in router.vert_infs[node_inf].a_star_pending_nodes.iter() {
                     ati = self.m_available_nodes[curr_ind.0 as usize];
                     // The (node.prevNode == ati.prevNode) is redundant, but may
                     // save checking the mosre costly prevNode->inf test if the
@@ -1516,18 +1544,26 @@ impl AStarPathPrivate {
                     });
                 }
             }
+            self.m_vis_buf = vis_list;
         }
         let _ = explored_count;
 
         // Cleanup lists used to store Done and Pending sets for each vertex.
-        let end_vert = router.vertices.end();
-        let mut k = router.vertices.conns_begin();
-        while k != end_vert {
-            let kv = k.unwrap();
+        // (Upstream walks every vertex; only the touched ones have entries.)
+        for kv in self.m_touched.drain(..) {
             let v = &mut router.vert_infs[kv];
             v.a_star_done_nodes.clear();
             v.a_star_pending_nodes.clear();
-            k = v.lst_next;
+        }
+        #[cfg(debug_assertions)]
+        {
+            let end_vert = router.vertices.end();
+            let mut k = router.vertices.conns_begin();
+            while k != end_vert {
+                let v = &router.vert_infs[k.unwrap()];
+                debug_assert!(v.a_star_done_nodes.is_empty() && v.a_star_pending_nodes.is_empty());
+                k = v.lst_next;
+            }
         }
     }
 }

@@ -171,17 +171,22 @@ impl<I> Ord for PtrKey<I> {
     }
 }
 
-/// Slots per chunk of an arena (a power of two).
-const CHUNK_BITS: u32 = 12;
+/// Slots per chunk of an arena (a power of two).  The first `CHUNK` slots
+/// are in `Arena::first`, the others in `Arena::chunks`.
+const CHUNK_BITS: u32 = 16;
 const CHUNK: usize = 1 << CHUNK_BITS;
 
 /// Slot arena with free-list reuse and generation-checked handles.
 #[derive(Clone, Debug)]
 pub struct Arena<I: ArenaIndex, T> {
-    /// The slots, in chunks of `CHUNK` (all full but the last).  A single
-    /// vector would be copied on every growth and, while that copy is made,
-    /// hold the old and the new buffer at once; with a million visibility
-    /// edges that doubled the peak memory.
+    /// Slots `0..CHUNK`, an ordinary growing vector.  Nearly every arena
+    /// stays this small, and a slot here is one indirection away; reaching
+    /// into `chunks` takes two, which was measurably slower on wasm.
+    first: Vec<(u32, Option<T>)>,
+    /// The slots from `CHUNK` on, in chunks of `CHUNK` (all full but the
+    /// last).  A single vector would be copied on every growth and, while
+    /// that copy is made, hold the old and the new buffer at once; with a
+    /// million visibility edges that doubled the peak memory.
     chunks: Vec<Vec<(u32, Option<T>)>>,
     /// Number of slots.
     slot_count: usize,
@@ -205,6 +210,7 @@ fn dead_handle(index: usize, generation: u32) -> ! {
 impl<I: ArenaIndex, T> Arena<I, T> {
     pub fn new() -> Self {
         Arena {
+            first: Vec::new(),
             chunks: Vec::new(),
             slot_count: 0,
             free: Vec::new(),
@@ -218,24 +224,43 @@ impl<I: ArenaIndex, T> Arena<I, T> {
         self.live += 1;
         let reuse = !NO_SLOT_REUSE.load(std::sync::atomic::Ordering::Relaxed);
         if let Some(slot) = if reuse { self.free.pop() } else { None } {
-            let s = &mut self.chunks[slot as usize >> CHUNK_BITS][slot as usize & (CHUNK - 1)];
+            let s = self.slot_entry_mut(slot as usize);
             debug_assert!(s.1.is_none());
             s.1 = Some(value);
             I::from_parts(slot as usize, s.0)
         } else {
-            if self.slot_count & (CHUNK - 1) == 0 {
-                self.chunks.push(Vec::new());
+            if self.slot_count < CHUNK {
+                self.first.push((0, Some(value)));
+            } else {
+                if self.slot_count & (CHUNK - 1) == 0 {
+                    self.chunks.push(Vec::with_capacity(CHUNK));
+                }
+                self.chunks.last_mut().unwrap().push((0, Some(value)));
             }
-            self.chunks.last_mut().unwrap().push((0, Some(value)));
             self.slot_count += 1;
             I::from_parts(self.slot_count - 1, 0)
+        }
+    }
+
+    /// The (generation, value) entry of an existing slot.
+    #[inline]
+    fn slot_entry_mut(&mut self, index: usize) -> &mut (u32, Option<T>) {
+        if index < CHUNK {
+            &mut self.first[index]
+        } else {
+            &mut self.chunks[(index >> CHUNK_BITS) - 1][index & (CHUNK - 1)]
         }
     }
 
     #[inline]
     fn slot(&self, handle: I) -> Option<&T> {
         let index = handle.index();
-        match self.chunks.get(index >> CHUNK_BITS).and_then(|c| c.get(index & (CHUNK - 1))) {
+        let s = if index < CHUNK {
+            self.first.get(index)
+        } else {
+            self.chunks.get((index >> CHUNK_BITS) - 1).and_then(|c| c.get(index & (CHUNK - 1)))
+        };
+        match s {
             Some((g, Some(v))) if *g == handle.generation() => Some(v),
             _ => None,
         }
@@ -244,7 +269,12 @@ impl<I: ArenaIndex, T> Arena<I, T> {
     #[inline]
     fn slot_mut(&mut self, handle: I) -> Option<&mut T> {
         let index = handle.index();
-        match self.chunks.get_mut(index >> CHUNK_BITS).and_then(|c| c.get_mut(index & (CHUNK - 1))) {
+        let s = if index < CHUNK {
+            self.first.get_mut(index)
+        } else {
+            self.chunks.get_mut((index >> CHUNK_BITS) - 1).and_then(|c| c.get_mut(index & (CHUNK - 1)))
+        };
+        match s {
             Some((g, Some(v))) if *g == handle.generation() => Some(v),
             _ => None,
         }
@@ -257,7 +287,7 @@ impl<I: ArenaIndex, T> Arena<I, T> {
         if self.slot(handle).is_none() {
             dead_handle(index, handle.generation());
         }
-        let s = &mut self.chunks[index >> CHUNK_BITS][index & (CHUNK - 1)];
+        let s = self.slot_entry_mut(index);
         let value = s.1.take().unwrap();
         s.0 = s.0.wrapping_add(1);
         // A slot whose generation wrapped is retired rather than reused, so
@@ -300,8 +330,8 @@ impl<I: ArenaIndex, T> Arena<I, T> {
     /// (see module docs); only use this where the order cannot matter
     /// (e.g. assertions, statistics).
     pub fn iter_unordered(&self) -> impl Iterator<Item = (I, &T)> {
-        self.chunks
-            .iter()
+        std::iter::once(&self.first)
+            .chain(self.chunks.iter())
             .flatten()
             .enumerate()
             .filter_map(|(i, (g, s))| s.as_ref().map(|t| (I::from_parts(i, *g), t)))
@@ -349,6 +379,29 @@ mod tests {
         assert!(a.get(x).is_none());
         assert_eq!(a[z], 3);
         assert_eq!(a.len(), 2);
+    }
+
+    /// Slots on both sides of the `first` / `chunks` boundary.
+    #[test]
+    fn slots_beyond_the_first_chunk() {
+        let mut a: Arena<VertIdx, usize> = Arena::new();
+        let n = 2 * CHUNK + 5;
+        let hs: Vec<VertIdx> = (0..n).map(|i| a.alloc(i)).collect();
+        for (i, &h) in hs.iter().enumerate() {
+            assert_eq!(a[h], i);
+        }
+        for &i in &[0, CHUNK - 1, CHUNK, CHUNK + 1, 2 * CHUNK, n - 1] {
+            assert_eq!(a.free(hs[i]), i);
+            assert!(!a.contains(hs[i]));
+            let h = a.alloc(i + n);
+            assert_eq!(h.index(), i);
+            assert_eq!(a[h], i + n);
+            *a.get_mut(h).unwrap() += 1;
+            assert_eq!(a[h], i + n + 1);
+        }
+        assert_eq!(a.len(), n);
+        assert_eq!(a.iter_unordered().count(), n);
+        assert!(a.iter_unordered().all(|(h, _)| a.contains(h)));
     }
 
     #[test]
