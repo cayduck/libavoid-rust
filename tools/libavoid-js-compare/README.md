@@ -19,8 +19,8 @@ Everything is downloaded and built under `target/libavoid-js-compare/`
 | File | Purpose |
 | --- | --- |
 | `gen.mjs` | Random scenes using only what every compared build exposes: rectangles, shape pins, point and pin ends, moves, connector deletion, routing parameters and options. Integer coordinates. |
-| `driver.cpp` | Replays a scene through C++ libavoid (`ConnRef(router, src, dst, id)` etc.), printing each connector's display route after every `processTransaction()`. |
-| `drive.mjs` | The same for the JavaScript builds: `rust` (this package), `ljs045`, `ljsbeta5` (npm) and `ljsnext` (a commit of libavoid-js's unreleased 0.5.0 work, `LJS_NEXT`). |
+| `driver.cpp` | Replays a scene through C++ libavoid (`ConnRef(router, src, dst, id)` etc.; also `checkpoints`, which the random scenes do not use), printing each connector's display route after every `processTransaction()`. Also used by `tools/oracle/nested_shapes.sh` and `reroute_after_edits.sh`. |
+| `drive.mjs` | The same for the JavaScript builds: `rust` (this package), `rustnested` (the same with `setRouteInsideParentShapes(true)`), `ljs045`, `ljsbeta5` (npm) and `ljsnext` (a commit of libavoid-js's unreleased 0.5.0 work, `LJS_NEXT`). |
 | `cmp.mjs`, `analyze.mjs` | Exact numeric comparison of the route dumps; status counts and pairwise agreement. |
 | `features.mjs` | Which upstream features each build exposes, checked on the loaded module rather than in its typings. |
 | `misuse.mjs` | Inputs that upstream rejects with an assertion, and whether the module still works afterwards. |

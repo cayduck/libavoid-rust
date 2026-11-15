@@ -24,7 +24,7 @@ The two packages bring the same library to JavaScript in different ways:
 
 | Package | Version | libavoid source |
 | --- | --- | --- |
-| libavoid-rust | 0.2.1 | upstream `840ebcf` |
+| libavoid-rust | 0.2.1 and 0.3.0 (the same routes) | upstream `840ebcf` |
 | libavoid-js | 0.4.5, the last stable release (the version `@joint/router-avoid` 4.3.3 uses) | fork v1.0.4 |
 | libavoid-js | 0.5.0-beta.5, npm's `latest` tag | fork v1.0.8 |
 | libavoid-js | unreleased 0.5.0 work, commit `df689b5` of branch `new-emsdk-and-embind` (2026-11-13) | fork v1.0.9 |
@@ -41,14 +41,14 @@ that are already being fixed.
   from upstream in many orthogonal scenes.
 - **Nested shapes.** If your diagrams put shapes inside other shapes
   (containers, groups, swimlanes), libavoid-js routes them, and upstream
-  does not. Since the release after 0.2.1, libavoid-rust does too with
+  does not. Since 0.3.0, libavoid-rust does too with
   `router.setRouteInsideParentShapes(true)`, giving the same routes as the
   fork's nesting change applied to upstream.
 - **Features.** libavoid-rust exposes all of upstream's public API,
   including clusters, hyperedge rerouting and transaction progress.
   libavoid-js exposes the core (shapes, pins, junctions, connectors,
   checkpoints). Both offer `hasValidRoute()` and `hasCrossingObstacles()`
-  from libavoid-js's fork (libavoid-rust since the release after 0.2.1).
+  from libavoid-js's fork (libavoid-rust since 0.3.0).
 - **API style.** libavoid-rust mirrors the C++ API, so upstream's
   documentation and examples apply as written. libavoid-js 0.5.0 is moving
   to an API designed for JavaScript (`router.addShape({x, y, width,
@@ -58,10 +58,9 @@ that are already being fixed.
   the page or process has to be reloaded. The unreleased 0.5.0 checks
   arguments first and throws in most of these cases. libavoid-rust throws
   or ignores the input, and the module keeps working.
-- **Speed.** Where both compute the same routes, the libavoid-rust
-  development version after 0.2.1 is faster at every scene size (a median
-  of 5% on the lightest scenes, more on heavier ones); 0.2.1 itself was
-  up to about 20% slower on light scenes. Some orthogonal scenes take the
+- **Speed.** Where both compute the same routes, libavoid-rust 0.3.0 is
+  faster at every scene size (a median of 5% on the lightest scenes, more
+  on heavier ones); 0.2.1 was up to about 20% slower on light scenes. Some orthogonal scenes take the
   fork much longer: the slowest one took 17.2 s in libavoid-js and 0.86 s
   in libavoid-rust.
 - **Size.** libavoid-js is a little over half the download: 177 kB of
@@ -144,9 +143,9 @@ typings.
 | Fixed routes (`ConnRef.setFixedRoute`) | yes | no | no | no |
 | Pin transforms (`ShapeRef.transformConnectionPinPositions`) | yes | no | no | no |
 | SVG and text debug output | yes | no | no | no |
-| Routing inside shapes that contain other shapes (from the fork) | opt-in (`setRouteInsideParentShapes`), since the release after 0.2.1 | always | always | always |
-| `ConnRef.hasValidRoute()`, `hasCrossingObstacles()` (from the fork) | yes, since the release after 0.2.1 | no | yes | yes |
-| Rerouting after checkpoint changes and connector deletions (from the fork) | opt-in (`setRerouteAfterEdits`), since the release after 0.2.1 | deletions only (no checkpoint API) | always | always |
+| Routing inside shapes that contain other shapes (from the fork) | opt-in (`setRouteInsideParentShapes`), since 0.3.0 | always | always | always |
+| `ConnRef.hasValidRoute()`, `hasCrossingObstacles()` (from the fork) | yes, since 0.3.0 | no | yes | yes |
+| Rerouting after checkpoint changes and connector deletions (from the fork) | opt-in (`setRerouteAfterEdits`), since 0.3.0 | deletions only (no checkpoint API) | always | always |
 
 `docs/JS_API_COVERAGE.md` lists every public item of upstream's headers
 with its libavoid-rust counterpart.
@@ -218,13 +217,13 @@ at a time, on Node.js 24 and an AMD Ryzen 5 5600X. The time is the sum
 of the `processTransaction()` calls of a scene, measured the same way in
 every build (one process per build, so the WebAssembly is warmed up).
 Native C++ (g++ 13, `-O2`) is given for reference. libavoid-rust is
-measured at 0.2.1 and at the development version after it, whose routing
-allocates far less and builds with one codegen unit (same routes; see
-"Work skipped or reorganised, same results" in `PORTING.md`).
+measured at 0.2.1 and at 0.3.0, whose routing allocates far less and
+which builds with one codegen unit (same routes; see "Work skipped or
+reorganised, same results" in `PORTING.md`).
 
 Where upstream and the fork compute the same routes (421 scenes), both
-packages do the same work. Per-scene time of libavoid-js relative to the
-libavoid-rust development version (median), by scene weight:
+packages do the same work. Per-scene time of libavoid-js relative to
+libavoid-rust 0.3.0 (median), by scene weight:
 
 | Native upstream time | Scenes | unreleased 0.5.0 / libavoid-rust | 0.4.5 / libavoid-rust |
 | --- | --- | --- | --- |
@@ -245,7 +244,7 @@ Total time per build:
 | native C++, upstream | 11.1 s | 30.7 s | 41.8 s |
 | native C++, fork v1.0.9 | 18.5 s | 115 s | 134 s |
 | libavoid-rust 0.2.1 | 12.2 s | 16.4 s | 28.6 s |
-| libavoid-rust, development version after 0.2.1 | 8.9 s | 14.1 s | 22.9 s |
+| libavoid-rust 0.3.0 | 8.9 s | 14.1 s | 22.9 s |
 | libavoid-js 0.4.5 | 15.1 s | 123 s | 138 s |
 | libavoid-js 0.5.0-beta.5 | 18.2 s | 153 s | 171 s |
 | libavoid-js unreleased | 13.8 s | 118 s | 132 s |
@@ -263,7 +262,7 @@ totals measure only time, not which routes are better.
 | | WebAssembly (raw / gzip) | JavaScript glue (raw / gzip) | npm unpacked |
 | --- | --- | --- | --- |
 | libavoid-rust 0.2.1 | 935 kB / 326 kB | 150 kB / 29 kB (`pkg-web/libavoid_rust.js`, `lib/adapter.cjs`, `index.mjs`) | 2.7 MB |
-| libavoid-rust, development version after 0.2.1 | 863 kB / 309 kB | 154 kB / 30 kB | — |
+| libavoid-rust 0.3.0 | 863 kB / 309 kB | 154 kB / 30 kB | 2.6 MB |
 | libavoid-js 0.4.5 | 485 kB / 174 kB | 76 kB / 18 kB | 0.96 MB |
 | libavoid-js 0.5.0-beta.5 | 492 kB / 181 kB | 44 kB / 17 kB | 0.81 MB |
 | libavoid-js unreleased | 476 kB / 177 kB | 60 kB / 22 kB | — |
@@ -275,14 +274,14 @@ the Rust source of its WebAssembly (see "License" in the README).
 
 - Choose **libavoid-js** if you use JointJS, Sprotty or ELK (it is
   already integrated), if download size matters most, or if you prefer an
-  API designed for JavaScript. Until the release after libavoid-rust 0.2.1,
-  it is also the choice for diagrams that nest shapes inside other shapes,
-  and it routes small scenes a little faster than 0.2.1.
+  API designed for JavaScript. Against libavoid-rust 0.2.1, it is also the
+  choice for diagrams that nest shapes inside other shapes, and it routes
+  small scenes a little faster.
 - Choose **libavoid-rust** if you need the same routes as C++ libavoid (for
   example, to match a desktop application or upstream's documentation), if
   you need clusters, hyperedge rerouting, fixed routes or transaction
-  progress, if speed matters (from the release after 0.2.1 it is faster at
-  every scene size), or if bad input must not take the module down.
+  progress, if speed matters (from 0.3.0 it is faster at every scene
+  size), or if bad input must not take the module down.
 
 Both packages are LGPL-2.1-or-later, like libavoid.
 

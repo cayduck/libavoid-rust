@@ -230,6 +230,11 @@ Run everything with `npm test` (Rust tests, WASM build, Node tests).
 - **Differential oracles.** Each module has a test that replays generated
   scenes and compares the result with output recorded from the C++
   (`tests/*_oracle.rs`, `tests/audit_scenes.rs`).
+- **Additions from libavoid-js's fork.** `tests/fork_route_status_oracle.rs`,
+  `tests/nested_shapes_oracle.rs` and `tests/reroute_after_edits_oracle.rs`
+  compare them with the C++ of upstream with the fork's changes applied,
+  on 200–250 generated scenes each, and the two settings, when off, with
+  upstream itself.
 - **End-to-end fuzzing.** `tests/e2e_fuzz.rs` replays 1,000 generated scenes
   that mix every feature over long transaction sequences. The 865 on which
   the C++ is well defined must match it exactly; the rest must run without
@@ -269,22 +274,21 @@ against libavoid-js 0.4.5, 0.5.0-beta.5 and its unreleased 0.5.0 work):
   almost all of them orthogonal.
 - **Nested shapes.** The fork routes shapes nested inside other shapes,
   which upstream does not. This package does too with
-  `router.setRouteInsideParentShapes(true)` (since the release after
-  0.2.1), taking only the part of the fork's change that nesting needs:
-  most of the fork's other differences from upstream, and its slow
-  scenes, come from a part that nesting does not need.
+  `router.setRouteInsideParentShapes(true)` (since 0.3.0), taking only the
+  part of the fork's change that nesting needs: most of the fork's other
+  differences from upstream, and its slow scenes, come from a part that
+  nesting does not need.
 - **Features.** This package exposes all of upstream's public API,
   including clusters, hyperedge rerouting, fixed routes and transaction
   progress, which libavoid-js does not. Both offer `hasValidRoute()` and
-  `hasCrossingObstacles()` from libavoid-js's fork (here since the release
-  after 0.2.1).
+  `hasCrossingObstacles()` from libavoid-js's fork (here since 0.3.0).
 - **Invalid input.** In the published libavoid-js versions, input that
   violates one of upstream's assertions aborts the WebAssembly module until
   a reload; libavoid-js's unreleased 0.5.0 throws for most of it. Here the
   call throws or the input is ignored, and the module keeps working.
-- **Speed.** Where both compute the same routes, this package (from the
-  release after 0.2.1) is faster at every scene size: by a median of 5% on
-  the lightest scenes and by more on heavier ones. Some orthogonal scenes
+- **Speed.** Where both compute the same routes, this package (from
+  0.3.0) is faster at every scene size: by a median of 5% on the lightest
+  scenes and by more on heavier ones. Some orthogonal scenes
   take libavoid-js's fork much longer (the slowest: 17.2 s there, 0.86 s
   here).
 - **Size.** libavoid-js is a little over half the download (177 kB of
