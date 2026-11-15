@@ -62,7 +62,7 @@ test("built files embed no home directory, user name or checkout path", () => {
     }
   }
   // Panic locations are crate-relative.
-  const wasm = fs.readFileSync(path.join(root, "pkg", "libavoid_rust_bg.wasm"));
+  const wasm = fs.readFileSync(path.join(root, "pkg-web", "libavoid_rust_bg.wasm"));
   assert.notEqual(wasm.indexOf(Buffer.from("src/wasm_api.rs")), -1);
 });
 
