@@ -49,7 +49,8 @@ use crate::avoid::arena::{ConnIdx, ObstacleIdx, RerouteFlagIdx, VertIdx};
 use crate::avoid::connend::{ConnDirFlags, ConnEnd, ConnEndRef, CONN_DIR_ALL, CONN_DIR_NONE};
 use crate::avoid::debug::{db_printf, pg};
 use crate::avoid::geometry::{
-    corner_side, euclidean_dist, manhattan_dist, point_on_line, segment_intersect_point, vec_dir, DO_INTERSECT,
+    corner_side, euclidean_dist, in_poly, manhattan_dist, point_on_line, segment_intersect, segment_intersect_point,
+    vec_dir, DO_INTERSECT,
 };
 use crate::avoid::geomtypes::{
     Point, PointOrd, PolyLine, Polygon, PolygonInterface, K_UNASSIGNED_VERTEX_NUMBER, XDIM, YDIM,
@@ -57,6 +58,7 @@ use crate::avoid::geomtypes::{
 use crate::avoid::graph::EdgeInf;
 use crate::avoid::junction::JunctionRef;
 use crate::avoid::makepath::AStarPath;
+use crate::avoid::obstacle::Obstacle;
 use crate::avoid::router::Router;
 use crate::avoid::vertices::{VertID, VertIDProps, VertInf};
 use crate::avoid::visibility::vertex_visibility;
@@ -139,6 +141,10 @@ pub struct ConnRef {
     pub m_initialised: bool,
     pub m_hate_crossings: bool,
     pub m_has_fixed_route: bool,
+    /// Whether the last route search found a path (not a straight-line
+    /// fallback).
+    // fork: Aksem/adaptagrams connector.h ConnRef::m_has_valid_route
+    pub m_has_valid_route: bool,
     pub m_route: PolyLine,
     pub m_display_route: Polygon,
     pub m_route_dist: f64,
@@ -178,6 +184,7 @@ impl ConnRef {
             m_initialised: false,
             m_hate_crossings: false,
             m_has_fixed_route: false,
+            m_has_valid_route: false,
             m_route: Polygon::new(),
             m_display_route: Polygon::new(),
             m_route_dist: 0.0,
@@ -754,6 +761,55 @@ impl ConnRef {
         self.m_has_fixed_route
     }
 
+    /// Whether the router computed a route for this connector, rather than
+    /// falling back to a straight line between its ends because no path
+    /// was found.  The route may still cross obstacles; see
+    /// `has_crossing_obstacles()`.  Meaningful after a transaction.
+    // fork: Aksem/adaptagrams connector.cpp ConnRef::hasValidRoute()
+    #[inline]
+    pub fn has_valid_route(&self) -> bool {
+        self.m_has_valid_route
+    }
+
+    /// Whether the connector's route crosses or starts inside an obstacle
+    /// other than the ones its ends are attached to.  Meaningful after a
+    /// transaction.
+    // fork: Aksem/adaptagrams connector.cpp ConnRef::hasCrossingObstacles()
+    pub fn has_crossing_obstacles(&self, router: &Router) -> bool {
+        let output_route = &self.m_route;
+        if output_route.size() < 2 {
+            return false;
+        }
+
+        let anchors = self.endpoint_anchors();
+        for &obstacle in &router.m_obstacles {
+            if Some(obstacle) == anchors.0 || Some(obstacle) == anchors.1 {
+                continue;
+            }
+
+            let obs_poly = Obstacle::routing_polygon(router, obstacle);
+
+            for i in 0..output_route.size() - 1 {
+                let p1 = &output_route.ps[i];
+                let p2 = &output_route.ps[i + 1];
+
+                for j in 0..obs_poly.size() {
+                    let next_j = (j + 1) % obs_poly.size();
+                    if segment_intersect(p1, p2, &obs_poly.ps[j], &obs_poly.ps[next_j]) {
+                        return true;
+                    }
+                }
+
+                // Also check if a route point lies inside the obstacle.
+                if in_poly(&obs_poly, p1, false) {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
     // upstream: connector.cpp ConnRef::clearFixedRoute()
     pub fn clear_fixed_route(router: &mut Router, c: ConnIdx) {
         router.conns[c].m_has_fixed_route = false;
@@ -967,6 +1023,8 @@ impl ConnRef {
             let conn = &mut router.conns[c];
             conn.m_false_path = false;
             conn.m_needs_reroute_flag = false;
+            // fork: Aksem/adaptagrams connector.cpp ConnRef::generatePath()
+            conn.m_has_valid_route = true;
 
             conn.m_start_vert = conn.m_src_vert;
         }
@@ -1152,6 +1210,8 @@ impl ConnRef {
                 // There is no valid path.
                 db_printf!("Warning: Path not found...\n");
                 router.conns[c].m_needs_reroute_flag = true;
+                // fork: Aksem/adaptagrams connector.cpp ConnRef::generateCheckpointsPath()
+                router.conns[c].m_has_valid_route = false;
 
                 path.push(router.vert_infs[dst].point);
                 vertices.push(dst);
@@ -1293,6 +1353,8 @@ impl ConnRef {
             // There is no valid path.
             db_printf!("Warning: Path not found...\n");
             router.conns[c].m_needs_reroute_flag = true;
+            // fork: Aksem/adaptagrams connector.cpp ConnRef::generateStandardPath()
+            router.conns[c].m_has_valid_route = false;
             pathlen = 2;
             router.vert_infs[tar].path_next = Some(src_vert);
             if (router.conns[c].m_type == ConnType::ConnTypePolyLine) && router.invisibility_grph {
@@ -1617,6 +1679,24 @@ impl ConnIdx {
             return false;
         }
         router.conns[self].has_fixed_route()
+    }
+    // fork: Aksem/adaptagrams connector.cpp ConnRef::hasValidRoute()
+    pub fn has_valid_route(self, router: &Router) -> bool {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.conns.contains(self) {
+            return false;
+        }
+        router.conns[self].has_valid_route()
+    }
+    // fork: Aksem/adaptagrams connector.cpp ConnRef::hasCrossingObstacles()
+    pub fn has_crossing_obstacles(self, router: &Router) -> bool {
+        // MISUSE: a handle of a freed object is a no-op (router.rs
+        // module docs, "Public-API misuse").
+        if !router.conns.contains(self) {
+            return false;
+        }
+        router.conns[self].has_crossing_obstacles(router)
     }
     // upstream: connector.cpp ConnRef::clearFixedRoute()
     pub fn clear_fixed_route(self, router: &mut Router) {

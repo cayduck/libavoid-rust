@@ -76,6 +76,7 @@ tests. The pieces are:
 | `tests/robustness.rs`, `tests/core_findings.rs` | Misuse of the public API must not panic or hang. |
 | `tests/svg_oracle.rs` | `outputInstanceToSVG()` (with its reproduction code: every `outputCode()`) and `outputDiagramSVG()` at every diagram dump of all fixtures and audit scenes: 1,838 files, byte for byte with the C++ (with `high-precision-debug`: against the C++ built with `HIGH_PRECISION_DEBUG`). |
 | `tests/debug_output_files.rs` | The file-writing forms, and what no fixture reaches (`HyperedgeRerouter::outputInstanceToSVG()` with pending registrations; a scene with clusters, pins, checkpoints, a fixed route and a poly-line connector), against `tools/oracle/debug_output_oracle.cpp`. |
+| `tests/fork_route_status_oracle.rs` | `ConnRef::has_valid_route()` and `has_crossing_obstacles()`, taken from the libavoid-js fork (see "Where the port differs from upstream"), after every transaction of 250 generated scenes with checkpoints, against the vendored upstream with the fork's two commits applied (`tools/oracle/fork_route_status.sh`). Debug builds check a tenth. |
 | `tests/e2e_svg_oracle.rs` | The same two SVGs after every transaction of the 865 committed fuzz scenes on which upstream is well defined, byte for byte (hashes recorded by `tools/oracle/e2e_svg_oracle.sh`). Debug builds check a tenth. |
 | `tests/*_debug_oracle.rs`, `tests/debughandler_oracle.rs`, `tests/timer_oracle.rs` | The feature-gated debug output (see "Debug output") against the C++ built with the matching define, over all fixtures and audit scenes. Run with the feature named in each file. |
 | `tools/audit/inventory.py --check` | Every upstream item is accounted for, and every `// upstream:` comment names something that exists. |
@@ -213,6 +214,12 @@ allocator like every other golden.
 The port reproduces upstream wherever upstream's behaviour is defined. The
 differences are confined to the following.
 
+- **Additions from the libavoid-js fork.** `ConnRef::has_valid_route()`
+  (with the flag it reads) and `ConnRef::has_crossing_obstacles()` come from
+  [Aksem/adaptagrams](https://github.com/Aksem/adaptagrams), the Adaptagrams
+  fork that libavoid-js builds on (commits `3f52e7e1` and `fe73f026`). They
+  only read state and change no route. Each site is marked `// fork:`
+  rather than `// upstream:`, so the porting inventory does not list them.
 - **Not ported.** Dead `#if 0` code and functions that upstream declares
   but never defines; the inventory lists each one with its reason. The
   debug output is ported (see "Debug output" above); of upstream's debug

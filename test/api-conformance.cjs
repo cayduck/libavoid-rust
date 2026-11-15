@@ -6,7 +6,8 @@
 //     required arguments equals upstream's (parameters without a default);
 //     every export and every public method of the JavaScript classes is
 //     accounted for by a row (nothing without an upstream counterpart
-//     except the documented WebAssembly infrastructure);
+//     except the documented WebAssembly infrastructure and the additions
+//     from the libavoid-js fork);
 //  2. unit tests for each overload set, each default argument, callbacks
 //     (order, ptr, reroute after a move), virtual methods overridden by
 //     subclassing, the Router's public data members, object identity and
@@ -42,7 +43,9 @@ const xy = (poly) => poly.ps.map((p) => [p.x, p.y]);
 // --- 1. docs/JS_API_COVERAGE.md -------------------------------------------------------
 
 const rows = [];
+let fromFork = false; // rows under "## Additions from the libavoid-js fork"
 for (const line of fs.readFileSync(path.join(root, "docs", "JS_API_COVERAGE.md"), "utf8").split("\n")) {
+  if (line.startsWith("## ")) fromFork = line.startsWith("## Additions from the libavoid-js fork");
   if (!line.startsWith("| `") && !line.startsWith("| —")) continue;
   const cells = line
     .trim()
@@ -51,7 +54,7 @@ for (const line of fs.readFileSync(path.join(root, "docs", "JS_API_COVERAGE.md")
     .split(/(?<!\\)\|/)
     .map((c) => c.trim());
   assert.equal(cells.length, 4, `malformed row: ${line}`);
-  rows.push({ upstream: cells[0], js: cells[1], arg: cells[2], notes: cells[3] });
+  rows.push({ upstream: cells[0], js: cells[1], arg: cells[2], notes: cells[3], fromFork });
 }
 
 function sampleInstance(cls) {
@@ -130,9 +133,13 @@ test("every export and every public method has an upstream counterpart", () => {
   }
 });
 
-const total = rows.length;
-const exposed = rows.filter((r) => r.js !== "—").length;
-console.log(`coverage: ${total} upstream items, ${exposed} exposed, ${total - exposed} not exposable (reason given)`);
+const upstreamRows = rows.filter((r) => !r.fromFork);
+const total = upstreamRows.length;
+const exposed = upstreamRows.filter((r) => r.js !== "—").length;
+console.log(
+  `coverage: ${total} upstream items, ${exposed} exposed, ${total - exposed} not exposable (reason given); ` +
+    `${rows.length - total} additions from the libavoid-js fork`,
+);
 
 // --- 2. unit tests ------------------------------------------------------------------------
 
@@ -434,6 +441,34 @@ test("ConnRef: setEndpoint(s), routing type, checkpoints, fixed routes, misc", (
   c.makeActive();
   assert.throws(() => c.makeActive(), /already active/);
   c.removeFromGraph();
+  r.delete();
+});
+
+test("ConnRef: hasValidRoute, hasCrossingObstacles (from the libavoid-js fork)", () => {
+  // Two scenes whose expected values come from the fork's C++
+  // (tools/oracle/fork_route_status.cpp, with the same objects and ids).
+  const status = (c) => [c.hasValidRoute(), c.hasCrossingObstacles()];
+  let r = new Router(Avoid.OrthogonalRouting);
+  new ShapeRef(r, rect(100, 0, 160, 60), 1);
+  const around = new ConnRef(r, new ConnEnd(P(0, 30)), new ConnEnd(P(260, 30)), 10);
+  const fromInside = new ConnRef(r, new ConnEnd(P(130, 30)), new ConnEnd(P(300, 30)), 11);
+  r.processTransaction();
+  assert.deepEqual(status(around), [true, false]);
+  assert.equal(around.route().size(), 7);
+  assert.deepEqual(status(fromInside), [true, true]);
+  r.deleteConnector(around);
+  assert.throws(() => around.hasValidRoute(), /deleted/);
+  r.delete();
+
+  // A pin on the right side that only lets connectors leave to the left,
+  // into the shape: no path, so the route falls back to a straight line.
+  r = new Router(Avoid.OrthogonalRouting);
+  const shape = new ShapeRef(r, rect(100, 0, 160, 60), 1);
+  new ShapeConnectionPin(shape, 1, Avoid.ATTACH_POS_RIGHT, Avoid.ATTACH_POS_CENTRE, true, 0, Avoid.ConnDirLeft);
+  const blocked = new ConnRef(r, new ConnEnd(shape, 1), new ConnEnd(P(300, 30)), 10);
+  r.processTransaction();
+  assert.deepEqual(status(blocked), [false, false]);
+  assert.equal(blocked.route().size(), 2);
   r.delete();
 });
 

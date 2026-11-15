@@ -1222,6 +1222,16 @@ impl RawRouter {
         Ok(self.conn(key)?.has_fixed_route(&self.router))
     }
 
+    #[wasm_bindgen(js_name = connHasValidRoute)]
+    pub fn conn_has_valid_route(&self, key: u32) -> Res<bool> {
+        Ok(self.conn(key)?.has_valid_route(&self.router))
+    }
+
+    #[wasm_bindgen(js_name = connHasCrossingObstacles)]
+    pub fn conn_has_crossing_obstacles(&self, key: u32) -> Res<bool> {
+        Ok(self.conn(key)?.has_crossing_obstacles(&self.router))
+    }
+
     #[wasm_bindgen(js_name = connClearFixedRoute)]
     pub fn conn_clear_fixed_route(&mut self, key: u32) -> Res<()> {
         let c = self.conn(key)?;

@@ -19,6 +19,6 @@ const f = {
   "fixed routes (ConnRef.setFixedRoute)": has("ConnRef", "setFixedRoute"),
   "shape pin transforms (ShapeRef.transformConnectionPinPositions)": has("ShapeRef", "transformConnectionPinPositions"),
   "SVG debug output (Router.outputInstanceToSVG)": has("Router", "outputInstanceToSVG"),
-  "connector crossing check (ConnRef.hasCrossingObstacles, fork only)": has("ConnRef", "hasCrossingObstacles"),
+  "route status (ConnRef.hasValidRoute, hasCrossingObstacles, from the fork)": has("ConnRef", "hasValidRoute") && has("ConnRef", "hasCrossingObstacles"),
 };
 for (const [k, v] of Object.entries(f)) console.log(`${impl}\t${v ? "yes" : "no"}\t${k}`);

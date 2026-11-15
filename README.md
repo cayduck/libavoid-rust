@@ -14,7 +14,10 @@ libavoid: poly-line and orthogonal routing, connection pins, junctions,
 clusters, checkpoints, nudging, and hyperedge rerouting and improvement. Its
 routes are checked against the original C++ (see [Verification](#verification)).
 The JavaScript API mirrors upstream's public C++ API (`namespace Avoid`):
-the same classes, methods, arguments and defaults, backed by that core.
+the same classes, methods, arguments and defaults, backed by that core. It
+adds two read-only methods from the Adaptagrams fork that libavoid-js builds
+on, `ConnRef.hasValidRoute()` and `ConnRef.hasCrossingObstacles()`, which
+tell whether the router found a route and whether it crosses obstacles.
 
 ## Install
 
@@ -263,8 +266,9 @@ against libavoid-js 0.4.5, 0.5.0-beta.5 and its unreleased 0.5.0 work):
   with nesting, libavoid-js is the better choice.
 - **Features.** This package exposes all of upstream's public API,
   including clusters, hyperedge rerouting, fixed routes and transaction
-  progress, which libavoid-js does not; libavoid-js adds
-  `hasValidRoute()` and `hasCrossingObstacles()` from its fork.
+  progress, which libavoid-js does not. Both offer `hasValidRoute()` and
+  `hasCrossingObstacles()` from libavoid-js's fork (here since the release
+  after 0.2.1).
 - **Invalid input.** In the published libavoid-js versions, input that
   violates one of upstream's assertions aborts the WebAssembly module until
   a reload; libavoid-js's unreleased 0.5.0 throws for most of it. Here the

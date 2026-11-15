@@ -132,6 +132,13 @@
 // reset()` or `await init()`) instantiates a fresh module; objects created
 // afterwards work normally.  `internalError()` returns the error that
 // poisoned the current instance, or null.
+//
+// Additions from the libavoid-js fork (no upstream counterpart)
+// -------------------------------------------------------------
+// `ConnRef.hasValidRoute()` and `ConnRef.hasCrossingObstacles()` come from
+// Aksem/adaptagrams, the Adaptagrams fork that libavoid-js builds on.  They
+// only read state and change no route (tests/fork_route_status_oracle.rs
+// checks them against the C++ of that fork).
 
 // --- constants (upstream names) -------------------------------------------------
 
@@ -588,6 +595,20 @@ export class ConnRef {
   setFixedRoute(route: PolyLine): void;
   setFixedExistingRoute(): void;
   hasFixedRoute(): boolean;
+  /**
+   * From the libavoid-js fork (no upstream counterpart): false if the last
+   * route search found no path and the route is a straight line between
+   * the connector's ends.  The route may still cross obstacles; see
+   * `hasCrossingObstacles()`.  Meaningful after `processTransaction()`.
+   */
+  hasValidRoute(): boolean;
+  /**
+   * From the libavoid-js fork (no upstream counterpart): whether the route
+   * crosses, or has a point inside, an obstacle (with its buffer) other
+   * than the ones the connector's ends are attached to.  Meaningful after
+   * `processTransaction()`.
+   */
+  hasCrossingObstacles(): boolean;
   clearFixedRoute(): void;
   set_route(route: PolyLine): void;
   calcRouteDist(): void;

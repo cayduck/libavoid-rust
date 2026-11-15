@@ -46,8 +46,8 @@ that are already being fixed.
 - **Features.** libavoid-rust exposes all of upstream's public API,
   including clusters, hyperedge rerouting and transaction progress.
   libavoid-js exposes the core (shapes, pins, junctions, connectors,
-  checkpoints) and adds `hasValidRoute()` and `hasCrossingObstacles()` from
-  its fork.
+  checkpoints). Both offer `hasValidRoute()` and `hasCrossingObstacles()`
+  from libavoid-js's fork (libavoid-rust since the release after 0.2.1).
 - **API style.** libavoid-rust mirrors the C++ API, so upstream's
   documentation and examples apply as written. libavoid-js 0.5.0 is moving
   to an API designed for JavaScript (`router.addShape({x, y, width,
@@ -127,7 +127,7 @@ typings.
 | Fixed routes (`ConnRef.setFixedRoute`) | yes | no | no | no |
 | Pin transforms (`ShapeRef.transformConnectionPinPositions`) | yes | no | no | no |
 | SVG and text debug output | yes | no | no | no |
-| `ConnRef.hasValidRoute()`, `hasCrossingObstacles()` (fork only) | no | no | yes | yes |
+| `ConnRef.hasValidRoute()`, `hasCrossingObstacles()` (from the fork) | yes, since the release after 0.2.1 | no | yes | yes |
 
 `docs/JS_API_COVERAGE.md` lists every public item of upstream's headers
 with its libavoid-rust counterpart.
