@@ -279,8 +279,21 @@ differences are confined to the following.
     cluster boundaries whose segments cannot touch the route's last segment
     are not compared (their contribution is zero); a per-search grid finds
     the candidates.
-  - Crossing detection in `improveOrthogonalRoutes`: pairs of orthogonal
-    routes with disjoint bounding boxes are skipped.
+  - The A* cost builds the candidate route's prefix once per expansion
+    from per-node copies of what `constructPolygonPath` reads, and keeps
+    `splitBranchingSegments`' state after that prefix per other polygon,
+    splitting only the last segment per edge (without copies when it
+    inserts nothing).
+  - Crossing detection in `improveOrthogonalRoutes` and `improveCrossings`:
+    pairs of routes that cannot touch are skipped; `splitBranchingSegments`
+    skips segments that cannot touch the other polygon's bounds.
+  - `checkAllBlockedEdges` takes the edges blocked by an obstacle from an
+    index (by blocker, ordered by when they joined the invisibility graph)
+    instead of walking the whole graph.
+  - The poly-line vertex sweep builds its angular set by one sort (keeping
+    the first of equivalent points, as `std::set::insert` does) and does
+    not re-sort an edge list that is already in order; short vertex edge
+    lists are sorted without allocating, and not relinked when unchanged.
   - Nudging regions are gathered without rescanning the segment list.
   - VPSC `satisfy()`: whether `findMinLMBetween` finds a split point, and
     the cycle check, are answered from a cached active constraint tree; the
