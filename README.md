@@ -15,9 +15,12 @@ clusters, checkpoints, nudging, and hyperedge rerouting and improvement. Its
 routes are checked against the original C++ (see [Verification](#verification)).
 The JavaScript API mirrors upstream's public C++ API (`namespace Avoid`):
 the same classes, methods, arguments and defaults, backed by that core. It
-adds two read-only methods from the Adaptagrams fork that libavoid-js builds
-on, `ConnRef.hasValidRoute()` and `ConnRef.hasCrossingObstacles()`, which
-tell whether the router found a route and whether it crosses obstacles.
+adds three things from the Adaptagrams fork that libavoid-js builds on:
+`ConnRef.hasValidRoute()` and `ConnRef.hasCrossingObstacles()`, which tell
+whether the router found a route and whether it crosses obstacles, and
+`Router.setRouteInsideParentShapes(true)`, which routes orthogonal
+connectors inside shapes that contain other shapes (off by default, so
+routes stay upstream's).
 
 ## Install
 
@@ -261,9 +264,13 @@ against libavoid-js 0.4.5, 0.5.0-beta.5 and its unreleased 0.5.0 work):
 - **Routes.** This package matched upstream C++ exactly on 600 of 600
   random scenes. libavoid-js matched a native build of its fork on all 595
   scenes it finished, and the fork differs from upstream in 177 of the 600,
-  almost all of them orthogonal. The fork routes
-  shapes nested inside other shapes, which upstream does not: for diagrams
-  with nesting, libavoid-js is the better choice.
+  almost all of them orthogonal.
+- **Nested shapes.** The fork routes shapes nested inside other shapes,
+  which upstream does not. This package does too with
+  `router.setRouteInsideParentShapes(true)` (since the release after
+  0.2.1), taking only the part of the fork's change that nesting needs:
+  most of the fork's other differences from upstream, and its slow
+  scenes, come from a part that nesting does not need.
 - **Features.** This package exposes all of upstream's public API,
   including clusters, hyperedge rerouting, fixed routes and transaction
   progress, which libavoid-js does not. Both offer `hasValidRoute()` and
@@ -274,9 +281,9 @@ against libavoid-js 0.4.5, 0.5.0-beta.5 and its unreleased 0.5.0 work):
   a reload; libavoid-js's unreleased 0.5.0 throws for most of it. Here the
   call throws or the input is ignored, and the module keeps working.
 - **Speed.** Where both compute the same routes, libavoid-js is up to
-  about 20% faster on light scenes and this package is faster on heavy ones. Some
-  orthogonal scenes take libavoid-js's fork much longer (the slowest: 16.8 s
-  there, 0.95 s here).
+  about 20% faster on light scenes and this package is faster on heavy
+  ones. Some orthogonal scenes take libavoid-js's fork much longer (the
+  slowest: 16.8 s there, 0.95 s here).
 - **Size.** libavoid-js is about half the download (177 kB of gzipped
   WebAssembly against 326 kB).
 - **API style.** This package mirrors the C++ API; libavoid-js 0.5.0 is

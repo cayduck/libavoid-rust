@@ -1025,7 +1025,7 @@ fn process_event_vert(
             let max_shape = nodes[v].max[XDIM];
             // As far as we can see.
             let (min_limit, max_limit, min_limit_max, max_limit_min) =
-                nodes.find_first_point_above_and_below(v, XDIM, line_y);
+                nodes.find_first_point_above_and_below(v, XDIM, line_y, router.m_route_inside_parent_shapes);
 
             // Insert possible visibility segments.
             if min_limit_max >= max_limit_min {
@@ -1213,7 +1213,7 @@ fn process_event_hori(
             let max_shape = nodes[v].max[YDIM];
             // As far as we can see.
             let (min_limit, max_limit, min_limit_max, max_limit_min) =
-                nodes.find_first_point_above_and_below(v, YDIM, line_x);
+                nodes.find_first_point_above_and_below(v, YDIM, line_x, router.m_route_inside_parent_shapes);
 
             if min_limit_max >= max_limit_min {
                 let line = segments.insert(LineSegment::new(

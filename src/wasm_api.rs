@@ -676,6 +676,17 @@ impl RawRouter {
         Ok(self.router.routing_option(option_of(option)?))
     }
 
+    #[wasm_bindgen(js_name = setRouteInsideParentShapes)]
+    pub fn set_route_inside_parent_shapes(&mut self, value: bool) -> Res<()> {
+        self.router.set_route_inside_parent_shapes(value);
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = routeInsideParentShapes)]
+    pub fn route_inside_parent_shapes(&self) -> Res<bool> {
+        Ok(self.router.route_inside_parent_shapes())
+    }
+
     #[wasm_bindgen(js_name = setRoutingPenalty)]
     pub fn set_routing_penalty(&mut self, pen_type: u32, pen_val: f64) -> Res<()> {
         let p = param_of(pen_type)?;

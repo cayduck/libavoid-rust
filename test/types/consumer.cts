@@ -44,6 +44,8 @@ const s: ShapeRef | null = src.shape();
 void dst.position().x;
 const attached: ConnRef[] = shape.attachedConnectors();
 const routed: boolean = conn.hasValidRoute() && !conn.hasCrossingObstacles();
+router.setRouteInsideParentShapes(true);
+const inside: boolean = router.routeInsideParentShapes();
 const shapes: number[] = [];
 router.attachedShapes(shapes, shape.id(), Avoid.runningToAndFrom);
 const [j, c2]: [Avoid.JunctionRef | null, ConnRef | null] = conn.splitAtSegment(1);

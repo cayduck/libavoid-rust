@@ -72,7 +72,7 @@ routes() {
   for f in "$HERE"/scenes/nested-*.txt; do
     echo "  $(basename "$f" .txt)"
     echo "    upstream: $("$WORK/cpp/upstream/drv" "$f" 2>/dev/null | tail -n +2 | tr '\n' ' ')"
-    for impl in rust ljsnext; do echo "    $impl: $(node "$HERE/drive.mjs" $impl "$f" 2>/dev/null | tail -n +2 | tr '\n' ' ')"; done
+    for impl in rust rustnested ljsnext; do echo "    $impl: $(node "$HERE/drive.mjs" $impl "$f" 2>/dev/null | tail -n +2 | tr '\n' ' ')"; done
   done
 }
 

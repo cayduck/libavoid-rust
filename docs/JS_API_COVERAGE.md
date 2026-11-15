@@ -6,8 +6,8 @@ JavaScript counterpart in `libavoid-rust` (`const Avoid =
 require("libavoid-rust")`), or the specific reason it cannot exist in
 JavaScript.  The rules that map C++ idioms to JavaScript (overloads,
 out-parameters, containers, operators, `delete`, virtual methods,
-callbacks, misuse) are at the top of `index.d.ts`.  Two methods taken
-from the libavoid-js fork of Adaptagrams are listed separately, under
+callbacks, misuse) are at the top of `index.d.ts`.  Methods taken from
+the libavoid-js fork of Adaptagrams are listed separately, under
 "Additions from the libavoid-js fork".
 
 `test/api-conformance.cjs` reads the tables below and checks every row:
@@ -487,16 +487,21 @@ as opaque pointers.  They are listed by class in the last table.
 
 ## Additions from the libavoid-js fork
 
-Methods of [Aksem/adaptagrams](https://github.com/Aksem/adaptagrams), the
+Behaviour of [Aksem/adaptagrams](https://github.com/Aksem/adaptagrams), the
 Adaptagrams fork that libavoid-js builds on, that upstream does not have.
-They only read state and change no route; `tests/fork_route_status_oracle.rs`
-checks them against the C++ of that fork. The first column names the fork's
-C++ declaration.
+The first two only read state and change no route
+(`tests/fork_route_status_oracle.rs` checks them against the C++ of that
+fork). The last two switch the fork's routing inside shapes that enclose
+other shapes on and off; it is off by default, which keeps upstream's
+routes (`tests/nested_shapes_oracle.rs` checks both settings against the
+C++). The first column names the fork's C++ code.
 
 | Fork | JavaScript | Args / value | Notes |
 |---|---|---|---|
 | `ConnRef::hasValidRoute()` | `Avoid.ConnRef#hasValidRoute` | 0 | fork commit 3f52e7e1 |
 | `ConnRef::hasCrossingObstacles()` | `Avoid.ConnRef#hasCrossingObstacles` | 0 | fork commit fe73f026 |
+| `Node::isShapeInShape()` (always on in the fork) | `Avoid.Router#setRouteInsideParentShapes` | 1 | fork commit 1b4a2369; off by default |
+| `Node::isShapeInShape()` | `Avoid.Router#routeInsideParentShapes` | 0 | whether the above is on |
 
 ## JavaScript items without an upstream counterpart
 

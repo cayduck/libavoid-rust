@@ -139,6 +139,10 @@
 // Aksem/adaptagrams, the Adaptagrams fork that libavoid-js builds on.  They
 // only read state and change no route (tests/fork_route_status_oracle.rs
 // checks them against the C++ of that fork).
+// `Router.setRouteInsideParentShapes(true)` turns on the fork's routing
+// inside shapes that enclose other shapes; it is off by default, so routes
+// are upstream's unless it is set (tests/nested_shapes_oracle.rs checks
+// both settings against the C++).
 
 // --- constants (upstream names) -------------------------------------------------
 
@@ -463,6 +467,17 @@ export class Router {
   routingParameter(parameter: RoutingParameter): number;
   setRoutingOption(option: RoutingOption, value: boolean): void;
   routingOption(option: RoutingOption): boolean;
+  /**
+   * From the libavoid-js fork (no upstream counterpart): lets orthogonal
+   * routes run inside a shape that encloses other shapes (a container,
+   * group or swimlane) and around the shapes it encloses.  Off by default,
+   * as upstream, which finds no orthogonal path between shapes inside
+   * another shape and draws a straight line.  Takes effect at the next
+   * transaction, like `setRoutingOption()`.
+   */
+  setRouteInsideParentShapes(value: boolean): void;
+  /** See `setRouteInsideParentShapes()`. */
+  routeInsideParentShapes(): boolean;
   setRoutingPenalty(penType: PenaltyType, penVal?: number): void;
   /** The router's HyperedgeRerouter (the same object every time). */
   hyperedgeRerouter(): HyperedgeRerouter;

@@ -657,6 +657,10 @@ pub struct Router {
     pub m_static_orthogonal_graph_invalidated: bool,
     pub m_in_crossing_rerouting_stage: bool,
     pub m_settings_changes: bool,
+    /// Whether orthogonal visibility treats a shape that encloses another
+    /// as its frame rather than as an obstacle (off: upstream).
+    // fork: Aksem/adaptagrams scanline.cpp Node::isShapeInShape()
+    pub m_route_inside_parent_shapes: bool,
 
     pub m_hyperedge_improver: HyperedgeImprover,
     /// `DebugHandler *m_debug_handler` (owned here; only called with the
@@ -1094,6 +1098,7 @@ impl Router {
             m_static_orthogonal_graph_invalidated: true,
             m_in_crossing_rerouting_stage: false,
             m_settings_changes: false,
+            m_route_inside_parent_shapes: false,
             m_hyperedge_improver: HyperedgeImprover::new(),
             m_debug_handler: None,
             #[cfg(feature = "avoid-profile")]
@@ -2694,6 +2699,25 @@ impl Router {
     #[inline]
     pub fn routing_option(&self, option: RoutingOption) -> bool {
         self.m_routing_options[option as usize]
+    }
+
+    /// Lets orthogonal routes run inside a shape that encloses other shapes
+    /// (a container, group or swimlane) and around the shapes it encloses.
+    /// Off by default, which is upstream's behaviour: upstream finds no
+    /// orthogonal path between shapes inside another shape and falls back
+    /// to a straight line.  On, routes match the libavoid-js fork of
+    /// Adaptagrams in this respect.  A change takes effect at the next
+    /// transaction, like `set_routing_option()`.
+    // fork: Aksem/adaptagrams scanline.cpp Node::isShapeInShape() (always on there)
+    pub fn set_route_inside_parent_shapes(&mut self, value: bool) {
+        self.m_route_inside_parent_shapes = value;
+        self.m_settings_changes = true;
+    }
+
+    /// See `set_route_inside_parent_shapes()`.
+    #[inline]
+    pub fn route_inside_parent_shapes(&self) -> bool {
+        self.m_route_inside_parent_shapes
     }
 
     /// Sets or removes penalty values that are applied during connector

@@ -1,6 +1,7 @@
 // Replays comparison scenes through one JS build and prints routes in the
 // same format as driver.cpp.  Usage: node drive.mjs <impl> <scene>...
-// impl: rust (this package, built) | ljs045 | ljsbeta5 | ljsnext (installed by run.sh)
+// impl: rust (this package, built), rustnested (the same with
+// setRouteInsideParentShapes(true)) | ljs045 | ljsbeta5 | ljsnext (installed by run.sh)
 // OUT=<dir> writes <scene>.out files; REPS=<n> times n runs (median, min).
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -18,7 +19,7 @@ export function ljsEntry(impl) {
   return path.join(WORK, p, "index-node.mjs");
 }
 async function load() {
-  if (impl === "rust") return require(path.join(ROOT, "index.cjs"));
+  if (impl.startsWith("rust")) return require(path.join(ROOT, "index.cjs"));
   const { AvoidLib } = await import(ljsEntry(impl));
   await AvoidLib.load();
   return AvoidLib.getInstance();
@@ -83,6 +84,15 @@ const adapters = {
     process: (r) => r.processTransaction(),
     route: (c) => c.displayRoute().map((p) => [p.x, p.y]),
     free: (r) => r.delete(),
+  },
+};
+// This package with Router.setRouteInsideParentShapes(true).
+adapters.rustnested = {
+  ...adapters.rust,
+  router(o) {
+    const r = adapters.rust.router(o);
+    r.setRouteInsideParentShapes(true);
+    return r;
   },
 };
 const ad = adapters[impl];

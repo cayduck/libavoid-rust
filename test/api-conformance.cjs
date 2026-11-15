@@ -444,6 +444,35 @@ test("ConnRef: setEndpoint(s), routing type, checkpoints, fixed routes, misc", (
   r.delete();
 });
 
+test("Router: setRouteInsideParentShapes (from the libavoid-js fork)", () => {
+  // tools/libavoid-js-compare/scenes/nested-obstacle.txt: two children of a
+  // parent shape joined by pins, with a third child between them.  Expected
+  // routes from the C++ (upstream, and upstream with
+  // tools/oracle/nested_shapes.patch).
+  const route = (inside) => {
+    const r = new Router(Avoid.OrthogonalRouting);
+    assert.equal(r.routeInsideParentShapes(), false);
+    r.setRouteInsideParentShapes(inside);
+    assert.equal(r.routeInsideParentShapes(), inside);
+    r.setRoutingParameter(Avoid.shapeBufferDistance, 4);
+    r.setRoutingParameter(Avoid.segmentPenalty, 10);
+    new ShapeRef(r, rect(0, 0, 400, 300), 1);
+    const a = new ShapeRef(r, rect(50, 100, 110, 160), 2);
+    new ShapeConnectionPin(a, 1, 1, 0.5, true, 0, Avoid.ConnDirRight);
+    const b = new ShapeRef(r, rect(290, 100, 350, 160), 3);
+    new ShapeConnectionPin(b, 1, 0, 0.5, true, 0, Avoid.ConnDirLeft);
+    new ShapeRef(r, rect(170, 80, 230, 220), 4);
+    const c = new ConnRef(r, new ConnEnd(a, 1), new ConnEnd(b, 1), 10);
+    r.processTransaction();
+    const out = xy(c.displayRoute());
+    r.delete();
+    return out;
+  };
+  assert.deepEqual(route(false), [[80, 130], [320, 130]]);
+  assert.deepEqual(route(true), [[110, 130], [140, 130], [140, 76], [260, 76], [260, 130], [290, 130]]);
+  assert.throws(() => new Router(Avoid.OrthogonalRouting).setRouteInsideParentShapes(1), TypeError);
+});
+
 test("ConnRef: hasValidRoute, hasCrossingObstacles (from the libavoid-js fork)", () => {
   // Two scenes whose expected values come from the fork's C++
   // (tools/oracle/fork_route_status.cpp, with the same objects and ids).

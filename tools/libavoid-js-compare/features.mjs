@@ -19,6 +19,8 @@ const f = {
   "fixed routes (ConnRef.setFixedRoute)": has("ConnRef", "setFixedRoute"),
   "shape pin transforms (ShapeRef.transformConnectionPinPositions)": has("ShapeRef", "transformConnectionPinPositions"),
   "SVG debug output (Router.outputInstanceToSVG)": has("Router", "outputInstanceToSVG"),
+  "routing inside parent shapes (always on in libavoid-js; Router.setRouteInsideParentShapes here)":
+    impl !== "rust" || has("Router", "setRouteInsideParentShapes"),
   "route status (ConnRef.hasValidRoute, hasCrossingObstacles, from the fork)": has("ConnRef", "hasValidRoute") && has("ConnRef", "hasCrossingObstacles"),
 };
 for (const [k, v] of Object.entries(f)) console.log(`${impl}\t${v ? "yes" : "no"}\t${k}`);

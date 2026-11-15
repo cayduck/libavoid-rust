@@ -38,11 +38,12 @@ that are already being fixed.
 
 - **Routes.** libavoid-rust gives exactly the routes of upstream C++
   libavoid. libavoid-js gives exactly the routes of its fork, which differ
-  from upstream in many orthogonal scenes: the fork routes shapes nested
-  inside other shapes, which upstream does not.
+  from upstream in many orthogonal scenes.
 - **Nested shapes.** If your diagrams put shapes inside other shapes
-  (containers, groups, swimlanes), libavoid-js routes them and
-  libavoid-rust, like upstream, does not.
+  (containers, groups, swimlanes), libavoid-js routes them, and upstream
+  does not. Since the release after 0.2.1, libavoid-rust does too with
+  `router.setRouteInsideParentShapes(true)`, giving the same routes as the
+  fork's nesting change applied to upstream.
 - **Features.** libavoid-rust exposes all of upstream's public API,
   including clusters, hyperedge rerouting and transaction progress.
   libavoid-js exposes the core (shapes, pins, junctions, connectors,
@@ -87,11 +88,20 @@ are orthogonal (40% of the orthogonal scenes), and 3 are poly-line.
 
 Bisecting the fork shows that 170 of the 177 come from one commit,
 [`11eabd8c`](https://github.com/Aksem/adaptagrams/commit/11eabd8c0571a602ca6880dfd13b615f686c0d7c)
-"Route child shapes in hierarchical diagram". It changes how orthogonal
-visibility is computed around shapes that lie inside other shapes. Most of
-the affected scenes have a connector end inside a shape, but some have no
-containment at all. The differences are usually a nudged segment in a
-different place, and sometimes a different path.
+"Route child shapes in hierarchical diagram". The fork's work on nesting,
+as it stands in v1.0.9, makes two changes to orthogonal routing, and each
+was applied to upstream on its own:
+
+| Applied to upstream alone | Scenes that differ from upstream | `s00041` (native) | Nested scenes below |
+| --- | --- | --- | --- |
+| Shape-side vertices of the orthogonal graph get the id `dummyOrthogShapeID` (`orthogonal.cpp`, `11eabd8c`) | 170 of 600 | 1.9 s → 8.5 s | not routed |
+| `Node::isShapeInShape()`: a shape that encloses another limits its view only with its far sides (`scanline.cpp`, `1b4a2369`) | 1 of 600 (the one where a move puts one shape inside another) | 1.9 s → 1.9 s | routed as the fork routes them |
+
+So the nesting itself comes from the second change, which takes effect
+only where a shape's routing box lies inside another's. The first change accounts for most of the fork's differences from
+upstream and for its slow scenes (see [Speed](#speed)). The differences it
+makes are usually a nudged segment in a different place, and sometimes a
+different path.
 
 ### Shapes nested in a parent shape
 
@@ -105,9 +115,14 @@ between them (`tools/libavoid-js-compare/scenes/nested-obstacle.txt`):
 
 With a second scene (`nested-free-points.txt`), upstream takes a connector
 between two points inside the parent around the outside of the parent,
-while the fork keeps it inside. Routing inside a parent shape is what the
-fork's change was made for, and for diagrams with nesting libavoid-js is
-the better choice today.
+while the fork keeps it inside.
+
+libavoid-rust takes the second change above as an option, off by default
+so that routes stay upstream's. With `router.setRouteInsideParentShapes(true)`,
+it routes both scenes as the fork does, and on the 600 random scenes it
+matches upstream with that change applied exactly (and so differs from
+upstream in the one scene with nesting). `tests/nested_shapes_oracle.rs`
+checks both settings on 200 scenes built around nesting.
 
 ## API
 
@@ -127,6 +142,7 @@ typings.
 | Fixed routes (`ConnRef.setFixedRoute`) | yes | no | no | no |
 | Pin transforms (`ShapeRef.transformConnectionPinPositions`) | yes | no | no | no |
 | SVG and text debug output | yes | no | no | no |
+| Routing inside shapes that contain other shapes (from the fork) | opt-in (`setRouteInsideParentShapes`), since the release after 0.2.1 | always | always | always |
 | `ConnRef.hasValidRoute()`, `hasCrossingObstacles()` (from the fork) | yes, since the release after 0.2.1 | no | yes | yes |
 
 `docs/JS_API_COVERAGE.md` lists every public item of upstream's headers
@@ -230,9 +246,11 @@ Total time per build:
 
 Where the routes differ, the native fork is as slow as libavoid-js, so the
 difference comes from the fork's routing, not from the WebAssembly build.
-On the one scene checked (`s00041`), the slowdown comes with the same
-commit `11eabd8c`: the native fork takes 1.9 s before it and 8.6 s after
-it. These totals measure only time, not which routes are better.
+On the three slowest scenes checked (`s00041`, `s00338`, `s00501`),
+upstream with only the fork's shape-side vertex change is as slow as the
+fork (1.9 s → 8.5 s, 3.8 s → 16.8 s, 2.8 s → 11.7 s), and upstream with only
+its nesting change is as fast as upstream (see [Routes](#routes)). These
+totals measure only time, not which routes are better.
 
 ## Size
 
@@ -248,10 +266,11 @@ the Rust source of its WebAssembly (see "License" in the README).
 
 ## Which to choose
 
-- Choose **libavoid-js** if your diagrams nest shapes inside other shapes,
-  if you use JointJS, Sprotty or ELK (it is already integrated), if download
-  size matters most, if your scenes are small (it routes them a little
-  faster), or if you prefer an API designed for JavaScript.
+- Choose **libavoid-js** if you use JointJS, Sprotty or ELK (it is
+  already integrated), if download size matters most, if your scenes are
+  small (it routes them a little faster), or if you prefer an API designed
+  for JavaScript. Until the release after libavoid-rust 0.2.1, it is also
+  the choice for diagrams that nest shapes inside other shapes.
 - Choose **libavoid-rust** if you need the same routes as C++ libavoid (for
   example, to match a desktop application or upstream's documentation), if
   you need clusters, hyperedge rerouting, fixed routes or transaction

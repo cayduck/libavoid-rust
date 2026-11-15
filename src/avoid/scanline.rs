@@ -379,12 +379,15 @@ impl NodeArena {
 
     /// Returns `(firstAbovePos, firstBelowPos, lastAbovePos, lastBelowPos)`
     /// (upstream's four reference out-parameters, in order).
+    /// `inside_parent_shapes` is `Router::route_inside_parent_shapes()`
+    /// (false: upstream).
     // upstream: scanline.cpp Node::findFirstPointAboveAndBelow()
     pub fn find_first_point_above_and_below(
         &self,
         this: NodeIdx,
         dim: usize,
         line_pos: f64,
+        inside_parent_shapes: bool,
     ) -> (f64, f64, f64, f64) {
         let me = &self.nodes[this];
         let not_dim = if dim == 0 { 1 } else { 0 };
@@ -416,11 +419,19 @@ impl NodeArena {
                     // so add it's left side as a limit
                     first_below_pos = cpp_min(cn.min[dim], first_below_pos);
                 } else if !events_at_same_pos {
-                    // Shapes that open or close at the same position do not
-                    // block visibility, so if they are not at same position
-                    // determine where they overlap.
-                    last_above_pos = cpp_min(cn.min[dim], last_above_pos);
-                    last_below_pos = cpp_max(cn.max[dim], last_below_pos);
+                    if inside_parent_shapes && self.is_shape_in_shape(this, c) {
+                        // fork: Aksem/adaptagrams scanline.cpp Node::findFirstPointAboveAndBelow()
+                        // `curr` encloses this shape: it limits the view
+                        // only with its far sides.
+                        last_above_pos = cpp_max(cn.max[dim], last_above_pos);
+                        last_below_pos = cpp_min(cn.min[dim], last_below_pos);
+                    } else {
+                        // Shapes that open or close at the same position do not
+                        // block visibility, so if they are not at same position
+                        // determine where they overlap.
+                        last_above_pos = cpp_min(cn.min[dim], last_above_pos);
+                        last_below_pos = cpp_max(cn.max[dim], last_below_pos);
+                    }
                 }
                 curr = if direction == 0 { cn.first_above } else { cn.first_below };
             }
@@ -468,6 +479,19 @@ impl NodeArena {
             curr = cn.first_below;
         }
         result
+    }
+
+    /// Whether this node and `another` are shapes and `another` encloses
+    /// this one.
+    // fork: Aksem/adaptagrams scanline.cpp Node::isShapeInShape()
+    pub fn is_shape_in_shape(&self, this: NodeIdx, another: NodeIdx) -> bool {
+        let (me, other) = (&self.nodes[this], &self.nodes[another]);
+        me.v.is_some()
+            && other.v.is_some()
+            && me.min[0] >= other.min[0]
+            && me.min[1] >= other.min[1]
+            && me.max[0] <= other.max[0]
+            && me.max[1] <= other.max[1]
     }
 
     // This is a bit inefficient, but we won't need to do it once we have

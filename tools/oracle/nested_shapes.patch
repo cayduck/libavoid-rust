@@ -1,0 +1,63 @@
+The part of https://github.com/Aksem/adaptagrams (the Adaptagrams fork that
+libavoid-js builds on) that lets orthogonal routes run inside a shape that
+encloses other shapes: Node::isShapeInShape() and its use in
+Node::findFirstPointAboveAndBelow(), by Vladyslav Hnatiuk (commit 1b4a2369,
+LGPL-2.1-or-later, like libavoid). The fork's other change in the same work
+(dummyOrthogShapeID for shape-side vertices in orthogonal.cpp, commit
+11eabd8c) is left out: it is not needed for this and changes routes and
+running time in scenes without nesting. tools/oracle/nested_shapes.sh
+applies this to a copy of the vendored upstream sources with `patch -p1`.
+
+--- a/cola/libavoid/scanline.cpp
++++ b/cola/libavoid/scanline.cpp
+@@ -205,11 +205,19 @@
+             }
+             else if (!eventsAtSamePos)
+             {
+-                // Shapes that open or close at the same position do not
+-                // block visibility, so if they are not at same position
+-                // determine where they overlap.
+-                lastAbovePos = std::min(curr->min[dim], lastAbovePos);
+-                lastBelowPos = std::max(curr->max[dim], lastBelowPos);
++                if (isShapeInShape(curr)) {
++                    // if `curr` is visual parent of current node,
++                    // lastAbove can be only bottom side and lastBelow
++                    // top side
++                    lastAbovePos = std::max(curr->max[dim], lastAbovePos);
++                    lastBelowPos = std::min(curr->min[dim], lastBelowPos);
++                } else {
++                    // Shapes that open or close at the same position do not
++                    // block visibility, so if they are not at same position
++                    // determine where they overlap.
++                    lastAbovePos = std::min(curr->min[dim], lastAbovePos);
++                    lastBelowPos = std::max(curr->max[dim], lastBelowPos);
++                }
+             }
+             curr = (direction == 0) ? curr->firstAbove : curr->firstBelow;
+         }
+@@ -281,6 +289,15 @@
+     return false;
+ }
+ 
++bool Node::isShapeInShape(Node *another)
++{
++    // returns true if current node and another node are nodes representing
++    // shapes and another shape is visual parent of current shape
++    return (another && v && another->v && min[0] >= another->min[0]
++            && min[1] >= another->min[1] && max[0] <= another->max[0]
++            && max[1] <= another->max[1]);
++}
++
+ 
+ Event::Event(EventType t, Node *v, double p) 
+     : type(t),
+--- a/cola/libavoid/scanline.h
++++ b/cola/libavoid/scanline.h
+@@ -101,6 +101,7 @@
+     double firstPointAbove(size_t dim);
+     double firstPointBelow(size_t dim);
+     bool isInsideShape(size_t dimension);
++    bool isShapeInShape(Node *another);
+ };
+ 
+ 
